@@ -1,0 +1,42 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts"],
+  "tsconfig": "tsconfig.json",
+  "out": "docs/api",
+  "name": "mallory-ts",
+  "readme": "README.md",
+  "excludeExternals": true,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/johnhenry/mallory-ts",
+    "Cookbook": "https://github.com/johnhenry/mallory-ts/blob/main/docs/COOKBOOK.md"
+  },
+  "sort": ["alphabetical"],
+  "categorizeByGroup": true,
+  "externalSymbolLinkMappings": {
+    "typescript": {
+      "ArrayConstructor.of": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/of",
+      "ArrayConstructor.from": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/from"
+    }
+  },
+  "intentionallyNotExported": [
+    "Mat",
+    "MatrixInput",
+    "Point",
+    "CVec",
+    "CUnary",
+    "CNInput",
+    "RVec",
+    "Unary",
+    "SMat",
+    "SVec",
+    "Signal",
+    "BinOp",
+    "Eq",
+    "Fn",
+    "ODE",
+    "Binary",
+    "Predicate"
+  ]
+}
