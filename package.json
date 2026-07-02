@@ -1,0 +1,63 @@
+{
+  "name": "mallory-ts",
+  "version": "0.2.0",
+  "description": "Advanced college-level mathematics library — a modern TypeScript port of the Mallory ActionScript 3 library.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "prepare": "npm run build",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --experimental-strip-types 'test/**/*.test.ts'",
+    "test:coverage": "node --test --experimental-test-coverage --experimental-strip-types 'test/**/*.test.ts'",
+    "test:build": "npm run build && node scripts/smoke.mjs",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "docs": "typedoc",
+    "prepublishOnly": "npm run typecheck && npm run check && npm test && npm run build"
+  },
+  "keywords": [
+    "math",
+    "mathematics",
+    "complex-numbers",
+    "linear-algebra",
+    "matrix",
+    "permutation",
+    "group-theory",
+    "finite-field",
+    "polynomial",
+    "expression-parser"
+  ],
+  "author": "John Henry <john@iamjohnhenry.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnhenry/mallory-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/johnhenry/mallory-ts/issues"
+  },
+  "homepage": "https://github.com/johnhenry/mallory-ts#readme",
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.1",
+    "fast-check": "^4.8.0",
+    "typedoc": "^0.28.19",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}
