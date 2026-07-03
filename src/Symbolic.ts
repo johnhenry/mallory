@@ -4,6 +4,8 @@
  * integration, Taylor expansion, polynomial equation solving/factoring,
  * limits, LaTeX rendering, and numeric evaluation.
  */
+import { MatrixMath } from "./MatrixMath.ts";
+import { Numerical } from "./Numerical.ts";
 import { Rational } from "./Rational.ts";
 import { SpecialFunctions } from "./SpecialFunctions.ts";
 
@@ -53,6 +55,9 @@ export type FuncName =
 /** Elementary functions that take exactly two `Expr` operands (see the `call2` `Expr` variant). */
 export type BinaryFuncName = "atan2" | "hypot" | "min" | "max" | "gcd" | "lcm";
 
+/** Comparison operators (see the `cmp` `Expr` variant). Evaluate to `1`/`0` (boolean-as-number). */
+export type CmpOp = "lt" | "le" | "gt" | "ge" | "eq" | "ne";
+
 export type Expr =
   | { type: "const"; value: number }
   | { type: "var"; name: string }
@@ -63,7 +68,9 @@ export type Expr =
   | { type: "pow"; base: Expr; exp: Expr }
   | { type: "neg"; arg: Expr }
   | { type: "func"; name: FuncName; arg: Expr }
-  | { type: "call2"; name: BinaryFuncName; left: Expr; right: Expr };
+  | { type: "call2"; name: BinaryFuncName; left: Expr; right: Expr }
+  | { type: "cmp"; op: CmpOp; left: Expr; right: Expr }
+  | { type: "piecewise"; branches: { cond: Expr; expr: Expr }[]; otherwise: Expr };
 
 const FUNCS: FuncName[] = [
   "sin",
@@ -152,6 +159,7 @@ export const FUNCTION_NAMES: readonly string[] = [
   ...BINARY_FUNCS,
   "log",
   "clamp",
+  "piecewise",
 ];
 
 // -- constructors -----------------------------------------------------------
@@ -165,6 +173,12 @@ const pow = (base: Expr, exp: Expr): Expr => ({ type: "pow", base, exp });
 const neg = (arg: Expr): Expr => ({ type: "neg", arg });
 const fn = (name: FuncName, arg: Expr): Expr => ({ type: "func", name, arg });
 const call2 = (name: BinaryFuncName, left: Expr, right: Expr): Expr => ({ type: "call2", name, left, right });
+const cmp = (op: CmpOp, left: Expr, right: Expr): Expr => ({ type: "cmp", op, left, right });
+const piecewise = (branches: { cond: Expr; expr: Expr }[], otherwise: Expr): Expr => ({
+  type: "piecewise",
+  branches,
+  otherwise,
+});
 
 const isConst = (e: Expr, value?: number): boolean => e.type === "const" && (value === undefined || e.value === value);
 const containsVar = (e: Expr, name: string): boolean => {
@@ -179,6 +193,11 @@ const containsVar = (e: Expr, name: string): boolean => {
       return containsVar(e.arg, name);
     case "pow":
       return containsVar(e.base, name) || containsVar(e.exp, name);
+    case "piecewise":
+      return (
+        e.branches.some((br) => containsVar(br.cond, name) || containsVar(br.expr, name)) ||
+        containsVar(e.otherwise, name)
+      );
     default:
       return containsVar(e.left, name) || containsVar(e.right, name);
   }
@@ -188,6 +207,31 @@ export class NotIntegrableError extends Error {
   constructor(message = "This expression cannot be integrated by the elementary rules implemented.") {
     super(message);
     this.name = "NotIntegrableError";
+  }
+}
+
+export class NonLinearSystemError extends Error {
+  constructor(message = "solveSystem only supports systems that are linear in the given variables.") {
+    super(message);
+    this.name = "NonLinearSystemError";
+  }
+}
+
+export class SingularSystemError extends Error {
+  constructor(
+    message = "solveSystem: the system is singular (rank < number of variables) and has no unique solution.",
+  ) {
+    super(message);
+    this.name = "SingularSystemError";
+  }
+}
+
+export class SeriesDivergesError extends Error {
+  constructor(
+    message = "sumSeries: the series does not appear to converge (or converges too slowly to sum numerically).",
+  ) {
+    super(message);
+    this.name = "SeriesDivergesError";
   }
 }
 
@@ -230,6 +274,45 @@ export class Symbolic {
   static integrate(expr: Expr | string, variable = "x"): Expr {
     const e = typeof expr === "string" ? Symbolic.parse(expr) : expr;
     return Symbolic.simplify(integ(e, variable));
+  }
+
+  /**
+   * Definite integral of `expr` over `[lower, upper]` with respect to
+   * `variable`. Tries the elementary symbolic antiderivative first
+   * (evaluating `F(upper) - F(lower)`); falls back to adaptive-Simpson
+   * numeric quadrature when {@link integrate} would throw
+   * {@link NotIntegrableError}. `env` binds any other free variables/
+   * constants appearing in `expr` (same convention as {@link evaluate}/
+   * {@link compile}); if `env` also happens to bind `variable`, the
+   * integration bound always wins.
+   *
+   * `lower > upper` needs no special-casing -- both the closed-form
+   * `F(upper) - F(lower)` and {@link Numerical.adaptiveSimpson} are
+   * antisymmetric in their two bounds (verified directly against
+   * `adaptiveSimpson`'s implementation), so reversed bounds just negate
+   * the result, matching the standard ∫[a,b] = -∫[b,a] convention.
+   *
+   * NON-GOAL: singularities strictly inside `(lower, upper)` -- e.g. `1/x`
+   * from -1 to 1 -- are not detected; the numeric fallback may silently
+   * return a finite-looking but meaningless value.
+   */
+  static integrateDefinite(
+    expr: Expr | string,
+    lower: number,
+    upper: number,
+    variable = "x",
+    env: Record<string, number> = {},
+  ): number {
+    const e = Symbolic.simplify(typeof expr === "string" ? Symbolic.parse(expr) : expr);
+    try {
+      const F = Symbolic.simplify(integ(e, variable));
+      const at = (val: number) => evalExpr(F, { ...env, [variable]: val });
+      return at(upper) - at(lower);
+    } catch (err) {
+      if (!(err instanceof NotIntegrableError)) throw err;
+      const f = compileExpr(e);
+      return Numerical.adaptiveSimpson((val: number) => f({ ...env, [variable]: val }), lower, upper);
+    }
   }
 
   /** Taylor expansion of `expr` about `center` up to `order`, as an expression. */
@@ -330,6 +413,106 @@ export class Symbolic {
       throw new Error(`solve: expression is not a polynomial in "${variable}" of degree ≤ 6.`);
     }
     return solvePolynomial(coeffs).map((r) => Symbolic.simplify(r));
+  }
+
+  /**
+   * Solve a system of linear equations, each written in the same "expr
+   * implicitly equals zero" convention as {@link solve} (no `=` operator
+   * needed -- e.g. `"2*x + y - 5"` means `2x+y=5`). Requires exactly one
+   * equation per variable (a square system) with a unique solution.
+   *
+   * NON-GOAL (v1): nonlinear systems are not supported -- throws
+   * {@link NonLinearSystemError}. A future multivariable-Newton extension
+   * (seeded from an initial guess, iterating via the Jacobian) would slot in
+   * here as a fallback when linearity detection fails, but is out of scope now.
+   *
+   * @throws {NonLinearSystemError} if any equation isn't linear in `variables`.
+   * @throws {SingularSystemError} if the coefficient matrix is singular/rank-deficient.
+   */
+  static solveSystem(equations: (Expr | string)[], variables: string[]): Record<string, number> {
+    const exprs = equations.map((eq) => Symbolic.simplify(typeof eq === "string" ? Symbolic.parse(eq) : eq));
+    if (exprs.length !== variables.length) {
+      throw new Error(
+        `solveSystem: expected ${variables.length} equations for ${variables.length} variables, got ${exprs.length}.`,
+      );
+    }
+    const A: number[][] = [];
+    const b: number[] = [];
+    exprs.forEach((eq, i) => {
+      const row = linearCoeffsForSystem(eq, variables);
+      if (!row) {
+        throw new NonLinearSystemError(
+          `solveSystem: equation ${i} ("${Symbolic.toString(eq)}") is not linear in [${variables.join(", ")}].`,
+        );
+      }
+      A.push(row.slice(0, variables.length));
+      b.push(-(row[variables.length] as number)); // eq = A·v + c = 0  =>  A·v = -c
+    });
+    const rank = MatrixMath.rank(A);
+    if (rank < variables.length) {
+      throw new SingularSystemError(
+        `solveSystem: the system is singular (rank ${rank} < ${variables.length} variables) and has no unique solution.`,
+      );
+    }
+    const x = MatrixMath.solve(A, b);
+    const result: Record<string, number> = {};
+    variables.forEach((name, i) => {
+      result[name] = x[i] as number;
+    });
+    return result;
+  }
+
+  /**
+   * Sum `expr` over integer values of `variable` from `from` to `to`
+   * (inclusive); `to` may be `Infinity` for an infinite series. A finite
+   * range is a plain partial sum. An infinite range first tries to recognize
+   * `expr` as a geometric series (`c·r^(a·variable+b)`, closed form
+   * `c·r^(a·from+b)/(1-r^a)`), falling back to numeric partial summation with
+   * a convergence/divergence check otherwise.
+   *
+   * `variable` defaults to `"n"` (not `"x"`), matching conventional
+   * summation-index notation.
+   *
+   * NON-GOALS: no general convergence-radius/ratio-test analysis beyond a
+   * simple term-growth divergence heuristic; no summation acceleration
+   * (Euler transform etc.) for slowly-converging or conditionally-convergent
+   * alternating series; closed-form recognition covers geometric series
+   * only, not arbitrary known series (no telescoping, no p-series/zeta
+   * recognition).
+   *
+   * KNOWN LIMITATION (verified, not just theoretical): the numeric
+   * fallback's stopping rule checks whether the *most recent term* is small,
+   * which is only a valid proxy for the true remaining tail when the series
+   * decays at least geometrically fast. For series with a slowly-decaying
+   * polynomial tail -- e.g. `Σ 1/n^2` (which genuinely converges, to
+   * `π²/6`) -- the individual terms shrink far slower than the tolerance
+   * requires within the term budget, so this throws `SeriesDivergesError`
+   * even though the series converges; it is NOT silently wrong (it never
+   * returns an inaccurate value), it simply can't confirm convergence for
+   * that class of series. A real tail-error estimator (e.g. an integral-test
+   * bound) would be needed to handle this correctly, and is out of scope.
+   *
+   * @throws {SeriesDivergesError} if the numeric fallback can't confirm
+   *   convergence within its term budget, or detects the terms growing.
+   */
+  static sumSeries(
+    expr: Expr | string,
+    from: number,
+    to: number,
+    variable = "n",
+    env: Record<string, number> = {},
+  ): number {
+    const e = typeof expr === "string" ? Symbolic.parse(expr) : expr;
+    if (Number.isFinite(to)) {
+      if (from > to) return 0; // empty sum
+      const f = compileExpr(e);
+      let total = 0;
+      for (let k = from; k <= to; k++) total += f({ ...env, [variable]: k });
+      return total;
+    }
+    const closedForm = tryGeometricSeriesClosedForm(e, variable, from, env);
+    if (closedForm !== null) return closedForm;
+    return sumSeriesNumeric(e, variable, from, env);
   }
 
   /**
@@ -572,6 +755,17 @@ function diffTraced(e: Expr, x: string, steps: DifferentiationStep[]): Expr {
       }
       break;
     }
+    case "cmp":
+      rule = "Comparison Rule (locally constant)";
+      result = num(0);
+      break;
+    case "piecewise":
+      rule = "Piecewise Rule (branch-wise)";
+      result = piecewise(
+        e.branches.map((br) => ({ cond: br.cond, expr: diffTraced(br.expr, x, steps) })),
+        diffTraced(e.otherwise, x, steps),
+      );
+      break;
   }
   steps.push({ rule, input: e, output: result });
   return result;
@@ -692,7 +886,8 @@ function diff(e: Expr, x: string): Expr {
       const r = e.right;
       const dl = diff(l, x);
       const dr = diff(r, x);
-      switch (e.name) {
+      const binaryName = e.name;
+      switch (binaryName) {
         case "atan2":
           return div(sub(mul(r, dl), mul(l, dr)), add(pow(l, num(2)), pow(r, num(2))));
         case "hypot":
@@ -705,7 +900,15 @@ function diff(e: Expr, x: string): Expr {
         case "lcm":
           return num(0);
       }
+      throw new Error(`Unhandled binary function: ${binaryName}`);
     }
+    case "cmp":
+      return num(0);
+    case "piecewise":
+      return piecewise(
+        e.branches.map((br) => ({ cond: br.cond, expr: diff(br.expr, x) })),
+        diff(e.otherwise, x),
+      );
   }
 }
 
@@ -734,6 +937,23 @@ function simplifyOnce(e: Expr): Expr {
     if (isConst(b, 1)) return num(1);
     if (b.type === "const" && p.type === "const") return num(b.value ** p.value);
     return pow(b, p);
+  }
+  // Early returns (not switch cases below) for "cmp"/"piecewise" -- the
+  // generic `(e as {left:Expr}).left` extraction a few lines down silently
+  // no-ops for "cmp" (falls through to `return e`, discarding the simplified
+  // children) and would crash at runtime for "piecewise" (no `.left` at
+  // all), since neither is caught by the trailing `switch (e.type)` either.
+  if (e.type === "cmp") {
+    const l = simplifyOnce(e.left);
+    const r = simplifyOnce(e.right);
+    if (l.type === "const" && r.type === "const") return num(CMP_IMPLS[e.op](l.value, r.value) ? 1 : 0);
+    return cmp(e.op, l, r);
+  }
+  if (e.type === "piecewise") {
+    return piecewise(
+      e.branches.map((br) => ({ cond: simplifyOnce(br.cond), expr: simplifyOnce(br.expr) })),
+      simplifyOnce(e.otherwise),
+    );
   }
   const l = simplifyOnce((e as { left: Expr }).left);
   const r = simplifyOnce((e as { right: Expr }).right);
@@ -783,6 +1003,18 @@ function equal(a: Expr, b: Expr): boolean {
       );
     case "pow":
       return equal(a.base, (b as typeof a).base) && equal(a.exp, (b as typeof a).exp);
+    case "cmp": {
+      const bb = b as typeof a;
+      return a.op === bb.op && equal(a.left, bb.left) && equal(a.right, bb.right);
+    }
+    case "piecewise": {
+      const bb = b as typeof a;
+      return (
+        a.branches.length === bb.branches.length &&
+        a.branches.every((br, i) => equal(br.cond, bb.branches[i].cond) && equal(br.expr, bb.branches[i].expr)) &&
+        equal(a.otherwise, bb.otherwise)
+      );
+    }
     default:
       return equal(a.left, (b as typeof a).left) && equal(a.right, (b as typeof a).right);
   }
@@ -811,6 +1043,13 @@ function subst(e: Expr, name: string, r: Expr): Expr {
       return mul(subst(e.left, name, r), subst(e.right, name, r));
     case "div":
       return div(subst(e.left, name, r), subst(e.right, name, r));
+    case "cmp":
+      return cmp(e.op, subst(e.left, name, r), subst(e.right, name, r));
+    case "piecewise":
+      return piecewise(
+        e.branches.map((br) => ({ cond: subst(br.cond, name, r), expr: subst(br.expr, name, r) })),
+        subst(e.otherwise, name, r),
+      );
   }
 }
 
@@ -851,6 +1090,13 @@ function expandOnce(e: Expr): Expr {
     }
     case "mul":
       return distribute(expandOnce(e.left), expandOnce(e.right));
+    case "cmp":
+      return cmp(e.op, expandOnce(e.left), expandOnce(e.right));
+    case "piecewise":
+      return piecewise(
+        e.branches.map((br) => ({ cond: expandOnce(br.cond), expr: expandOnce(br.expr) })),
+        expandOnce(e.otherwise),
+      );
   }
 }
 
@@ -901,6 +1147,13 @@ function collectLikeTerms(e: Expr): Expr {
       flattenAdditive(e, 1, terms);
       return rebuildAdditive(groupTerms(terms));
     }
+    case "cmp":
+      return cmp(e.op, collectLikeTerms(e.left), collectLikeTerms(e.right));
+    case "piecewise":
+      return piecewise(
+        e.branches.map((br) => ({ cond: collectLikeTerms(br.cond), expr: collectLikeTerms(br.expr) })),
+        collectLikeTerms(e.otherwise),
+      );
   }
 }
 
@@ -995,7 +1248,7 @@ function rebuildAdditive(terms: Term[]): Expr {
 }
 
 // -- integration (elementary) ----------------------------------------------
-function integ(e: Expr, x: string): Expr {
+function integRules(e: Expr, x: string): Expr {
   if (!containsVar(e, x)) return mul(e, v(x)); // ∫c dx = c·x
   switch (e.type) {
     case "var":
@@ -1076,6 +1329,230 @@ function integ(e: Expr, x: string): Expr {
   }
 }
 
+// -- u-substitution (fallback when integRules can't find a direct rule) ----
+
+/** Structural "does e contain target as an exact subtree" check, via {@link equal}. */
+function containsExpr(e: Expr, target: Expr): boolean {
+  if (equal(e, target)) return true;
+  switch (e.type) {
+    case "const":
+    case "var":
+      return false;
+    case "neg":
+      return containsExpr(e.arg, target);
+    case "func":
+      return containsExpr(e.arg, target);
+    case "pow":
+      return containsExpr(e.base, target) || containsExpr(e.exp, target);
+    case "piecewise":
+      return (
+        e.branches.some((br) => containsExpr(br.cond, target) || containsExpr(br.expr, target)) ||
+        containsExpr(e.otherwise, target)
+      );
+    default:
+      return containsExpr(e.left, target) || containsExpr(e.right, target);
+  }
+}
+
+/**
+ * Structural subexpression replacement -- distinct from {@link subst}, which
+ * only replaces a *named variable*, not an arbitrary subtree.
+ */
+function substExpr(e: Expr, target: Expr, replacement: Expr): Expr {
+  if (equal(e, target)) return replacement;
+  switch (e.type) {
+    case "const":
+    case "var":
+      return e;
+    case "neg":
+      return neg(substExpr(e.arg, target, replacement));
+    case "func":
+      return fn(e.name, substExpr(e.arg, target, replacement));
+    case "pow":
+      return pow(substExpr(e.base, target, replacement), substExpr(e.exp, target, replacement));
+    case "piecewise":
+      return piecewise(
+        e.branches.map((br) => ({
+          cond: substExpr(br.cond, target, replacement),
+          expr: substExpr(br.expr, target, replacement),
+        })),
+        substExpr(e.otherwise, target, replacement),
+      );
+    default:
+      return { ...e, left: substExpr(e.left, target, replacement), right: substExpr(e.right, target, replacement) };
+  }
+}
+
+/** Flatten a chain of `mul` nodes into its (unordered) list of factors. */
+function flattenFactors(e: Expr): Expr[] {
+  if (e.type === "mul") return [...flattenFactors(e.left), ...flattenFactors(e.right)];
+  return [e];
+}
+
+/**
+ * Attempts `e / divisor` by canceling matching multiplicative factors
+ * directly (structural match via {@link equal}, plus numeric-coefficient
+ * division) -- {@link simplifyOnce}'s `div` case has no general polynomial-
+ * factor cancellation for products, so `simplify(div(e, divisor))` alone
+ * would never collapse e.g. `(2·x·sin(x²))/(2·x)` down to `sin(x²)`. Returns
+ * `null` if `divisor`'s symbolic factors aren't all found in `e`'s.
+ */
+function divideOutFactors(e: Expr, divisor: Expr): Expr | null {
+  let eNumeric = 1;
+  const eSymbolic: Expr[] = [];
+  for (const f of flattenFactors(e)) {
+    if (f.type === "const") eNumeric *= f.value;
+    else eSymbolic.push(f);
+  }
+  let dNumeric = 1;
+  const dSymbolic: Expr[] = [];
+  for (const f of flattenFactors(divisor)) {
+    if (f.type === "const") dNumeric *= f.value;
+    else dSymbolic.push(f);
+  }
+  if (dNumeric === 0) return null;
+  for (const df of dSymbolic) {
+    const idx = eSymbolic.findIndex((ef) => equal(ef, df));
+    if (idx === -1) return null;
+    eSymbolic.splice(idx, 1);
+  }
+  const coeff = eNumeric / dNumeric;
+  const factors = coeff === 1 ? eSymbolic : [num(coeff), ...eSymbolic];
+  if (factors.length === 0) return num(coeff);
+  return factors.reduce((acc, f) => (acc ? mul(acc, f) : f)) as Expr;
+}
+
+/**
+ * Heuristic search for candidate "inner functions" g(x) for u-substitution:
+ * function-call arguments, call2 operands, and pow base/exponent -- the
+ * classic "spot the inner function" spots -- rather than every subexpression,
+ * to keep this fast and avoid pathological false-positive matches. Dedupes
+ * structurally-equal candidates and drops the trivial "g(x) = x" candidate.
+ */
+function collectSubstitutionCandidates(e: Expr, x: string): Expr[] {
+  const found: Expr[] = [];
+  const visit = (node: Expr) => {
+    switch (node.type) {
+      case "const":
+      case "var":
+        return;
+      case "neg":
+        visit(node.arg);
+        return;
+      case "func":
+        if (containsVar(node.arg, x)) found.push(node.arg);
+        visit(node.arg);
+        return;
+      case "pow":
+        if (containsVar(node.base, x)) found.push(node.base);
+        if (containsVar(node.exp, x)) found.push(node.exp);
+        visit(node.base);
+        visit(node.exp);
+        return;
+      case "call2":
+        if (containsVar(node.left, x)) found.push(node.left);
+        if (containsVar(node.right, x)) found.push(node.right);
+        visit(node.left);
+        visit(node.right);
+        return;
+      case "piecewise":
+        for (const br of node.branches) {
+          visit(br.cond);
+          visit(br.expr);
+        }
+        visit(node.otherwise);
+        return;
+      default:
+        visit(node.left);
+        visit(node.right);
+        return;
+    }
+  };
+  visit(e);
+  const unique: Expr[] = [];
+  for (const c of found) {
+    if (c.type === "var" && c.name === x) continue;
+    if (!unique.some((u) => equal(u, c))) unique.push(c);
+  }
+  return unique;
+}
+
+/** A variable name that appears nowhere in `e` and isn't `x` itself, for a temporary substitution variable. */
+function freshVariableName(e: Expr, x: string): string {
+  let name = "u";
+  let i = 2;
+  while (name === x || containsVar(e, name)) name = `u${i++}`;
+  return name;
+}
+
+/**
+ * Defensive safety net for the heuristic u-substitution search below: confirm
+ * that `d/dx candidate` actually matches the original integrand `e` at a
+ * handful of probe points (same probe-point convention as
+ * {@link polynomialCoeffs}), rather than ever trusting the substitution
+ * blindly. Requires agreement at at least 2 of the 3 probe points (some may
+ * legitimately hit a domain error/NaN on either side).
+ */
+function verifyByDifferentiation(candidate: Expr, e: Expr, x: string): boolean {
+  const check = Symbolic.simplify(diff(candidate, x));
+  let agreements = 0;
+  for (const p of [0.7, 1.3, -0.9]) {
+    const expected = evalExpr(e, { [x]: p });
+    const actual = evalExpr(check, { [x]: p });
+    if (!Number.isFinite(expected) || !Number.isFinite(actual)) continue;
+    if (Math.abs(actual - expected) > 1e-6 * Math.max(1, Math.abs(expected))) return false;
+    agreements++;
+  }
+  return agreements >= 2;
+}
+
+/**
+ * Attempts to integrate `e` w.r.t. `x` via u-substitution: searches for a
+ * candidate inner function g(x) such that `e = h(g(x))·g'(x)` for some `h`,
+ * and if found, integrates `h(u)` and substitutes `g(x)` back in. Only a
+ * single level of substitution is attempted for the transformed `h(u)`
+ * problem (calls {@link integRules} directly, not {@link integ}, so this
+ * doesn't recurse into another substitution attempt on the same
+ * sub-problem); if multiple candidates verify successfully, the first one
+ * found wins. Returns `null` (never throws) if no candidate works out, so
+ * the caller can fall back to the original `NotIntegrableError`.
+ */
+function tryUSubstitution(e: Expr, x: string): Expr | null {
+  for (const g of collectSubstitutionCandidates(e, x)) {
+    const gPrime = Symbolic.simplify(diff(g, x));
+    if (isConst(gPrime, 0)) continue;
+    const quotient = Symbolic.simplify(divideOutFactors(e, gPrime) ?? div(e, gPrime));
+    if (!containsExpr(quotient, g)) continue;
+    const uName = freshVariableName(quotient, x);
+    const substituted = substExpr(quotient, g, v(uName));
+    if (containsVar(substituted, x)) continue;
+    try {
+      const antiderivativeInU = integRules(substituted, uName);
+      const candidate = Symbolic.simplify(substExpr(antiderivativeInU, v(uName), g));
+      if (verifyByDifferentiation(candidate, e, x)) return candidate;
+    } catch (err) {
+      if (!(err instanceof NotIntegrableError)) throw err;
+    }
+  }
+  return null;
+}
+
+/**
+ * Symbolic anti-derivative dispatcher: tries the elementary rules in
+ * {@link integRules} first, falling back to one attempt at
+ * {@link tryUSubstitution} when those rules throw {@link NotIntegrableError}.
+ */
+function integ(e: Expr, x: string): Expr {
+  try {
+    return integRules(e, x);
+  } catch (err) {
+    if (!(err instanceof NotIntegrableError)) throw err;
+    const bySubstitution = tryUSubstitution(e, x);
+    if (bySubstitution) return bySubstitution;
+    throw err;
+  }
+}
+
 /** If `e` is `a·x + b` (a, b constant), return `{ a, b }`, else `null`. */
 function linearCoeffs(e: Expr, x: string): { a: number; b: number } | null {
   try {
@@ -1091,6 +1568,86 @@ function linearCoeffs(e: Expr, x: string): { a: number; b: number } | null {
   } catch {
     return null;
   }
+}
+
+// -- series/summation --------------------------------------------------------
+
+/**
+ * Recognizes `e` as a geometric series term `coeff · base^(a·variable + b)`
+ * (`coeff` and `base` constant w.r.t. `variable`; `coeff` defaults to 1 if
+ * `e` is a bare `pow` node). Reuses {@link linearCoeffs} on the exponent, so
+ * shifted/scaled exponents are handled too (e.g. `r^(2n+1)` is still
+ * geometric, with ratio `r^2`). Returns the closed-form sum
+ * `Σ_{k=from}^∞ coeff·base^(a·k+b)` if it converges (`|base^a| < 1`), else
+ * `null` (not recognized as geometric, or doesn't converge).
+ */
+function tryGeometricSeriesClosedForm(
+  e: Expr,
+  variable: string,
+  from: number,
+  env: Record<string, number>,
+): number | null {
+  let coeff = 1;
+  let powNode = e;
+  if (e.type === "mul") {
+    if (!containsVar(e.left, variable) && e.right.type === "pow") {
+      coeff = evalExpr(e.left, env);
+      powNode = e.right;
+    } else if (!containsVar(e.right, variable) && e.left.type === "pow") {
+      coeff = evalExpr(e.right, env);
+      powNode = e.left;
+    } else {
+      return null;
+    }
+  } else if (e.type !== "pow") {
+    return null;
+  }
+  if (powNode.type !== "pow" || containsVar(powNode.base, variable)) return null;
+  const lin = linearCoeffs(powNode.exp, variable);
+  if (!lin) return null;
+  const base = evalExpr(powNode.base, env);
+  const ratio = base ** lin.a;
+  if (!Number.isFinite(ratio) || Math.abs(ratio) >= 1) return null;
+  const firstExponent = lin.a * from + lin.b;
+  const firstTerm = coeff * base ** firstExponent;
+  return firstTerm / (1 - ratio);
+}
+
+/**
+ * Numeric partial-sum fallback for {@link Symbolic.sumSeries} when no closed
+ * form is recognized: sums terms until several consecutive terms fall below
+ * a tolerance relative to the running total, or throws {@link
+ * SeriesDivergesError} if the term budget is exhausted or the terms are
+ * visibly growing instead of shrinking.
+ */
+function sumSeriesNumeric(e: Expr, variable: string, from: number, env: Record<string, number>): number {
+  const f = compileExpr(e);
+  const tolerance = 1e-12;
+  const maxTerms = 200_000;
+  let total = 0;
+  let consecutiveSmall = 0;
+  let firstTermMag = 0;
+  for (let i = 0; i < maxTerms; i++) {
+    const k = from + i;
+    const term = f({ ...env, [variable]: k });
+    if (!Number.isFinite(term)) throw new SeriesDivergesError(`sumSeries: term at index ${k} is not finite.`);
+    if (i === 0) firstTermMag = Math.abs(term) || 1;
+    total += term;
+    if (Math.abs(term) < tolerance * Math.max(1, Math.abs(total))) {
+      consecutiveSmall++;
+      if (consecutiveSmall >= 5) return total;
+    } else {
+      consecutiveSmall = 0;
+    }
+    if (i > 100 && Math.abs(term) > firstTermMag * 10) {
+      throw new SeriesDivergesError(
+        "sumSeries: terms are growing (not shrinking toward 0) -- the series appears to diverge.",
+      );
+    }
+  }
+  throw new SeriesDivergesError(
+    `sumSeries: did not converge to within tolerance after ${maxTerms} terms -- the series may converge too slowly to sum numerically, or may not converge at all.`,
+  );
 }
 
 /** If `e` is `a·x^2 + b·x + c` (a, b, c constant), return `{ a, b, c }`, else `null`. */
@@ -1253,6 +1810,14 @@ function evalExpr(e: Expr, env: Record<string, number>): number {
     }
     case "call2":
       return BINARY_FUNC_IMPLS[e.name](evalExpr(e.left, env), evalExpr(e.right, env));
+    case "cmp":
+      return CMP_IMPLS[e.op](evalExpr(e.left, env), evalExpr(e.right, env)) ? 1 : 0;
+    case "piecewise": {
+      for (const br of e.branches) {
+        if (evalExpr(br.cond, env) !== 0) return evalExpr(br.expr, env);
+      }
+      return evalExpr(e.otherwise, env);
+    }
   }
 }
 
@@ -1326,6 +1891,15 @@ const BINARY_FUNC_IMPLS: Record<BinaryFuncName, (a: number, b: number) => number
   lcm: (a, b) => Math.abs(a * b) / intGcd(a, b),
 };
 
+const CMP_IMPLS: Record<CmpOp, (a: number, b: number) => boolean> = {
+  lt: (a, b) => a < b,
+  le: (a, b) => a <= b,
+  gt: (a, b) => a > b,
+  ge: (a, b) => a >= b,
+  eq: (a, b) => a === b,
+  ne: (a, b) => a !== b,
+};
+
 function compileExpr(e: Expr): (env: Record<string, number>) => number {
   switch (e.type) {
     case "const": {
@@ -1376,11 +1950,27 @@ function compileExpr(e: Expr): (env: Record<string, number>) => number {
       const impl = BINARY_FUNC_IMPLS[e.name];
       return (env) => impl(l(env), r(env));
     }
+    case "cmp": {
+      const l = compileExpr(e.left);
+      const r = compileExpr(e.right);
+      const impl = CMP_IMPLS[e.op];
+      return (env) => (impl(l(env), r(env)) ? 1 : 0);
+    }
+    case "piecewise": {
+      const branches = e.branches.map((br) => ({ cond: compileExpr(br.cond), expr: compileExpr(br.expr) }));
+      const otherwise = compileExpr(e.otherwise);
+      return (env) => {
+        for (const br of branches) {
+          if (br.cond(env) !== 0) return br.expr(env);
+        }
+        return otherwise(env);
+      };
+    }
   }
 }
 
 // -- rendering --------------------------------------------------------------
-const PREC: Record<string, number> = { add: 1, sub: 1, mul: 2, div: 2, neg: 3, pow: 4 };
+const PREC: Record<string, number> = { add: 1, sub: 1, mul: 2, div: 2, neg: 3, pow: 4, cmp: 0 };
 function render(e: Expr, parentPrec: number): string {
   switch (e.type) {
     case "const":
@@ -1403,9 +1993,20 @@ function render(e: Expr, parentPrec: number): string {
       return wrap(`${render(e.left, PREC.mul)}*${render(e.right, PREC.mul + 1)}`, PREC.mul, parentPrec);
     case "div":
       return wrap(`${render(e.left, PREC.div)}/${render(e.right, PREC.div + 1)}`, PREC.div, parentPrec);
+    case "cmp": {
+      const opStr = CMP_OP_TEXT[e.op];
+      return wrap(`${render(e.left, PREC.cmp + 1)}${opStr}${render(e.right, PREC.cmp + 1)}`, PREC.cmp, parentPrec);
+    }
+    case "piecewise": {
+      const parts = e.branches.map((br) => `${render(br.cond, 0)}, ${render(br.expr, 0)}`);
+      return `piecewise(${parts.join(", ")}, ${render(e.otherwise, 0)})`;
+    }
   }
 }
 const wrap = (s: string, prec: number, parentPrec: number): string => (prec < parentPrec ? `(${s})` : s);
+
+/** Plain-text infix spelling for each `CmpOp`, matching what the parser's `comparison()` tier accepts. */
+const CMP_OP_TEXT: Record<CmpOp, string> = { lt: "<", le: "<=", gt: ">", ge: ">=", eq: "==", ne: "!=" };
 
 // -- LaTeX rendering ----------------------------------------------------------
 const LATEX_FUNCS: Partial<Record<FuncName, string>> = {
@@ -1489,8 +2090,29 @@ function toLatexRec(e: Expr, parentPrec: number): string {
     case "div":
       // \frac is self-delimiting — never needs outer parens.
       return `\\frac{${toLatexRec(e.left, 0)}}{${toLatexRec(e.right, 0)}}`;
+    case "cmp": {
+      const latexOp = CMP_OP_LATEX[e.op];
+      return wrap(
+        `${toLatexRec(e.left, PREC.cmp + 1)} ${latexOp} ${toLatexRec(e.right, PREC.cmp + 1)}`,
+        PREC.cmp,
+        parentPrec,
+      );
+    }
+    case "piecewise": {
+      // \begin{cases} is self-delimiting -- never needs outer parens, same as \frac.
+      // No space directly after the "\\" row separator: latexToInfix's
+      // cleaning regex (which strips LaTeX spacing commands like `\ `) would
+      // otherwise eat the second backslash, seeing "\<space>" and mangling
+      // the separator down to a single backslash -- verified empirically.
+      const rows = e.branches.map((br) => `${toLatexRec(br.expr, 0)} & ${toLatexRec(br.cond, 0)}`);
+      rows.push(`${toLatexRec(e.otherwise, 0)} & \\text{otherwise}`);
+      return `\\begin{cases}${rows.join("\\\\")}\\end{cases}`;
+    }
   }
 }
+
+/** LaTeX symbol for each `CmpOp`. */
+const CMP_OP_LATEX: Record<CmpOp, string> = { lt: "<", le: "\\leq", gt: ">", ge: "\\geq", eq: "=", ne: "\\neq" };
 
 // -- LaTeX parsing (fromLatex) ------------------------------------------------
 const LATEX_FUNC_NAMES: Partial<Record<string, FuncName>> = Object.fromEntries(
@@ -1560,6 +2182,35 @@ function splitTopLevelCommas(s: string): string[] {
   return parts;
 }
 
+/** Split `s` on top-level occurrences of a (possibly multi-char) separator, ignoring ones nested inside `{}`/`()`/`[]`. */
+function splitTopLevelOn(s: string, sep: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "{" || ch === "(" || ch === "[") depth++;
+    else if (ch === "}" || ch === ")" || ch === "]") depth--;
+    else if (depth === 0 && s.startsWith(sep, i)) {
+      parts.push(s.slice(start, i));
+      start = i + sep.length;
+      i += sep.length - 1;
+    }
+  }
+  parts.push(s.slice(start));
+  return parts;
+}
+
+/** LaTeX command spellings for comparison operators, mapped to the plain-infix text {@link Parser.matchCmpOp} understands. */
+const CMP_LATEX_CMDS: Record<string, string> = {
+  "\\leq": "<=",
+  "\\le": "<=",
+  "\\geq": ">=",
+  "\\ge": ">=",
+  "\\neq": "!=",
+  "\\ne": "!=",
+};
+
 /** Convert a LaTeX math string into the plain-infix syntax `Symbolic.parse`'s `Parser` understands. */
 function latexToInfix(latex: string): string {
   const cleaned = latex.replace(/\\left|\\right/g, "").replace(/\\(?:,|;|!|quad|qquad| )/g, "");
@@ -1615,6 +2266,40 @@ function transformLatex(s: string): string {
       }
       if (cmd === "\\pi") {
         out += "pi";
+        continue;
+      }
+      const cmpText = CMP_LATEX_CMDS[cmd];
+      if (cmpText) {
+        out += cmpText;
+        continue;
+      }
+      if (cmd === "\\begin") {
+        const envName = readGroup();
+        if (envName !== "cases") throw new Error(`Unsupported LaTeX environment: \\begin{${envName}}`);
+        const endMarker = "\\end{cases}";
+        const endIdx = s.indexOf(endMarker, i);
+        if (endIdx === -1) throw new Error("Unmatched \\begin{cases} in LaTeX source");
+        const body = s.slice(i, endIdx);
+        i = endIdx + endMarker.length;
+        const rows = splitTopLevelOn(body, "\\\\");
+        const parts: string[] = [];
+        let otherwise: string | null = null;
+        for (const row of rows) {
+          if (row.trim() === "") continue;
+          const cols = splitTopLevelOn(row, "&");
+          if (cols.length !== 2) throw new Error(`Expected 'expr & cond' in \\begin{cases} row: ${row}`);
+          const [exprPart, condPart] = cols;
+          if (condPart.trim() === "\\text{otherwise}") {
+            if (otherwise !== null) throw new Error("\\begin{cases} may have only one \\text{otherwise} row");
+            otherwise = transformLatex(exprPart);
+          } else {
+            parts.push(`${transformLatex(condPart)}, ${transformLatex(exprPart)}`);
+          }
+        }
+        if (otherwise === null) {
+          throw new Error("\\begin{cases} must have exactly one \\text{otherwise} row (as its last row)");
+        }
+        out += `piecewise(${parts.concat(otherwise).join(", ")})`;
         continue;
       }
       if (cmd === "\\frac") {
@@ -1719,6 +2404,14 @@ function transformLatex(s: string): string {
       out += `(${transformLatex(content)})`;
       continue;
     }
+    if (ch === "=") {
+      // toLatexRec's "eq" case emits a bare "=" (standard LaTeX), but the
+      // parser's comparison() requires 2 chars ("==") -- translate here so
+      // toLatex/fromLatex round-trips for "eq".
+      out += "==";
+      i++;
+      continue;
+    }
     out += ch;
     i++;
   }
@@ -1738,6 +2431,31 @@ function evalPoly(coeffsLowToHigh: number[], p: number): number {
   let result = 0;
   for (let i = coeffsLowToHigh.length - 1; i >= 0; i--) result = result * p + coeffsLowToHigh[i];
   return result;
+}
+
+// -- systems of linear equations --------------------------------------------
+
+/**
+ * If `eq` is linear in every name in `variables` (i.e. `eq = c1*v1 + ... +
+ * cn*vn + constant`), returns `[c1, ..., cn, constant]`; otherwise `null`.
+ * Linearity is checked by differentiating `eq` w.r.t. each variable and
+ * confirming the derivative contains none of the system's variables (so it's
+ * a true constant, not just constant-looking at the probe point).
+ */
+function linearCoeffsForSystem(eq: Expr, variables: string[]): number[] | null {
+  const zeroEnv: Record<string, number> = {};
+  for (const name of variables) zeroEnv[name] = 0;
+  const constant = evalExpr(eq, zeroEnv);
+  if (!Number.isFinite(constant)) return null;
+  const coeffs: number[] = [];
+  for (const name of variables) {
+    const derivative = Symbolic.simplify(diff(eq, name));
+    if (variables.some((other) => containsVar(derivative, other))) return null;
+    const coeff = evalExpr(derivative, zeroEnv);
+    if (!Number.isFinite(coeff)) return null;
+    coeffs.push(coeff);
+  }
+  return [...coeffs, constant];
 }
 
 /**
@@ -1939,8 +2657,14 @@ function limitAt(e: Expr, x: string, point: number, direction: "left" | "right" 
     const indeterminate =
       (Math.abs(fAt) < 1e-6 && Math.abs(gAt) < 1e-6) || (!Number.isFinite(fAt) && !Number.isFinite(gAt));
     if (indeterminate) {
-      const df = diff(e.left, x);
-      const dg = diff(e.right, x);
+      // Simplify between successive L'Hopital differentiations -- otherwise
+      // the expression tree grows without bound across iterations (each
+      // product/quotient-rule application duplicates an undifferentiated
+      // operand verbatim into the result) and a limit needing more than a
+      // couple of rounds (e.g. most limits at infinity) blows up memory
+      // long before the depth<12 cap is reached.
+      const df = Symbolic.simplify(diff(e.left, x));
+      const dg = Symbolic.simplify(diff(e.right, x));
       return limitAt(div(df, dg), x, point, direction, depth + 1);
     }
   }
@@ -1957,7 +2681,7 @@ class Parser {
   }
 
   parse(): Expr {
-    const e = this.expr();
+    const e = this.comparison();
     if (this.pos < this.s.length) throw new Error(`Unexpected token at ${this.pos}: ${this.s.slice(this.pos)}`);
     return e;
   }
@@ -1974,6 +2698,66 @@ class Parser {
       args.push(this.expr());
     }
     return args;
+  }
+
+  /**
+   * Comparisons bind loosest of all (below `+`/`-`), and are non-chaining --
+   * `a < b < c` is not supported, only one comparison per level, matching
+   * typical CAS grammars. 2-char operators (`<=`,`>=`,`==`,`!=`) need
+   * lookahead before falling back to the 1-char `<`/`>` (no other multi-char
+   * operator exists elsewhere in this grammar).
+   */
+  private comparison(): Expr {
+    const left = this.expr();
+    const op = this.matchCmpOp();
+    if (!op) return left;
+    return cmp(op, left, this.expr());
+  }
+
+  private matchCmpOp(): CmpOp | null {
+    const CMP_TWO_CHAR: Record<string, CmpOp> = { "<=": "le", ">=": "ge", "==": "eq", "!=": "ne" };
+    const two = this.s.slice(this.pos, this.pos + 2);
+    const twoOp = CMP_TWO_CHAR[two];
+    if (twoOp) {
+      this.pos += 2;
+      return twoOp;
+    }
+    if (this.peek() === "<") {
+      this.pos++;
+      return "lt";
+    }
+    if (this.peek() === ">") {
+      this.pos++;
+      return "gt";
+    }
+    return null;
+  }
+
+  /**
+   * `piecewise(cond1, expr1, cond2, expr2, ..., otherwise)` -- alternating
+   * (cond, expr) pairs plus a trailing `otherwise`, so an odd arg count >= 3
+   * is required. Both cond and expr slots parse at `comparison()` level
+   * (not the generic `argList()`/`expr()`) since cond slots need comparison
+   * operators; `comparison()` gracefully degrades to plain `expr()` when no
+   * `<`/`>`/etc. is found, so this is a strict superset with no downside for
+   * the expr slots.
+   */
+  private piecewiseArgs(): Expr {
+    const args: Expr[] = [this.comparison()];
+    while (this.peek() === ",") {
+      this.pos++;
+      args.push(this.comparison());
+    }
+    if (this.peek() !== ")") throw new Error("Expected ')'");
+    this.pos++;
+    if (args.length < 3 || args.length % 2 === 0) {
+      throw new Error(
+        `piecewise() expects an odd number of arguments >= 3 (cond, expr, ..., otherwise), got ${args.length}`,
+      );
+    }
+    const branches: { cond: Expr; expr: Expr }[] = [];
+    for (let i = 0; i + 1 < args.length - 1; i += 2) branches.push({ cond: args[i], expr: args[i + 1] });
+    return piecewise(branches, args[args.length - 1]);
   }
 
   private expr(): Expr {
@@ -2012,7 +2796,7 @@ class Parser {
   private base(): Expr {
     if (this.peek() === "(") {
       this.pos++;
-      const e = this.expr();
+      const e = this.comparison(); // comparison() (not expr()) so `(x<3)*5` parses
       if (this.peek() !== ")") throw new Error("Expected ')'");
       this.pos++;
       return e;
@@ -2046,6 +2830,10 @@ class Parser {
         }
         if (args.length !== 3) throw new Error(`clamp() expects 3 arguments (x, lo, hi), got ${args.length}`);
         return call2("min", call2("max", args[0], args[1]), args[2]);
+      }
+      if (name === "piecewise" && this.peek() === "(") {
+        this.pos++;
+        return this.piecewiseArgs();
       }
       if ((BINARY_FUNCS as string[]).includes(name) && this.peek() === "(") {
         const binaryName = name as BinaryFuncName;

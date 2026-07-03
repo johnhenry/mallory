@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Symbolic } from "../src/Symbolic.ts";
+import { Numerical } from "../src/Numerical.ts";
+import { NonLinearSystemError, SeriesDivergesError, SingularSystemError, Symbolic } from "../src/Symbolic.ts";
 
 const evalAt = (expr: string, x: number) => Symbolic.evaluate(expr, { x });
 
@@ -54,6 +55,248 @@ test("integrate elementary forms (fundamental theorem check)", () => {
 
 test("integrate rejects non-elementary forms", () => {
   assert.throws(() => Symbolic.integrate("sin(x^2)"));
+});
+
+test("integrate via u-substitution: 2x*sin(x^2) -> -cos(x^2)", () => {
+  const F = Symbolic.integrate("2*x*sin(x^2)");
+  for (const x of [0.3, 1.1, -0.7]) {
+    const d = Symbolic.evaluate(Symbolic.differentiate(F), { x });
+    assert.ok(Math.abs(d - 2 * x * Math.sin(x * x)) < 1e-6);
+  }
+});
+
+test("integrate via u-substitution: 3x^2*exp(x^3) -> exp(x^3)", () => {
+  const F = Symbolic.integrate("3*x^2*exp(x^3)");
+  for (const x of [0.2, 0.9, -0.5]) {
+    const d = Symbolic.evaluate(Symbolic.differentiate(F), { x });
+    assert.ok(Math.abs(d - 3 * x * x * Math.exp(x ** 3)) < 1e-6);
+  }
+});
+
+test("u-substitution does not over-claim when no valid substitution exists", () => {
+  // sin(x^2) alone (without the accompanying 2x factor) has no g(x) whose
+  // derivative appears as a factor -- must still throw, not return a wrong answer.
+  assert.throws(() => Symbolic.integrate("sin(x^2)"));
+});
+
+test("integrateDefinite matches the closed-form antiderivative for elementary integrands", () => {
+  // ∫[0,2] x^2 dx = 8/3
+  assert.ok(Math.abs(Symbolic.integrateDefinite("x^2", 0, 2) - 8 / 3) < 1e-9);
+});
+
+test("integrateDefinite resolves a u-substitution integrand exactly rather than falling back numerically", () => {
+  // ∫[0,1] 2x*sin(x^2) dx = 1 - cos(1)
+  assert.ok(Math.abs(Symbolic.integrateDefinite("2*x*sin(x^2)", 0, 1) - (1 - Math.cos(1))) < 1e-9);
+});
+
+test("integrateDefinite falls back to numeric quadrature for non-elementary integrands", () => {
+  // sin(x^2) alone is genuinely non-elementary; cross-check against Numerical directly
+  const expected = Numerical.adaptiveSimpson((x) => Math.sin(x * x), 0, 1);
+  assert.ok(Math.abs(Symbolic.integrateDefinite("sin(x^2)", 0, 1) - expected) < 1e-9);
+});
+
+test("integrateDefinite honors env for free constants, on both the symbolic and numeric-fallback paths", () => {
+  assert.ok(Math.abs(Symbolic.integrateDefinite("k*x", 0, 2, "x", { k: 3 }) - 6) < 1e-9);
+  const expected = Numerical.adaptiveSimpson((x) => Math.sin(2 * x * x), 0, 1);
+  assert.ok(Math.abs(Symbolic.integrateDefinite("sin(k*x^2)", 0, 1, "x", { k: 2 }) - expected) < 1e-9);
+});
+
+test("integrateDefinite negates when lower > upper", () => {
+  assert.ok(Math.abs(Symbolic.integrateDefinite("x^2", 2, 0) - -(8 / 3)) < 1e-9);
+  const forward = Symbolic.integrateDefinite("sin(x^2)", 0, 1);
+  const backward = Symbolic.integrateDefinite("sin(x^2)", 1, 0);
+  assert.ok(Math.abs(backward + forward) < 1e-9);
+});
+
+test("solveSystem solves a 2x2 linear system", () => {
+  const result = Symbolic.solveSystem(["2*x + y - 5", "x - y - 1"], ["x", "y"]);
+  assert.ok(Math.abs(result.x - 2) < 1e-9);
+  assert.ok(Math.abs(result.y - 1) < 1e-9);
+});
+
+test("solveSystem solves a 3x3 linear system", () => {
+  const result = Symbolic.solveSystem(["x + y + z - 6", "2*x - y + z - 3", "x + 2*y - z - 2"], ["x", "y", "z"]);
+  assert.ok(Math.abs(result.x - 1) < 1e-6);
+  assert.ok(Math.abs(result.y - 2) < 1e-6);
+  assert.ok(Math.abs(result.z - 3) < 1e-6);
+});
+
+test("solveSystem verifies every equation actually zeroes at the solution", () => {
+  const eqs = ["3*x - 2*y - 4", "x + y - 7"];
+  const result = Symbolic.solveSystem(eqs, ["x", "y"]);
+  for (const eq of eqs) {
+    assert.ok(Math.abs(Symbolic.evaluate(eq, result)) < 1e-6);
+  }
+});
+
+test("solveSystem throws NonLinearSystemError for nonlinear equations", () => {
+  assert.throws(() => Symbolic.solveSystem(["x*y - 1", "x + y - 2"], ["x", "y"]), NonLinearSystemError);
+});
+
+test("solveSystem throws SingularSystemError for a dependent/singular system", () => {
+  assert.throws(() => Symbolic.solveSystem(["x + y - 1", "2*x + 2*y - 2"], ["x", "y"]), SingularSystemError);
+});
+
+test("solveSystem rejects a non-square system", () => {
+  assert.throws(() => Symbolic.solveSystem(["x + y - 1"], ["x", "y", "z"]));
+});
+
+test("sumSeries computes a finite partial sum", () => {
+  // sum_{k=1}^{5} k^2 = 1+4+9+16+25 = 55
+  assert.equal(Symbolic.sumSeries("n^2", 1, 5), 55);
+});
+
+test("sumSeries returns 0 for an empty range (from > to)", () => {
+  assert.equal(Symbolic.sumSeries("n^2", 5, 1), 0);
+});
+
+test("sumSeries recognizes geometric series and matches a large finite partial sum", () => {
+  // sum_{n=0}^infty 3*(0.5)^n = 3 / (1 - 0.5) = 6
+  const closedForm = Symbolic.sumSeries("3*0.5^n", 0, Number.POSITIVE_INFINITY);
+  assert.ok(Math.abs(closedForm - 6) < 1e-9);
+  const partial = Symbolic.sumSeries("3*0.5^n", 0, 60);
+  assert.ok(Math.abs(closedForm - partial) < 1e-12);
+});
+
+test("sumSeries geometric recognition handles shifted/scaled exponents", () => {
+  // sum_{n=1}^infty (0.5)^(2n+1) = sum of a geometric series with ratio 0.25, first term 0.5^3=0.125
+  // = 0.125 / (1 - 0.25) = 1/6
+  const result = Symbolic.sumSeries("0.5^(2*n+1)", 1, Number.POSITIVE_INFINITY);
+  assert.ok(Math.abs(result - 1 / 6) < 1e-9);
+});
+
+test("sumSeries falls back to numeric summation for a fast-converging non-geometric series", () => {
+  // sum_{n=1}^infty n*(0.5)^n = 0.5/(1-0.5)^2 = 2 -- coeff "n" depends on the
+  // variable so the geometric-closed-form matcher correctly declines this,
+  // but it still converges fast (dominated by 0.5^n) so the numeric fallback
+  // handles it accurately.
+  const result = Symbolic.sumSeries("n*0.5^n", 1, Number.POSITIVE_INFINITY);
+  assert.ok(Math.abs(result - 2) < 1e-6);
+});
+
+test("sumSeries throws SeriesDivergesError for a genuinely divergent series", () => {
+  assert.throws(() => Symbolic.sumSeries("1/n", 1, Number.POSITIVE_INFINITY), SeriesDivergesError);
+});
+
+test("sumSeries throws (documented limitation) for a slowly-decaying but convergent series", () => {
+  // Sum 1/n^2 genuinely converges to pi^2/6, but the term-magnitude stopping
+  // rule isn't a valid tail-error proxy for polynomial decay, so this can't
+  // confirm convergence within the term budget -- verified empirically, not
+  // just theoretically. This is safe (never returns a wrong value) but
+  // incomplete; see the KNOWN LIMITATION note in sumSeries's JSDoc.
+  assert.throws(() => Symbolic.sumSeries("1/n^2", 1, Number.POSITIVE_INFINITY), SeriesDivergesError);
+});
+
+test("cmp evaluates to 1/0 boolean-as-number for all six operators", () => {
+  assert.equal(evalAt("x<3", 1), 1);
+  assert.equal(evalAt("x<3", 5), 0);
+  assert.equal(evalAt("x<=3", 3), 1);
+  assert.equal(evalAt("x<=3", 4), 0);
+  assert.equal(evalAt("x>3", 5), 1);
+  assert.equal(evalAt("x>3", 1), 0);
+  assert.equal(evalAt("x>=3", 3), 1);
+  assert.equal(evalAt("x>=3", 2), 0);
+  assert.equal(evalAt("x==3", 3), 1);
+  assert.equal(evalAt("x==3", 4), 0);
+  assert.equal(evalAt("x!=3", 4), 1);
+  assert.equal(evalAt("x!=3", 3), 0);
+});
+
+test("piecewise selects the first truthy branch, else otherwise", () => {
+  const expr = "piecewise(x<0, -1, x==0, 0, 1)";
+  assert.equal(evalAt(expr, -5), -1);
+  assert.equal(evalAt(expr, 0), 0);
+  assert.equal(evalAt(expr, 7), 1);
+});
+
+test("comparisons bind loosest in the parser", () => {
+  // (x+1) < (2*x), not some other grouping
+  assert.equal(evalAt("x + 1 < 2*x", 0), 0);
+  assert.equal(evalAt("x + 1 < 2*x", 2), 1);
+  // a parenthesized comparison can be used as an operand (boolean-as-number)
+  assert.equal(evalAt("(x<3)*5", 1), 5);
+  assert.equal(evalAt("(x<3)*5", 5), 0);
+});
+
+test("piecewise requires an odd argument count >= 3", () => {
+  assert.throws(() => Symbolic.parse("piecewise(x<0, -1)"));
+  assert.throws(() => Symbolic.parse("piecewise(x<0, -1, x>0, 1, 0, 5)"));
+});
+
+test("differentiate treats cmp as locally constant and piecewise branch-wise", () => {
+  const d = Symbolic.differentiate("piecewise(x<0, x^2, x^3)");
+  assert.equal(Symbolic.evaluate(d, { x: -2 }), -4); // 2x at x=-2
+  assert.equal(Symbolic.evaluate(d, { x: 3 }), 27); // 3x^2 at x=3
+});
+
+test("simplify constant-folds cmp literals and recurses into piecewise branches", () => {
+  assert.equal(Symbolic.toString(Symbolic.simplify("3<5")), "1");
+  assert.equal(Symbolic.toString(Symbolic.simplify("3>5")), "0");
+  // recurses into arithmetic inside each branch without crashing
+  const simplified = Symbolic.simplify("piecewise(1<2, x+0, x*1)");
+  assert.equal(Symbolic.evaluate(simplified, { x: 7 }), 7);
+});
+
+test("toLatex/fromLatex round-trip all six cmp operators", () => {
+  const cases: Array<[string, string]> = [
+    ["x<3", "<"],
+    ["x<=3", "\\leq"],
+    ["x>3", ">"],
+    ["x>=3", "\\geq"],
+    ["x==3", "="],
+    ["x!=3", "\\neq"],
+  ];
+  for (const [expr, latexSymbol] of cases) {
+    const latex = Symbolic.toLatex(expr);
+    assert.ok(latex.includes(latexSymbol), `expected "${latex}" to include "${latexSymbol}"`);
+    const roundTripped = Symbolic.fromLatex(latex);
+    for (const x of [1, 3, 5]) {
+      assert.equal(Symbolic.evaluate(roundTripped, { x }), Symbolic.evaluate(expr, { x }));
+    }
+  }
+});
+
+test("fromLatex accepts \\le/\\ge/\\ne short spellings as well as \\leq/\\geq/\\neq", () => {
+  assert.equal(Symbolic.evaluate(Symbolic.fromLatex("x \\le 3"), { x: 3 }), 1);
+  assert.equal(Symbolic.evaluate(Symbolic.fromLatex("x \\ge 3"), { x: 3 }), 1);
+  assert.equal(Symbolic.evaluate(Symbolic.fromLatex("x \\ne 3"), { x: 3 }), 0);
+  assert.equal(Symbolic.evaluate(Symbolic.fromLatex("x \\ne 3"), { x: 4 }), 1);
+});
+
+test("fromLatex round-trips bare LaTeX '=' as eq", () => {
+  const parsed = Symbolic.fromLatex("x = 3");
+  assert.equal(Symbolic.evaluate(parsed, { x: 3 }), 1);
+  assert.equal(Symbolic.evaluate(parsed, { x: 4 }), 0);
+});
+
+test("toLatex/fromLatex round-trips piecewise via \\begin{cases}", () => {
+  const expr = Symbolic.parse("piecewise(x<0, x^2, x^3)");
+  const latex = Symbolic.toLatex(expr);
+  assert.ok(latex.includes("\\begin{cases}"));
+  assert.ok(latex.includes("\\text{otherwise}"));
+  const roundTripped = Symbolic.fromLatex(latex);
+  for (const x of [-2, 0, 3]) {
+    assert.equal(Symbolic.evaluate(roundTripped, { x }), Symbolic.evaluate(expr, { x }));
+  }
+});
+
+test("substitute/expand/collectLikeTerms recurse into cmp and piecewise", () => {
+  const substituted = Symbolic.substitute("piecewise(x<0, x, -x)", "x", "y+1");
+  assert.equal(Symbolic.evaluate(substituted, { y: -3 }), -2); // x=y+1=-2, x<0, so result=x=-2
+  assert.equal(Symbolic.evaluate(substituted, { y: 3 }), -4); // x=y+1=4, x>=0, so result=-x=-4
+
+  const expanded = Symbolic.expand("piecewise(x<0, (x+1)^2, x)");
+  assert.equal(Symbolic.evaluate(expanded, { x: -2 }), 1); // (-2+1)^2 = 1
+
+  const collected = Symbolic.simplify("piecewise(x<0, x+x, x)");
+  assert.equal(Symbolic.evaluate(collected, { x: -3 }), -6); // x+x collected to 2x = -6
+});
+
+test("integrate treats cmp/piecewise not containing the integration variable as constant, and throws otherwise", () => {
+  // no "x" anywhere in the piecewise -- treated as a constant multiplier
+  const F = Symbolic.integrate("piecewise(k<0, 1, 2)", "x");
+  assert.ok(Math.abs(Symbolic.evaluate(F, { x: 3, k: 5 }) - 6) < 1e-9); // 2*3
+  assert.throws(() => Symbolic.integrate("x<3"));
 });
 
 test("taylor expansion of exp about 0", () => {
@@ -490,6 +733,16 @@ test("limit evaluates removable discontinuities via L'Hopital's rule", () => {
 test("limit respects one-sided direction", () => {
   assert.ok(Symbolic.limit("1/x", "x", 0, "right") > 0);
   assert.ok(Symbolic.limit("1/x", "x", 0, "left") < 0);
+});
+
+test("limit at infinity resolves rational-function limits requiring multiple L'Hopital rounds without blowing up", () => {
+  // Regression test: limitAt used to grow the expression tree without bound
+  // across successive L'Hopital differentiations (no simplify() between
+  // rounds), causing an OOM crash on any limit-at-infinity needing more than
+  // ~2 rounds. Fixed by simplifying df/dg before each recursive step.
+  assert.ok(Math.abs(Symbolic.limit("(x^2+1)/(2*x^2-3)", "x", Number.POSITIVE_INFINITY) - 0.5) < 1e-6);
+  assert.ok(Math.abs(Symbolic.limit("1/x", "x", Number.POSITIVE_INFINITY)) < 1e-6);
+  assert.ok(Math.abs(Symbolic.limit("exp(-x)", "x", Number.POSITIVE_INFINITY)) < 1e-6);
 });
 
 test("toLatex renders fractions, radicals, and named functions", () => {

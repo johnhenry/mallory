@@ -286,8 +286,53 @@ and round-trips through `toLatex`/`fromLatex`.
 
 Integration covers the elementary rules (power rule, `1/x`, linear-substitution
 `sin`/`cos`/`exp`, integration by parts for a polynomial times `sin`/`cos`/`exp`,
-and arctan/arcsin forms); anything outside that set throws `NotIntegrableError`
-rather than returning a wrong answer — e.g. `Symbolic.integrate("sin(x^2)")`.
+and arctan/arcsin forms) plus a u-substitution fallback that searches for an
+inner function `g(x)` such that the integrand is `h(g(x))·g'(x)` (e.g.
+`2x·sin(x²)` integrates via `u = x²`); anything outside that combined set
+throws `NotIntegrableError` rather than returning a wrong answer — e.g.
+`Symbolic.integrate("sin(x^2)")` (no accompanying factor to substitute with).
+
+```ts
+// u-substitution: 2x*sin(x^2) -> -cos(x^2), 3x^2*exp(x^3) -> exp(x^3)
+Symbolic.toString(Symbolic.integrate("2*x*sin(x^2)")); // "-cos(x^2)"
+
+// Definite integrals: closed form first, adaptive-quadrature fallback otherwise
+Symbolic.integrateDefinite("x^2", 0, 2); // 2.6666... = 8/3, exact
+Symbolic.integrateDefinite("sin(x^2)", 0, 1); // numeric (sin(x^2) has no elementary antiderivative)
+
+// Linear systems of equations (each equation implicitly "= 0", same convention
+// as solve() -- no "=" operator needed):
+Symbolic.solveSystem(["2*x + y - 5", "x - y - 1"], ["x", "y"]); // { x: 2, y: 1 }
+
+// Finite and infinite series -- geometric series get an exact closed form;
+// other convergent series fall back to numeric partial summation:
+Symbolic.sumSeries("n^2", 1, 5); // 55 -- finite partial sum
+Symbolic.sumSeries("3*0.5^n", 0, Infinity); // 6 -- geometric closed form, exact
+Symbolic.sumSeries("n*0.5^n", 1, Infinity); // 2 -- not pure geometric, numeric fallback
+
+// Comparisons (boolean-as-number, 1/0) and piecewise functions:
+Symbolic.evaluate("x < 3", { x: 1 }); // 1
+Symbolic.toString(Symbolic.differentiate("piecewise(x<0, x^2, x^3)")); // branch-wise: 2x for x<0, 3x^2 otherwise
+Symbolic.toLatex("piecewise(x<0, -x, x)"); // "\\begin{cases}-x & x < 0\\\\x & \\text{otherwise}\\end{cases}"
+```
+
+`solveSystem` is linear-systems-only (v1) -- it throws `NonLinearSystemError`
+for a genuinely nonlinear system, and `SingularSystemError` for a
+dependent/rank-deficient one. `sumSeries` recognizes geometric series in
+closed form (including shifted/scaled exponents like `r^(2n+1)`); anything
+else falls back to numeric partial summation with a convergence check, and
+throws `SeriesDivergesError` if it can't confirm convergence within its term
+budget -- note this means a genuinely convergent but slowly-decaying series
+like `Σ 1/n²` will throw too (the term-magnitude stopping rule isn't a valid
+tail-error proxy for polynomial decay), which is safe (never silently wrong)
+but incomplete.
+
+`cmp`/`piecewise` add two new `Expr` variants: `cmp` evaluates to `1`/`0` for
+`<`/`<=`/`>`/`>=`/`==`/`!=`; `piecewise(cond1, expr1, ..., otherwise)` picks
+the first branch whose condition is truthy. Comparisons bind loosest of all
+operators (`x + 1 < 2*x` parses as `(x+1) < (2*x)`) and are non-chaining.
+`cmp` differentiates to `0` (matching the existing `floor`/`sign`/`round`
+"locally constant" convention); `piecewise` differentiates branch-wise.
 
 ## Multivariable calculus
 
