@@ -71,11 +71,15 @@ export { StringEvaluator } from "./StringEvaluator.ts";
 export { Structure, type StructureOptions } from "./Structure.ts";
 export {
   type BinaryFuncName,
+  type CmpOp,
   type DifferentiationStep,
   type Expr,
   FUNCTION_NAMES,
   type FuncName,
+  NonLinearSystemError,
   NotIntegrableError,
+  SeriesDivergesError,
+  SingularSystemError,
   Symbolic,
 } from "./Symbolic.ts";
 export { Type, TypeTag } from "./Type.ts";
