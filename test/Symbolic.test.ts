@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Numerical } from "../src/Numerical.ts";
+import { Rational } from "../src/Rational.ts";
+import { Structure } from "../src/Structure.ts";
 import { NonLinearSystemError, SeriesDivergesError, SingularSystemError, Symbolic } from "../src/Symbolic.ts";
 
 const evalAt = (expr: string, x: number) => Symbolic.evaluate(expr, { x });
@@ -805,4 +807,61 @@ test("fromLatex parses bar notation, floor/ceil, and log with subscript base", (
   assert.equal(Symbolic.toString(Symbolic.fromLatex("\\left\\lceil x\\right\\rceil")), "ceil(x)");
   assert.equal(Symbolic.evaluate(Symbolic.fromLatex("\\log_{2}(x)"), { x: 8 }), 3);
   assert.equal(Symbolic.evaluate(Symbolic.fromLatex("\\log(x)"), { x: 100 }), 2);
+});
+
+test("evaluateExact evaluates a plain fraction exactly", () => {
+  assert.equal(Symbolic.evaluateExact("1/3").toString(), "1/3");
+});
+
+test("evaluateExact evaluates an expression with a bound exact variable", () => {
+  assert.equal(Symbolic.evaluateExact("x+1/2", { x: new Rational(1n, 2n) }).toString(), "1");
+});
+
+test("evaluateExact evaluates integer powers exactly", () => {
+  assert.equal(Symbolic.evaluateExact("(1/2)^3").toString(), "1/8");
+});
+
+test("evaluateExact evaluates negation exactly", () => {
+  assert.equal(Symbolic.evaluateExact("-1/4").toString(), "-1/4");
+});
+
+test("evaluateExact throws on an irrational function node or non-integer exponent", () => {
+  assert.throws(() => Symbolic.evaluateExact("sin(1)"));
+  assert.throws(() => Symbolic.evaluateExact("2^(1/2)"));
+  assert.throws(() => Symbolic.evaluateExact("x+1"));
+});
+
+test("evaluateExact evaluates cmp exactly to 1/0 and piecewise selects the first nonzero branch", () => {
+  assert.equal(Symbolic.evaluateExact("1/3<1/2").toString(), "1");
+  assert.equal(Symbolic.evaluateExact("1/2<1/3").toString(), "0");
+  assert.equal(Symbolic.evaluateExact("piecewise(1/2<1/3, 1/2, 2/3)").toString(), "2/3");
+  assert.throws(() => Symbolic.evaluateExact("piecewise(1<2, sin(1), 1/2)"));
+});
+
+test("evaluateOverStructure evaluates arithmetic over Z/7Z", () => {
+  const gf7 = Structure.integersModulo(7);
+  assert.equal(Symbolic.evaluateOverStructure("3+5", gf7), 1); // 8 mod 7
+  assert.equal(Symbolic.evaluateOverStructure("x^2+1", gf7, { x: 5 }), 5); // 26 mod 7
+  assert.equal(Symbolic.evaluateOverStructure("-3", gf7), 4); // -3 mod 7
+  assert.equal(Symbolic.evaluateOverStructure("1/3", gf7), 5); // 3*5=15=1 mod 7
+});
+
+test("evaluateOverStructure throws on func/call2/non-integer-exponent pow/unbound var", () => {
+  const gf7 = Structure.integersModulo(7);
+  assert.throws(() => Symbolic.evaluateOverStructure("sin(1)", gf7));
+  assert.throws(() => Symbolic.evaluateOverStructure("x^(1/2)", gf7, { x: 2 }));
+  assert.throws(() => Symbolic.evaluateOverStructure("x+1", gf7));
+});
+
+test("evaluateOverStructure: eq/ne use the structure's own equality, ordering comparisons throw", () => {
+  const gf7 = Structure.integersModulo(7);
+  assert.equal(Symbolic.evaluateOverStructure("3==10", gf7), 1); // 3 mod 7 == 10 mod 7
+  assert.equal(Symbolic.evaluateOverStructure("3!=10", gf7), 0);
+  assert.throws(() => Symbolic.evaluateOverStructure("3<4", gf7));
+});
+
+test("evaluateOverStructure: piecewise branch selection uses structure.zero-equality", () => {
+  const gf7 = Structure.integersModulo(7);
+  assert.equal(Symbolic.evaluateOverStructure("piecewise(3==10, 5, 2)", gf7), 5);
+  assert.equal(Symbolic.evaluateOverStructure("piecewise(3==4, 5, 2)", gf7), 2);
 });

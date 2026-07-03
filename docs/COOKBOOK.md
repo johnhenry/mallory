@@ -334,6 +334,20 @@ operators (`x + 1 < 2*x` parses as `(x+1) < (2*x)`) and are non-chaining.
 `cmp` differentiates to `0` (matching the existing `floor`/`sign`/`round`
 "locally constant" convention); `piecewise` differentiates branch-wise.
 
+```ts
+import { Rational, Structure } from "mallory-math";
+
+// Exact evaluation over Rational arithmetic instead of floats -- throws for
+// anything not exactly representable (func/call2 nodes, non-integer pow
+// exponents), so callers should fall back to Symbolic.evaluate on catch:
+Symbolic.evaluateExact("1/3").toString(); // "1/3", not 0.333...
+Symbolic.evaluateExact("x+1/2", { x: new Rational(1n, 2n) }).toString(); // "1"
+
+// Folds an Expr through an arbitrary Structure's own algebra instead of
+// native JS math, e.g. plotting over Z/7Z instead of the reals:
+Symbolic.evaluateOverStructure("3+5", Structure.integersModulo(7)); // 1 (8 mod 7)
+```
+
 ## Multivariable calculus
 
 ```ts

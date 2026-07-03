@@ -8,6 +8,7 @@ import { MatrixMath } from "./MatrixMath.ts";
 import { Numerical } from "./Numerical.ts";
 import { Rational } from "./Rational.ts";
 import { SpecialFunctions } from "./SpecialFunctions.ts";
+import type { Structure } from "./Structure.ts";
 
 export type FuncName =
   | "sin"
@@ -364,6 +365,36 @@ export class Symbolic {
   static compile(expr: Expr | string): (env: Record<string, number>) => number {
     const e = typeof expr === "string" ? Symbolic.parse(expr) : expr;
     return compileExpr(e);
+  }
+
+  /**
+   * Evaluates `expr` exactly over {@link Rational} arithmetic instead of
+   * floats (e.g. `1/3` stays an exact fraction, not `0.333...`). Throws
+   * whenever the expression isn't exactly representable -- any `func`/
+   * `call2` node (sin/cos/sqrt/atan2/etc. are generally irrational) or a
+   * `pow` whose exponent isn't an integer -- so callers should fall back to
+   * a plain float evaluation on catch. `cmp` evaluates to exactly `1`/`0`
+   * via `Rational.compare`; `piecewise` selects the branch exactly (first
+   * `cond` whose Rational is nonzero).
+   */
+  static evaluateExact(expr: Expr | string, env: Record<string, Rational> = {}): Rational {
+    const e = typeof expr === "string" ? Symbolic.parse(expr) : expr;
+    return evalExprExact(e, env);
+  }
+
+  /**
+   * Evaluates `expr` by folding it through an arbitrary {@link Structure}'s
+   * own algebra instead of native JS math, so e.g. plotting can work over
+   * Z/7Z instead of the reals. Throws on any `func`/`call2` node (no
+   * general meaning over an abstract structure), a `pow` whose exponent
+   * isn't a literal integer constant, or an ordering comparison (`lt`/`le`/
+   * `gt`/`ge` -- several structures, e.g. quaternions, have no order
+   * compatible with their ring operations). `eq`/`ne` and `piecewise` work
+   * over any structure via its own `.equality()`.
+   */
+  static evaluateOverStructure<T>(expr: Expr | string, structure: Structure<T>, env: Record<string, T> = {}): T {
+    const e = typeof expr === "string" ? Symbolic.parse(expr) : expr;
+    return evalExprOverStructure(e, structure, env);
   }
 
   static toString(expr: Expr | string): string {
@@ -1965,6 +1996,131 @@ function compileExpr(e: Expr): (env: Record<string, number>) => number {
         }
         return otherwise(env);
       };
+    }
+  }
+}
+
+// -- exact (Rational) and structure-aware evaluation -------------------------
+// Moved here from mallory-graph's app-level rational-eval.ts/structure-eval.ts:
+// these are generic "evaluate an Expr over an alternate algebra" utilities
+// with no graphing-calculator-specific logic, so they belong alongside
+// evalExpr/compileExpr where this file's own exhaustiveness checking keeps
+// them in sync with new Expr variants automatically.
+
+/** Maps a {@link Rational.compare} result (-1/0/1) to a truth value per {@link CmpOp}. */
+const CMP_FROM_COMPARE: Record<CmpOp, (c: number) => boolean> = {
+  lt: (c) => c < 0,
+  le: (c) => c <= 0,
+  gt: (c) => c > 0,
+  ge: (c) => c >= 0,
+  eq: (c) => c === 0,
+  ne: (c) => c !== 0,
+};
+
+function evalExprExact(e: Expr, env: Record<string, Rational>): Rational {
+  switch (e.type) {
+    case "const":
+      return Rational.fromNumber(e.value);
+    case "var": {
+      const value = env[e.name];
+      if (!value) throw new Error(`No exact value bound for "${e.name}"`);
+      return value;
+    }
+    case "add":
+      return evalExprExact(e.left, env).add(evalExprExact(e.right, env));
+    case "sub":
+      return evalExprExact(e.left, env).subtract(evalExprExact(e.right, env));
+    case "mul":
+      return evalExprExact(e.left, env).multiply(evalExprExact(e.right, env));
+    case "div":
+      return evalExprExact(e.left, env).divide(evalExprExact(e.right, env));
+    case "pow": {
+      const exponent = evalExprExact(e.exp, env);
+      if (exponent.denominator !== 1n) throw new Error("Exact pow requires an integer exponent");
+      return evalExprExact(e.base, env).pow(Number(exponent.numerator));
+    }
+    case "neg":
+      return evalExprExact(e.arg, env).negate();
+    case "func":
+      throw new Error(`"${e.name}" is not exactly representable as a Rational`);
+    case "call2":
+      throw new Error(`"${e.name}" is not exactly representable as a Rational`);
+    case "cmp": {
+      const l = evalExprExact(e.left, env);
+      const r = evalExprExact(e.right, env);
+      const truth = CMP_FROM_COMPARE[e.op](l.compare(r));
+      return truth ? Rational.One : Rational.Zero;
+    }
+    case "piecewise": {
+      for (const branch of e.branches) {
+        if (!evalExprExact(branch.cond, env).isZero()) return evalExprExact(branch.expr, env);
+      }
+      return evalExprExact(e.otherwise, env);
+    }
+  }
+}
+
+const ORDERING_CMP_OPS = new Set<CmpOp>(["lt", "le", "gt", "ge"]);
+
+function evalExprOverStructure<T>(e: Expr, structure: Structure<T>, env: Record<string, T>): T {
+  switch (e.type) {
+    case "const":
+      return structure.wrap(e.value);
+    case "var": {
+      const value = env[e.name];
+      if (value === undefined) throw new Error(`No value bound for "${e.name}"`);
+      return structure.wrap(value);
+    }
+    case "add":
+      return structure.add(
+        evalExprOverStructure(e.left, structure, env),
+        evalExprOverStructure(e.right, structure, env),
+      );
+    case "sub":
+      return structure.subtract(
+        evalExprOverStructure(e.left, structure, env),
+        evalExprOverStructure(e.right, structure, env),
+      );
+    case "mul":
+      return structure.multiply(
+        evalExprOverStructure(e.left, structure, env),
+        evalExprOverStructure(e.right, structure, env),
+      );
+    case "div":
+      return structure.divide(
+        evalExprOverStructure(e.left, structure, env),
+        evalExprOverStructure(e.right, structure, env),
+      );
+    case "pow": {
+      if (e.exp.type !== "const" || !Number.isInteger(e.exp.value)) {
+        throw new Error("Structure-aware pow requires a literal integer exponent");
+      }
+      return structure.multiplyPower(evalExprOverStructure(e.base, structure, env), e.exp.value);
+    }
+    case "neg":
+      return structure.negative(evalExprOverStructure(e.arg, structure, env));
+    case "func":
+      throw new Error(`"${e.name}" has no meaning over this structure`);
+    case "call2":
+      throw new Error(`"${e.name}" has no meaning over this structure`);
+    case "cmp": {
+      if (ORDERING_CMP_OPS.has(e.op)) {
+        throw new Error(`Ordering comparisons ("${e.op}") have no general meaning over this structure`);
+      }
+      const l = evalExprOverStructure(e.left, structure, env);
+      const r = evalExprOverStructure(e.right, structure, env);
+      const equal = structure.equality(l, r);
+      const truth = e.op === "eq" ? equal : !equal;
+      return truth ? structure.one : structure.zero;
+    }
+    case "piecewise": {
+      for (const branch of e.branches) {
+        const condValue = evalExprOverStructure(branch.cond, structure, env);
+        if (!structure.equality(condValue, structure.zero)) {
+          return evalExprOverStructure(branch.expr, structure, env);
+        }
+      }
+      return evalExprOverStructure(e.otherwise, structure, env);
     }
   }
 }
