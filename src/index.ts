@@ -69,7 +69,15 @@ export * as Statistics from "./Statistics.ts";
 export { StringEvaluator } from "./StringEvaluator.ts";
 // Algebraic structures & geometry
 export { Structure, type StructureOptions } from "./Structure.ts";
-export { type DifferentiationStep, type Expr, type FuncName, NotIntegrableError, Symbolic } from "./Symbolic.ts";
+export {
+  type BinaryFuncName,
+  type DifferentiationStep,
+  type Expr,
+  FUNCTION_NAMES,
+  type FuncName,
+  NotIntegrableError,
+  Symbolic,
+} from "./Symbolic.ts";
 export { Type, TypeTag } from "./Type.ts";
 // Utilities & leaves
 export { Utilities } from "./Utilities.ts";

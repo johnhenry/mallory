@@ -1,8 +1,8 @@
-# mallory-ts
+# mallory
 
 **Advanced college-level mathematics for TypeScript** — a modern, fully-typed,
-test-covered port of the [Mallory](https://github.com/johnhenry/mallory)
-ActionScript 3 library (a project worked on, on and off, since 2004).
+test-covered port of the Mallory ActionScript 3 library (a project worked on,
+on and off, since 2004), published to npm as `mallory-math`.
 
 Complex numbers, linear algebra over arbitrary algebraic structures,
 combinatorics and number theory, an expression evaluator, and renderer-agnostic
@@ -10,7 +10,7 @@ graphing geometry — all rewritten in modern TypeScript with `node:test`
 (example-based and, for algebraic laws, property-based via `fast-check`).
 
 ```ts
-import { ComplexNumber, Structure, Vector, StringEvaluator } from "mallory-ts";
+import { ComplexNumber, Structure, Vector, StringEvaluator } from "mallory-math";
 
 ComplexNumber.E.power(new ComplexNumber(0, Math.PI)); // ≈ -1  (Euler)
 Structure.realField().determinant(/* 3×3 matrix, as Vector<Vector<number>> */);
@@ -132,7 +132,7 @@ Well beyond the original ActionScript scope, the library now spans:
 | Area | Module(s) | Highlights |
 |------|-----------|------------|
 | Numerical linear algebra | `MatrixMath` | LU, QR, Cholesky, symmetric eigen (Jacobi), SVD; `solve`, RREF, rank, null space, least squares, pseudo-inverse, norms, condition number |
-| Symbolic calculus | `Symbolic` | expression parser, symbolic differentiation, algebraic simplification, elementary integration, Taylor series |
+| Symbolic calculus | `Symbolic` | expression parser (41 unary elementary functions incl. inverse-trig, reciprocal-trig, hyperbolic/inverse-hyperbolic, `abs`/`log10`/`log2`/`cbrt`/`floor`/`ceil`/`round`/`sign`/`trunc`, and `expm1`/`log1p`/`sigmoid`/`erf`/`relu`, with `arcsin`/`logistic`-style aliases and `|x|` bar syntax, plus N-ary `atan2`/`hypot`/`min`/`max`/`gcd`/`lcm` and `log(base, x)`/`clamp(x, lo, hi)`), symbolic differentiation (incl. the multivariate chain rule for the N-ary functions), algebraic simplification with like-term collection and constant-folding, elementary integration (incl. by-parts and arctan/arcsin forms), Taylor series, `expand`/`substitute`, polynomial `solve`/`factor`, L'Hopital `limit`, LaTeX round-trip (`toLatex`/`fromLatex`, incl. `\operatorname{...}` for functions with no standard LaTeX command, and bracket notation for `abs`/`floor`/`ceil`/`cbrt`) |
 | Number types | `Rational`, `Quaternion`, `DualNumber`, `Interval` | exact bigint rationals, 3D-rotation quaternions, forward-mode autodiff, rigorous interval arithmetic — each also a `Structure` preset |
 | Number theory | `NumberTheory` | `bigint` modPow, extended GCD, CRT, Miller–Rabin, Pollard-rho factorization, Legendre/Jacobi |
 | Group theory | `GroupTheory` | Cayley tables, axiom checks, element order, generated subgroups, cosets, Lagrange, orbits, Sₙ/Zₙ |
