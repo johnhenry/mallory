@@ -204,6 +204,36 @@ const containsVar = (e: Expr, name: string): boolean => {
   }
 };
 
+/** Collects every distinct `var` node name referenced anywhere in `e`. */
+const collectFreeVars = (e: Expr, found: Set<string> = new Set()): Set<string> => {
+  switch (e.type) {
+    case "const":
+      return found;
+    case "var":
+      found.add(e.name);
+      return found;
+    case "neg":
+    case "func":
+      collectFreeVars(e.arg, found);
+      return found;
+    case "pow":
+      collectFreeVars(e.base, found);
+      collectFreeVars(e.exp, found);
+      return found;
+    case "piecewise":
+      for (const br of e.branches) {
+        collectFreeVars(br.cond, found);
+        collectFreeVars(br.expr, found);
+      }
+      collectFreeVars(e.otherwise, found);
+      return found;
+    default:
+      collectFreeVars(e.left, found);
+      collectFreeVars(e.right, found);
+      return found;
+  }
+};
+
 export class NotIntegrableError extends Error {
   constructor(message = "This expression cannot be integrated by the elementary rules implemented.") {
     super(message);
@@ -233,6 +263,17 @@ export class SeriesDivergesError extends Error {
   ) {
     super(message);
     this.name = "SeriesDivergesError";
+  }
+}
+
+export class UndeclaredVariableError extends Error {
+  readonly names: string[];
+  constructor(names: string[]) {
+    super(
+      `Expression references variable${names.length === 1 ? "" : "s"} not in the declared set: ${names.join(", ")}`,
+    );
+    this.name = "UndeclaredVariableError";
+    this.names = names;
   }
 }
 
@@ -352,8 +393,43 @@ export class Symbolic {
     return cur;
   }
 
-  static evaluate(expr: Expr | string, env: Record<string, number> = {}): number {
+  /**
+   * Every distinct variable name referenced anywhere in `expr`, sorted. This
+   * is auto-detection, not validation -- see {@link assertVariables} for a
+   * strict-mode check against a declared list.
+   */
+  static freeVariables(expr: Expr | string): string[] {
     const e = typeof expr === "string" ? Symbolic.parse(expr) : expr;
+    return [...collectFreeVars(e)].sort();
+  }
+
+  /**
+   * Strict-mode companion to {@link freeVariables}: throws
+   * {@link UndeclaredVariableError} if `expr` references any variable
+   * outside `declared`. Useful to catch typos or ambiguous-parse fallout
+   * before they silently become spurious sliders/parameters or silently
+   * evaluate to `NaN`.
+   */
+  static assertVariables(expr: Expr | string, declared: string[]): void {
+    const e = typeof expr === "string" ? Symbolic.parse(expr) : expr;
+    const declaredSet = new Set(declared);
+    const undeclared = Symbolic.freeVariables(e).filter((name) => !declaredSet.has(name));
+    if (undeclared.length > 0) throw new UndeclaredVariableError(undeclared);
+  }
+
+  /**
+   * @param options.declaredVariables When provided, throws
+   * {@link UndeclaredVariableError} if `expr` references any variable
+   * outside this list, instead of the default behavior of silently
+   * resolving an undeclared variable to `NaN` via a missing `env` entry.
+   */
+  static evaluate(
+    expr: Expr | string,
+    env: Record<string, number> = {},
+    options?: { declaredVariables?: string[] },
+  ): number {
+    const e = typeof expr === "string" ? Symbolic.parse(expr) : expr;
+    if (options?.declaredVariables) Symbolic.assertVariables(e, options.declaredVariables);
     return evalExpr(e, env);
   }
 
@@ -361,9 +437,16 @@ export class Symbolic {
    * Compile `expr` into a closure tree, walking the AST once instead of on
    * every call. Prefer this over {@link evaluate} when the same expression is
    * evaluated many times (e.g. sampling a curve across hundreds of x values).
+   *
+   * @param options.declaredVariables Same strict-mode check as
+   * {@link evaluate}, checked once up front rather than per call.
    */
-  static compile(expr: Expr | string): (env: Record<string, number>) => number {
+  static compile(
+    expr: Expr | string,
+    options?: { declaredVariables?: string[] },
+  ): (env: Record<string, number>) => number {
     const e = typeof expr === "string" ? Symbolic.parse(expr) : expr;
+    if (options?.declaredVariables) Symbolic.assertVariables(e, options.declaredVariables);
     return compileExpr(e);
   }
 

@@ -3,7 +3,13 @@ import { test } from "node:test";
 import { Numerical } from "../src/Numerical.ts";
 import { Rational } from "../src/Rational.ts";
 import { Structure } from "../src/Structure.ts";
-import { NonLinearSystemError, SeriesDivergesError, SingularSystemError, Symbolic } from "../src/Symbolic.ts";
+import {
+  NonLinearSystemError,
+  SeriesDivergesError,
+  SingularSystemError,
+  Symbolic,
+  UndeclaredVariableError,
+} from "../src/Symbolic.ts";
 
 const evalAt = (expr: string, x: number) => Symbolic.evaluate(expr, { x });
 
@@ -864,4 +870,29 @@ test("evaluateOverStructure: piecewise branch selection uses structure.zero-equa
   const gf7 = Structure.integersModulo(7);
   assert.equal(Symbolic.evaluateOverStructure("piecewise(3==10, 5, 2)", gf7), 5);
   assert.equal(Symbolic.evaluateOverStructure("piecewise(3==4, 5, 2)", gf7), 2);
+});
+
+test("freeVariables collects every distinct variable name, sorted, deduplicated", () => {
+  assert.deepEqual(Symbolic.freeVariables("a*x + b"), ["a", "b", "x"]);
+  assert.deepEqual(Symbolic.freeVariables("x^2 + x"), ["x"]);
+  assert.deepEqual(Symbolic.freeVariables("piecewise(x<0, -x, y)"), ["x", "y"]);
+  assert.deepEqual(Symbolic.freeVariables("5"), []);
+  assert.deepEqual(Symbolic.freeVariables("atan2(x, y)"), ["x", "y"]); // call2, exercises the default left/right branch
+});
+
+test("assertVariables throws UndeclaredVariableError listing offending names, passes when fully declared", () => {
+  assert.throws(
+    () => Symbolic.assertVariables("a*sin(x)", ["x"]),
+    (err: unknown) => err instanceof UndeclaredVariableError && err.names.length === 1 && err.names[0] === "a",
+  );
+  assert.doesNotThrow(() => Symbolic.assertVariables("a*sin(x)", ["a", "x"]));
+  assert.doesNotThrow(() => Symbolic.assertVariables("a*sin(x)", ["a", "x", "z"]), "extra declared names are fine");
+});
+
+test("evaluate/compile with declaredVariables: strict mode throws on an undeclared reference instead of silently producing NaN", () => {
+  assert.throws(() => Symbolic.evaluate("a*x", { x: 2 }, { declaredVariables: ["x"] }), UndeclaredVariableError);
+  assert.throws(() => Symbolic.compile("a*x", { declaredVariables: ["x"] }), UndeclaredVariableError);
+  // Default (no options) behavior is unchanged: missing env entries silently resolve to NaN.
+  assert.ok(Number.isNaN(Symbolic.evaluate("a*x", { x: 2 })));
+  assert.equal(Symbolic.evaluate("a*x", { x: 2, a: 3 }, { declaredVariables: ["a", "x"] }), 6);
 });
