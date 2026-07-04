@@ -5,7 +5,9 @@ import { Rational } from "../src/Rational.ts";
 import { Structure } from "../src/Structure.ts";
 import {
   IntegrationSingularityError,
+  NoClosedFormError,
   NonLinearSystemError,
+  NotSeparableError,
   ProductNotDifferentiableError,
   SeriesDivergesError,
   SingularSystemError,
@@ -1077,4 +1079,45 @@ test("simplifyAssuming does not affect unrelated variables", () => {
     Symbolic.toString(Symbolic.simplifyAssuming("sqrt(y^2)", { x: "positive" })),
     Symbolic.toString(Symbolic.simplify("sqrt(y^2)")),
   );
+});
+
+test("solveOdeClosedForm solves a separable ODE (dy/dx = x*y, y(0)=1 -> y = e^(x^2/2))", () => {
+  const r = Symbolic.solveOdeClosedForm("x*y", 0, 1);
+  assert.equal(r.explicit, true);
+  assert.ok(r.y);
+  for (const x of [0, 0.5, 1, 2]) {
+    assert.ok(
+      Math.abs(Symbolic.evaluate(r.y as Parameters<typeof Symbolic.evaluate>[0], { x }) - Math.exp((x * x) / 2)) < 1e-9,
+    );
+  }
+});
+
+test("solveOdeClosedForm solves a trivial separable ODE (dy/dx = x, h(y)=1 degenerate case)", () => {
+  const r = Symbolic.solveOdeClosedForm("x", 0, 5);
+  assert.equal(r.explicit, true);
+  assert.ok(r.y);
+  assert.equal(Symbolic.evaluate(r.y as Parameters<typeof Symbolic.evaluate>[0], { x: 2 }), 7);
+});
+
+test("solveOdeClosedForm solves a linear first-order ODE via integrating factor (dy/dx + y = x, y(0)=1)", () => {
+  // dy/dx = x - y; exact solution y = x - 1 + 2*e^-x
+  const r = Symbolic.solveOdeClosedForm("x - y", 0, 1);
+  assert.equal(r.explicit, true);
+  assert.ok(r.y);
+  for (const x of [0, 0.5, 1, 2]) {
+    const expected = x - 1 + 2 * Math.exp(-x);
+    assert.ok(Math.abs(Symbolic.evaluate(r.y as Parameters<typeof Symbolic.evaluate>[0], { x }) - expected) < 1e-9);
+  }
+});
+
+test("solveOdeClosedForm throws NotSeparableError for a Riccati-type equation (dy/dx = x + y^2)", () => {
+  assert.throws(() => Symbolic.solveOdeClosedForm("x + y^2", 0, 1), NotSeparableError);
+});
+
+test("solveOdeClosedForm throws NoClosedFormError when separable structure matches but tan(x) isn't in integRules's coverage", () => {
+  assert.throws(() => Symbolic.solveOdeClosedForm("tan(x)*y", 0, 1), NoClosedFormError);
+});
+
+test("solveOdeClosedForm throws NoClosedFormError when linear structure matches but p(x)=tan(x) isn't in integRules's coverage", () => {
+  assert.throws(() => Symbolic.solveOdeClosedForm("1 - tan(x)*y", 0, 1), NoClosedFormError);
 });

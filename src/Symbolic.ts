@@ -379,6 +379,40 @@ export class ProductNotDifferentiableError extends Error {
   }
 }
 
+export class NotSeparableError extends Error {
+  constructor(
+    message = "solveOdeClosedForm: dy/dx isn't separable (g(x)*h(y)) and isn't affine in y (q(x) - p(x)*y) -- no recognized closed-form method applies.",
+  ) {
+    super(message);
+    this.name = "NotSeparableError";
+  }
+}
+
+export class NoClosedFormError extends Error {
+  constructor(
+    message = "solveOdeClosedForm: the equation matches a recognized closed-form method (separable or linear first-order), but the antiderivative(s) it requires aren't in this engine's elementary-rule coverage.",
+  ) {
+    super(message);
+    this.name = "NoClosedFormError";
+  }
+}
+
+/**
+ * Result of {@link Symbolic.solveOdeClosedForm}. When the implicit relation
+ * produced by the chosen method (H(y) = G(x) + C, or the linear-ODE
+ * analog) can be algebraically solved for `y`, `explicit` is `true` and
+ * `y` holds that closed form. Otherwise `explicit` is `false` and
+ * `implicitRelation` holds an "expr implicitly equals zero" expression in
+ * both `x` and `y` (same zero-equals convention {@link Symbolic.solve}/
+ * {@link Symbolic.solveSystem} already use elsewhere in this file) --
+ * still a genuine closed-form solution, just not isolated for `y`.
+ */
+export interface OdeClosedFormResult {
+  explicit: boolean;
+  y?: Expr;
+  implicitRelation?: Expr;
+}
+
 export class Symbolic {
   /** Parse an expression string such as `"sin(x^2) + 3*x"` into an AST. */
   static parse(input: string): Expr {
@@ -492,6 +526,45 @@ export class Symbolic {
       const f = compileExpr(e);
       return Numerical.adaptiveSimpson((val: number) => f({ ...env, [variable]: val }), lower, upper);
     }
+  }
+
+  /**
+   * Attempts a closed-form (symbolic) solution to the first-order initial
+   * value problem `dy/dx = dyDxExpr(x, y)`, `y(x0) = y0`, trying two
+   * elementary methods in order -- both built entirely on {@link integrate}'s
+   * existing elementary-rule coverage, not new integration machinery:
+   *
+   * 1. **Separable**: if `dyDxExpr` factors as `g(x)*h(y)` (including the
+   *    degenerate cases `h(y)=1` or `g(x)=1`), integrates
+   *    `∫(1/h(y))dy = ∫g(x)dx + C`, solves for `C` numerically from
+   *    `(x0,y0)`, and tries to isolate `y`.
+   * 2. **Linear first-order**: if `dyDxExpr` is affine in `y` (i.e.
+   *    `dy/dx + p(x)*y = q(x)` for some `p`,`q` depending only on `x`),
+   *    solves via the integrating factor `μ(x)=exp(∫p(x)dx)`.
+   *
+   * Both paths legitimately fail on realistic inputs whose required
+   * antiderivative isn't in {@link integrate}'s elementary coverage
+   * (polynomials, `1/x`, linear-argument `sin`/`cos`/`exp`, and two
+   * quadratic-denominator forms) -- that surfaces as
+   * {@link NoClosedFormError}. An equation that's neither separable nor
+   * affine in `y` surfaces as {@link NotSeparableError}.
+   *
+   * @throws {NotSeparableError} if neither method's structural pattern matches.
+   * @throws {NoClosedFormError} if a method matches but its required integral(s) aren't elementary.
+   */
+  static solveOdeClosedForm(
+    dyDxExpr: Expr | string,
+    x0: number,
+    y0: number,
+    xVar = "x",
+    yVar = "y",
+  ): OdeClosedFormResult {
+    const e = Symbolic.simplify(typeof dyDxExpr === "string" ? Symbolic.parse(dyDxExpr) : dyDxExpr);
+    const sep = matchSeparable(e, xVar, yVar);
+    if (sep) return solveSeparableOde(sep, xVar, yVar, x0, y0);
+    const lin = matchLinearOde(e, xVar, yVar);
+    if (lin) return solveLinearOde(lin, xVar, yVar, x0, y0);
+    throw new NotSeparableError();
   }
 
   /** Taylor expansion of `expr` about `center` up to `order`, as an expression. */
@@ -2071,6 +2144,136 @@ function integ(e: Expr, x: string): Expr {
     if (bySubstitution) return bySubstitution;
     throw err;
   }
+}
+
+// -- closed-form ODE solving (Symbolic.solveOdeClosedForm) -----------------
+
+const isPureFunctionOf = (e: Expr, allowed: Set<string>): boolean =>
+  [...collectFreeVars(e)].every((n) => allowed.has(n));
+
+/**
+ * `dyDxExpr = g(x)*h(y)`? Includes the degenerate `h(y)=1` (dy/dx purely a
+ * function of x) and `g(x)=1` (dy/dx purely a function of y) cases as the
+ * same path, rather than special-casing them. Conservative: any free
+ * variable other than `xVar`/`yVar` (an extra symbolic parameter) fails the
+ * match rather than attempting to carry it through -- out of v1 scope.
+ */
+function matchSeparable(e: Expr, xVar: string, yVar: string): { g: Expr; h: Expr } | null {
+  const vars = collectFreeVars(e);
+  if (![...vars].every((n) => n === xVar || n === yVar)) return null;
+  const hasX = vars.has(xVar);
+  const hasY = vars.has(yVar);
+  if (!hasY) return { g: e, h: num(1) };
+  if (!hasX) return { g: num(1), h: e };
+  if (e.type !== "mul") return null;
+  const xOnly = new Set([xVar]);
+  const yOnly = new Set([yVar]);
+  if (isPureFunctionOf(e.left, xOnly) && isPureFunctionOf(e.right, yOnly)) return { g: e.left, h: e.right };
+  if (isPureFunctionOf(e.left, yOnly) && isPureFunctionOf(e.right, xOnly)) return { g: e.right, h: e.left };
+  return null;
+}
+
+/**
+ * `dyDxExpr = q(x) - p(x)*y` (affine in y)? Detected via differentiation
+ * rather than structural pattern-matching: if `e` is truly affine in `y`,
+ * `∂e/∂y` is exactly `-p(x)` (a constant w.r.t. `y`) regardless of how `e`
+ * is literally shaped (add/sub/mul combinations all collapse the same
+ * way), which is more robust than trying to enumerate every equivalent
+ * surface form of "affine in y".
+ */
+function matchLinearOde(e: Expr, xVar: string, yVar: string): { p: Expr; q: Expr } | null {
+  if (!containsVar(e, yVar)) return null; // handled by matchSeparable's h(y)=1 case instead
+  const negP = Symbolic.simplify(diff(e, yVar));
+  if (containsVar(negP, yVar)) return null; // not affine in y
+  const q = Symbolic.simplify(sub(e, mul(negP, v(yVar))));
+  if (containsVar(q, yVar)) return null; // sanity check
+  const p = Symbolic.simplify(neg(negP));
+  // Conservative, matching matchSeparable's philosophy: p/q must depend on
+  // no free variable other than xVar (an extra symbolic parameter, or a
+  // stray reference to yVar that survived simplification, both bail out).
+  const xOnly = new Set([xVar]);
+  if (!isPureFunctionOf(p, xOnly) || !isPureFunctionOf(q, xOnly)) return null;
+  return { p, q };
+}
+
+/**
+ * Tries to isolate `y` from `H(y) = rhs`, for the bounded set of shapes
+ * {@link integ} can actually produce when integrating a pure function of a
+ * single variable: `y` itself (h(y)=1 case), `ln(y)` (the `1/y -> ln y`
+ * rule), or `y^p/p` (the power rule). NOT a general symbolic equation
+ * solver -- returns `null` (surfacing as an implicit result) for anything
+ * else, which is an explicitly allowed outcome per solveOdeClosedForm's
+ * contract.
+ */
+function tryInvertForY(H: Expr, yVar: string, rhs: Expr): Expr | null {
+  if (H.type === "var" && H.name === yVar) return rhs;
+  if (H.type === "func" && H.name === "ln" && H.arg.type === "var" && H.arg.name === yVar) {
+    return fn("exp", rhs);
+  }
+  if (
+    H.type === "div" &&
+    H.right.type === "const" &&
+    H.left.type === "pow" &&
+    H.left.base.type === "var" &&
+    H.left.base.name === yVar &&
+    H.left.exp.type === "const" &&
+    H.left.exp.value === H.right.value
+  ) {
+    const p = H.right.value;
+    if (p === 0) return null;
+    return pow(mul(num(p), rhs), num(1 / p));
+  }
+  return null;
+}
+
+function solveSeparableOde(
+  sep: { g: Expr; h: Expr },
+  xVar: string,
+  yVar: string,
+  x0: number,
+  y0: number,
+): OdeClosedFormResult {
+  const invH = Symbolic.simplify(div(num(1), sep.h));
+  let H: Expr;
+  let G: Expr;
+  try {
+    H = Symbolic.simplify(integ(invH, yVar));
+    G = Symbolic.simplify(integ(sep.g, xVar));
+  } catch (err) {
+    if (err instanceof NotIntegrableError) throw new NoClosedFormError();
+    throw err;
+  }
+  const C = evalExpr(H, { [yVar]: y0 }) - evalExpr(G, { [xVar]: x0 });
+  const rhs = Symbolic.simplify(add(G, num(C)));
+  const explicitY = tryInvertForY(H, yVar, rhs);
+  if (explicitY) return { explicit: true, y: Symbolic.simplify(explicitY) };
+  return { explicit: false, implicitRelation: Symbolic.simplify(sub(H, rhs)) };
+}
+
+function solveLinearOde(
+  lin: { p: Expr; q: Expr },
+  xVar: string,
+  _yVar: string,
+  x0: number,
+  y0: number,
+): OdeClosedFormResult {
+  let integralP: Expr;
+  let mu: Expr;
+  let muQIntegral: Expr;
+  try {
+    integralP = Symbolic.simplify(integ(lin.p, xVar));
+    mu = Symbolic.simplify(fn("exp", integralP));
+    muQIntegral = Symbolic.simplify(integ(Symbolic.simplify(mul(mu, lin.q)), xVar));
+  } catch (err) {
+    if (err instanceof NotIntegrableError) throw new NoClosedFormError();
+    throw err;
+  }
+  // y = (∫μ(x)q(x)dx + C) / μ(x); solve for C from (x0, y0): C = y0*μ(x0) - ∫μq dx |_{x0}
+  const muAtX0 = evalExpr(mu, { [xVar]: x0 });
+  const muQIntegralAtX0 = evalExpr(muQIntegral, { [xVar]: x0 });
+  const C = y0 * muAtX0 - muQIntegralAtX0;
+  const y = Symbolic.simplify(div(add(muQIntegral, num(C)), mu));
+  return { explicit: true, y };
 }
 
 /** If `e` is `a·x + b` (a, b constant), return `{ a, b }`, else `null`. */
