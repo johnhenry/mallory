@@ -1,6 +1,6 @@
 {
   "name": "mallory-math",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Advanced college-level mathematics library — a modern TypeScript port of the Mallory ActionScript 3 library.",
   "type": "module",
   "exports": {
