@@ -111,3 +111,43 @@ test("hypothesis tests", () => {
   const [lo, hi] = HypothesisTests.confidenceIntervalMean([2, 4, 6, 8, 10], 0.95);
   assert.ok(lo < 6 && hi > 6, "CI contains the sample mean 6");
 });
+
+// --- Numerical: curve fitting ---
+
+test("levenbergMarquardt fits y = a*exp(b*x) to noiseless data", () => {
+  const trueA = 2.5;
+  const trueB = 0.3;
+  const model = (x: number, p: number[]) => (p[0] as number) * Math.exp((p[1] as number) * x);
+  const xs = [0, 1, 2, 3, 4, 5];
+  const ys = xs.map((x) => trueA * Math.exp(trueB * x));
+  const result = Numerical.levenbergMarquardt(model, [1, 0.1], xs, ys);
+  assert.ok(result.converged);
+  assert.ok(close(result.params[0] as number, trueA, 1e-4));
+  assert.ok(close(result.params[1] as number, trueB, 1e-4));
+  assert.ok(result.residualNorm < 1e-4);
+});
+
+test("levenbergMarquardt fits a Gaussian y = a*exp(-(x-b)^2/(2c^2)) to noiseless data", () => {
+  const trueA = 3;
+  const trueB = 1.5;
+  const trueC = 0.8;
+  const model = (x: number, p: number[]) =>
+    (p[0] as number) * Math.exp(-((x - (p[1] as number)) ** 2) / (2 * (p[2] as number) * (p[2] as number)));
+  const xs = [-1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3];
+  const ys = xs.map((x) => trueA * Math.exp(-((x - trueB) ** 2) / (2 * trueC * trueC)));
+  const result = Numerical.levenbergMarquardt(model, [2, 1, 1], xs, ys);
+  assert.ok(result.converged);
+  assert.ok(close(result.params[0] as number, trueA, 1e-3));
+  assert.ok(close(result.params[1] as number, trueB, 1e-3));
+  assert.ok(close(result.params[2] as number, trueC, 1e-3));
+});
+
+test("levenbergMarquardt also fits a model that's linear in its own parameters", () => {
+  const model = (x: number, p: number[]) => (p[0] as number) + (p[1] as number) * x;
+  const xs = [0, 1, 2, 3];
+  const ys = xs.map((x) => 2 + 3 * x);
+  const result = Numerical.levenbergMarquardt(model, [0, 0], xs, ys);
+  assert.ok(result.converged);
+  assert.ok(close(result.params[0] as number, 2, 1e-3));
+  assert.ok(close(result.params[1] as number, 3, 1e-3));
+});

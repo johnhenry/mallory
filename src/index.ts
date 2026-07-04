@@ -55,7 +55,7 @@ export {
   type SVDResult,
 } from "./MatrixMath.ts";
 export { NumberTheory } from "./NumberTheory.ts";
-export { Numerical, type ODEStep } from "./Numerical.ts";
+export { type LevenbergMarquardtResult, Numerical, type ODEStep } from "./Numerical.ts";
 export { Permutation } from "./Permutation.ts";
 export { Polygon } from "./Polygon.ts";
 export { PolynomialRing, parsePolynomial, polynomialToString } from "./PolynomialRing.ts";
@@ -77,6 +77,7 @@ export {
   type Expr,
   FUNCTION_NAMES,
   type FuncName,
+  IntegrationSingularityError,
   NonLinearSystemError,
   NotIntegrableError,
   SeriesDivergesError,

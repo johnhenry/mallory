@@ -4,6 +4,7 @@ import { Numerical } from "../src/Numerical.ts";
 import { Rational } from "../src/Rational.ts";
 import { Structure } from "../src/Structure.ts";
 import {
+  IntegrationSingularityError,
   NonLinearSystemError,
   SeriesDivergesError,
   SingularSystemError,
@@ -117,6 +118,21 @@ test("integrateDefinite negates when lower > upper", () => {
   assert.ok(Math.abs(backward + forward) < 1e-9);
 });
 
+test("integrateDefinite throws IntegrationSingularityError for a pole strictly inside the bounds", () => {
+  assert.throws(() => Symbolic.integrateDefinite("1/x", -1, 1), IntegrationSingularityError);
+  assert.throws(() => Symbolic.integrateDefinite("1/x^2", -1, 1), IntegrationSingularityError);
+  assert.throws(() => Symbolic.integrateDefinite("1/(x-0.5)", 0, 1), IntegrationSingularityError);
+});
+
+test("integrateDefinite does not false-positive on a legitimate steep-but-bounded peak", () => {
+  const expected = Numerical.adaptiveSimpson((x) => Math.exp(-100 * x * x), -2, 2);
+  assert.ok(Math.abs(Symbolic.integrateDefinite("exp(-100*x^2)", -2, 2) - expected) < 1e-6);
+});
+
+test("integrateDefinite does not flag a singularity outside the integration bounds", () => {
+  assert.ok(Math.abs(Symbolic.integrateDefinite("1/x", 1, 2) - Math.log(2)) < 1e-9);
+});
+
 test("solveSystem solves a 2x2 linear system", () => {
   const result = Symbolic.solveSystem(["2*x + y - 5", "x - y - 1"], ["x", "y"]);
   assert.ok(Math.abs(result.x - 2) < 1e-9);
@@ -187,13 +203,13 @@ test("sumSeries throws SeriesDivergesError for a genuinely divergent series", ()
   assert.throws(() => Symbolic.sumSeries("1/n", 1, Number.POSITIVE_INFINITY), SeriesDivergesError);
 });
 
-test("sumSeries throws (documented limitation) for a slowly-decaying but convergent series", () => {
-  // Sum 1/n^2 genuinely converges to pi^2/6, but the term-magnitude stopping
-  // rule isn't a valid tail-error proxy for polynomial decay, so this can't
-  // confirm convergence within the term budget -- verified empirically, not
-  // just theoretically. This is safe (never returns a wrong value) but
-  // incomplete; see the KNOWN LIMITATION note in sumSeries's JSDoc.
-  assert.throws(() => Symbolic.sumSeries("1/n^2", 1, Number.POSITIVE_INFINITY), SeriesDivergesError);
+test("sumSeries confirms a slowly-decaying (polynomial-tail) convergent series via the integral-test tail estimate", () => {
+  // Sum 1/n^2 genuinely converges to pi^2/6. The term-magnitude stopping
+  // rule alone can't confirm this within the term budget (individual terms
+  // shrink far slower than the tolerance requires) -- this is exactly what
+  // estimateConvergentTail's doubling-interval integral test recovers.
+  const result = Symbolic.sumSeries("1/n^2", 1, Number.POSITIVE_INFINITY);
+  assert.ok(Math.abs(result - Math.PI ** 2 / 6) < 1e-8);
 });
 
 test("cmp evaluates to 1/0 boolean-as-number for all six operators", () => {
@@ -931,6 +947,14 @@ test("solveSystemNumeric solves a 3-variable nonlinear system", () => {
 
 test("solveSystemNumeric throws SystemDidNotConvergeError for a system with no real solution", () => {
   assert.throws(() => Symbolic.solveSystemNumeric(["x^2+1"], ["x"]), SystemDidNotConvergeError);
+});
+
+test("solveSystemNumeric's damped step converges on the classic Newton-divergence case (atan(x)=0 from a distant guess)", () => {
+  // Plain undamped Newton on atan(x) diverges/oscillates without bound from
+  // any |x0| > ~1.39 (a textbook chaotic-Newton example) -- the backtracking
+  // line search is what keeps this convergent instead.
+  const result = Symbolic.solveSystemNumeric(["atan(x)"], ["x"], [2]);
+  assert.ok(Math.abs(result.x) < 1e-6);
 });
 
 test("solveSystemNumeric rejects a non-square system", () => {

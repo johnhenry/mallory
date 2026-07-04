@@ -326,6 +326,15 @@ export class SystemDidNotConvergeError extends Error {
   }
 }
 
+export class IntegrationSingularityError extends Error {
+  constructor(
+    message = "integrateDefinite: the integrand appears to have a singularity strictly inside the integration bounds.",
+  ) {
+    super(message);
+    this.name = "IntegrationSingularityError";
+  }
+}
+
 export class Symbolic {
   /** Parse an expression string such as `"sin(x^2) + 3*x"` into an AST. */
   static parse(input: string): Expr {
@@ -405,9 +414,18 @@ export class Symbolic {
    * `adaptiveSimpson`'s implementation), so reversed bounds just negate
    * the result, matching the standard ∫[a,b] = -∫[b,a] convention.
    *
-   * NON-GOAL: singularities strictly inside `(lower, upper)` -- e.g. `1/x`
-   * from -1 to 1 -- are not detected; the numeric fallback may silently
-   * return a finite-looking but meaningless value.
+   * Detects (best-effort) a singularity strictly inside `(lower, upper)` --
+   * e.g. `1/x` from -1 to 1 -- via {@link hasInteriorSingularity} and throws
+   * {@link IntegrationSingularityError} rather than silently returning a
+   * finite-looking but meaningless value, for both the closed-form path (a
+   * naive `F(upper) - F(lower)` is wrong across a pole even when `F` itself
+   * evaluates to finite numbers at both ends) and the numeric fallback.
+   *
+   * NON-GOAL: the detector is a bounded-effort numeric heuristic (see its
+   * own doc comment), not an analytic proof -- a sufficiently narrow
+   * singularity can in principle still slip through uniform sampling.
+   *
+   * @throws {IntegrationSingularityError} if an interior singularity is detected.
    */
   static integrateDefinite(
     expr: Expr | string,
@@ -417,6 +435,10 @@ export class Symbolic {
     env: Record<string, number> = {},
   ): number {
     const e = Symbolic.simplify(typeof expr === "string" ? Symbolic.parse(expr) : expr);
+    const probe = compileExpr(e);
+    if (hasInteriorSingularity((val: number) => probe({ ...env, [variable]: val }), lower, upper)) {
+      throw new IntegrationSingularityError();
+    }
     try {
       const F = Symbolic.simplify(integ(e, variable));
       const at = (val: number) => evalExpr(F, { ...env, [variable]: val });
@@ -659,14 +681,24 @@ export class Symbolic {
    * that rely on it, stay unchanged -- callers who want a nonlinear-capable
    * solve opt in explicitly.
    *
-   * NON-GOALS: plain (undamped) Newton steps, no line search/trust region,
-   * so a poor `initialGuess` can diverge even for a system with a real
-   * solution nearby a *better* guess; only ever finds one root near the
-   * initial guess, not every root of a system with multiple solutions.
+   * Each Newton step is damped by a backtracking line search: the full step
+   * is tried first, halved up to 20 times until it actually reduces the
+   * residual norm (or leaves the function's domain), rather than being
+   * taken unconditionally -- this is what keeps a merely-nearby (not
+   * exact) initial guess from overshooting past a real root, the concrete
+   * failure mode plain undamped Newton has no defense against.
+   *
+   * NON-GOALS: still no trust-region step (backtracking damps the step
+   * length but never changes its *direction* the way a trust region
+   * would), so a genuinely bad initial guess -- one on the wrong side of a
+   * local max/min of the residual, not just far from the root -- can still
+   * fail to converge; only ever finds one root near the initial guess, not
+   * every root of a system with multiple solutions.
    *
    * @throws {SystemDidNotConvergeError} if the residual doesn't shrink
-   *   below tolerance within the iteration budget, or evaluation produces a
-   *   non-finite value (e.g. leaving the function's domain) at some step.
+   *   below tolerance within the iteration budget, if evaluation produces a
+   *   non-finite value (e.g. leaving the function's domain) at some step,
+   *   or if no damped step size improves the residual at some iterate.
    */
   static solveSystemNumeric(
     equations: (Expr | string)[],
@@ -727,7 +759,27 @@ export class Symbolic {
       } catch {
         throw new SystemDidNotConvergeError("solveSystemNumeric: the Jacobian became singular during iteration.");
       }
-      x = x.map((xi, i) => xi + (delta[i] as number));
+
+      let stepScale = 1;
+      let accepted = false;
+      for (let backtrack = 0; backtrack < 20 && !accepted; backtrack++) {
+        const candidate = x.map((xi, i) => xi + stepScale * (delta[i] as number));
+        const fCandidate = evalF(candidate);
+        if (fCandidate.every(Number.isFinite)) {
+          const candidateNorm = Math.sqrt(fCandidate.reduce((sum, v) => sum + v * v, 0));
+          if (candidateNorm < residualNorm) {
+            x = candidate;
+            accepted = true;
+            break;
+          }
+        }
+        stepScale /= 2;
+      }
+      if (!accepted) {
+        throw new SystemDidNotConvergeError(
+          "solveSystemNumeric: no damped step improved the residual from the current iterate.",
+        );
+      }
     }
     throw new SystemDidNotConvergeError(
       `solveSystemNumeric: did not converge within ${maxIterations} iterations from the given initial guess.`,
@@ -789,20 +841,19 @@ export class Symbolic {
    * only, not arbitrary known series (no telescoping, no p-series/zeta
    * recognition).
    *
-   * KNOWN LIMITATION (verified, not just theoretical): the numeric
-   * fallback's stopping rule checks whether the *most recent term* is small,
-   * which is only a valid proxy for the true remaining tail when the series
-   * decays at least geometrically fast. For series with a slowly-decaying
-   * polynomial tail -- e.g. `Σ 1/n^2` (which genuinely converges, to
-   * `π²/6`) -- the individual terms shrink far slower than the tolerance
-   * requires within the term budget, so this throws `SeriesDivergesError`
-   * even though the series converges; it is NOT silently wrong (it never
-   * returns an inaccurate value), it simply can't confirm convergence for
-   * that class of series. A real tail-error estimator (e.g. an integral-test
-   * bound) would be needed to handle this correctly, and is out of scope.
+   * If the term-magnitude stopping rule alone can't confirm convergence
+   * within the term budget (e.g. `Σ 1/n^2`, a slowly-decaying polynomial
+   * tail the per-term check isn't a valid proxy for), a second pass tries
+   * an integral-test tail bound instead of immediately declaring divergence:
+   * see {@link estimateConvergentTail}'s own doc comment for how. This
+   * recovers the correct value for a genuinely convergent slow-decay
+   * series without weakening the divergence check for a genuinely
+   * divergent one (e.g. `Σ 1/n`) -- the tail estimator itself confirms
+   * whether the integral is actually shrinking before trusting it.
    *
-   * @throws {SeriesDivergesError} if the numeric fallback can't confirm
-   *   convergence within its term budget, or detects the terms growing.
+   * @throws {SeriesDivergesError} if the numeric fallback (including the
+   *   integral-test tail estimate) still can't confirm convergence within
+   *   its budget, or detects the terms growing.
    */
   static sumSeries(
     expr: Expr | string,
@@ -1847,6 +1898,65 @@ function tryUSubstitution(e: Expr, x: string): Expr | null {
 }
 
 /**
+ * Best-effort numeric detector for a pole strictly inside `(lower, upper)`
+ * (used by {@link Symbolic.integrateDefinite}). Distinguishes a genuine
+ * pole from a legitimate-but-steep bounded peak (e.g. a narrow Gaussian) by
+ * repeatedly zooming a sampling window in on the current sample-max and
+ * checking whether the observed maximum keeps growing as the window
+ * narrows: near a true `1/(x-c)`-style singularity the maximum keeps
+ * roughly multiplying each zoom-in pass (it grows as 1/distance-to-pole,
+ * and each pass shrinks that distance by a consistent factor), whereas a
+ * bounded peak's maximum converges and stops growing once the window is
+ * smaller than the peak's own width. A single fixed-resolution sampling
+ * pass can't tell these apart on its own -- a steep peak and a nearby-but-
+ * finite sample near a pole can look identical at one resolution.
+ *
+ * Deliberately excludes a small margin (1% of the interval width) at each
+ * end from every pass's sampling and zoom range -- an *endpoint* singularity
+ * (e.g. `1/sqrt(x)` from 0 to 1) is the classic convergent improper
+ * integral of the first kind, a legitimate and common case the
+ * "`lower`/`upper` themselves" NON-GOAL wording deliberately excludes, and
+ * without this margin the zoom would immediately walk right up to the
+ * endpoint and flag it as if it were interior.
+ *
+ * NON-GOAL: this is a bounded-effort heuristic (6 zoom passes, 64 samples
+ * each), not an analytic proof -- a sufficiently narrow singularity that
+ * the first pass's coarse grid steps entirely over (landing nowhere near
+ * it) can still be missed, since each pass zooms toward the *current*
+ * sample-max rather than searching the whole interval again.
+ */
+function hasInteriorSingularity(f: (x: number) => number, lower: number, upper: number): boolean {
+  const lo = Math.min(lower, upper);
+  const hi = Math.max(lower, upper);
+  const margin = (hi - lo) * 0.01;
+  let a = lo + margin;
+  let b = hi - margin;
+  const SAMPLES = 64;
+  let prevMax = -Infinity;
+  for (let pass = 0; pass < 6; pass++) {
+    let maxAbs = -Infinity;
+    let argmax = (a + b) / 2;
+    for (let i = 1; i < SAMPLES; i++) {
+      const x = a + (i / SAMPLES) * (b - a);
+      const y = f(x);
+      if (!Number.isFinite(y)) return true;
+      const m = Math.abs(y);
+      if (m > maxAbs) {
+        maxAbs = m;
+        argmax = x;
+      }
+    }
+    if (pass > 0 && maxAbs > prevMax * 4) return true;
+    prevMax = maxAbs;
+    const width = (b - a) / SAMPLES;
+    a = Math.max(lo + margin, argmax - width * 2);
+    b = Math.min(hi - margin, argmax + width * 2);
+    if (b - a < 1e-9) return true;
+  }
+  return false;
+}
+
+/**
  * Symbolic anti-derivative dispatcher: tries the elementary rules in
  * {@link integRules} first, falling back to one attempt at
  * {@link tryUSubstitution} when those rules throw {@link NotIntegrableError}.
@@ -1925,9 +2035,12 @@ function tryGeometricSeriesClosedForm(
 /**
  * Numeric partial-sum fallback for {@link Symbolic.sumSeries} when no closed
  * form is recognized: sums terms until several consecutive terms fall below
- * a tolerance relative to the running total, or throws {@link
- * SeriesDivergesError} if the term budget is exhausted or the terms are
- * visibly growing instead of shrinking.
+ * a tolerance relative to the running total. If that per-term check alone
+ * doesn't confirm convergence within the term budget, tries
+ * {@link estimateConvergentTail} on the remainder before throwing
+ * {@link SeriesDivergesError} -- which still throws if the terms are
+ * visibly growing instead of shrinking, or if neither check confirms
+ * convergence.
  */
 function sumSeriesNumeric(e: Expr, variable: string, from: number, env: Record<string, number>): number {
   const f = compileExpr(e);
@@ -1954,9 +2067,57 @@ function sumSeriesNumeric(e: Expr, variable: string, from: number, env: Record<s
       );
     }
   }
+  const tail = estimateConvergentTail((x: number) => f({ ...env, [variable]: x }), from + maxTerms);
+  if (tail !== null) return total + tail;
   throw new SeriesDivergesError(
     `sumSeries: did not converge to within tolerance after ${maxTerms} terms -- the series may converge too slowly to sum numerically, or may not converge at all.`,
   );
+}
+
+/**
+ * Integral-test tail estimate for `Σ_{k=start}^∞ f(k)`, used by
+ * {@link sumSeriesNumeric} once the per-term stopping rule alone can't
+ * confirm convergence within its term budget (the case a per-term check
+ * structurally can't handle: a polynomially-decaying tail like `1/n^2`,
+ * where individual terms shrink far slower than any fixed tolerance
+ * requires, even though the tail itself is provably small).
+ *
+ * Estimates the tail by numerically integrating `f` over successively
+ * doubling intervals `[start, 2·start], [2·start, 4·start], ...` (each via
+ * {@link Numerical.adaptiveSimpson}) and accumulating them, rather than
+ * attempting one improper integral to infinity. This doubling scheme is
+ * itself the confirmation of convergence, not just a computation of the
+ * answer: for `f(x) ~ C/x^p` with `p > 1`, each doubling's integral
+ * contribution shrinks geometrically (by a factor of `2^(p-1)`) as the
+ * interval moves outward, so the increments visibly shrinking toward zero
+ * *is* the integral test passing; for a genuinely divergent tail (e.g.
+ * `f(x) = 1/x`, harmonic), each doubling contributes very close to the same
+ * amount (`∫ 1/x dx` over `[N, 2N]` is `ln 2` regardless of `N`) and never
+ * shrinks, so the loop exhausts its budget and returns `null` -- the
+ * existing divergence behavior for that case is unchanged.
+ *
+ * Returns `null` (never a wrong number) whenever the tail can't be
+ * confirmed convergent, so the caller falls through to its own
+ * `SeriesDivergesError`.
+ */
+function estimateConvergentTail(f: (x: number) => number, start: number): number | null {
+  let lo = start;
+  let width = Math.max(1, start);
+  let tail = 0;
+  let prevIncrement = Number.POSITIVE_INFINITY;
+  const MAX_DOUBLINGS = 40;
+  for (let d = 0; d < MAX_DOUBLINGS; d++) {
+    const hi = lo + width;
+    const increment = Numerical.adaptiveSimpson(f, lo, hi);
+    if (!Number.isFinite(increment)) return null;
+    tail += increment;
+    if (d > 5 && Math.abs(increment) > Math.abs(prevIncrement) * 1.5) return null; // growing, not shrinking -- doesn't confirm convergence
+    if (Math.abs(increment) < 1e-13 * Math.max(1, Math.abs(tail)) && d > 2) return tail;
+    prevIncrement = increment;
+    lo = hi;
+    width *= 2;
+  }
+  return null;
 }
 
 /** If `e` is `a·x^2 + b·x + c` (a, b, c constant), return `{ a, b, c }`, else `null`. */

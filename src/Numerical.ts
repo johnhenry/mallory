@@ -1,13 +1,18 @@
 /**
  * Numerical — numerical-methods toolkit: root finding (bisection, secant,
  * Newton, Brent), quadrature (composite trapezoid/Simpson, adaptive Simpson,
- * Gauss-Legendre) and ODE integration (Euler, RK4 for systems). Complements the
- * simpler `integrateN`/`differentiateN`/`solveN` in {@link RealMath}.
+ * Gauss-Legendre), ODE integration (Euler, RK4 for systems), and nonlinear
+ * curve fitting (Levenberg-Marquardt). Complements the simpler
+ * `integrateN`/`differentiateN`/`solveN` in {@link RealMath}.
  */
+
+import { MatrixMath } from "./MatrixMath.ts";
 
 type Fn = (x: number) => number;
 /** A first-order ODE system `dy/dt = f(t, y)`. */
 type ODE = (t: number, y: number[]) => number[];
+/** A parametric model `y = model(x, params)`, e.g. `(x, [a, b]) => a * Math.exp(b * x)`. */
+type Model = (x: number, params: number[]) => number;
 
 // 5-point Gauss-Legendre nodes/weights on [-1, 1].
 const GL5_NODES = [0, -0.5384693101056831, 0.5384693101056831, -0.906179845938664, 0.906179845938664];
@@ -18,6 +23,14 @@ const GL5_WEIGHTS = [
 export interface ODEStep {
   t: number;
   y: number[];
+}
+
+export interface LevenbergMarquardtResult {
+  params: number[];
+  /** sqrt of the sum of squared residuals at `params`. */
+  residualNorm: number;
+  iterations: number;
+  converged: boolean;
 }
 
 export class Numerical {
@@ -233,5 +246,116 @@ export class Numerical {
       steps.push({ t, y: [...y] });
     }
     return steps;
+  }
+
+  // -- curve fitting ---------------------------------------------------------
+
+  /**
+   * Nonlinear least-squares curve fitting via Levenberg-Marquardt: finds
+   * `params` minimizing `sum((model(xs[i], params) - ys[i])^2)`, starting
+   * from `params0`. The Jacobian of `model` with respect to `params` is
+   * estimated by central finite differences (generalizes `newton`'s
+   * optional-df-else-numeric-derivative convention to a vector of
+   * parameters). `lambda` is the Marquardt damping factor -- scaled against
+   * each parameter's own row of `JᵀJ` (not a plain identity, the original
+   * Levenberg damping) so differently-scaled parameters damp comparably --
+   * grown 10x on a rejected step (safer, more like gradient descent) and
+   * shrunk 10x on an accepted one (faster, more like Gauss-Newton near the
+   * optimum).
+   *
+   * `tolerance` bounds the sum of squared residuals directly (not RMS, not
+   * relative change) -- simple and matches this file's other tolerance
+   * parameters being on the quantity being driven to zero, not a normalized
+   * version of it.
+   *
+   * NON-GOALS: no bounds/constraints on `params`; only ever finds one local
+   * minimum near `params0`, the same "no guarantee of the global optimum"
+   * caveat as `newton`. Returns `converged: false` (with the best `params`
+   * found) rather than throwing when damping grows without bound before an
+   * improving step is found -- a model/data pairing that can't be fit
+   * usefully isn't a numerical error the way a divergent root-find is.
+   */
+  static levenbergMarquardt(
+    model: Model,
+    params0: number[],
+    xs: number[],
+    ys: number[],
+    options: { lambda0?: number; tolerance?: number; maxIterations?: number } = {},
+  ): LevenbergMarquardtResult {
+    const { lambda0 = 1e-2, tolerance = 1e-10, maxIterations = 200 } = options;
+    const n = params0.length;
+    const m = xs.length;
+    let params = [...params0];
+    let lambda = lambda0;
+
+    function residuals(p: number[]): number[] {
+      return xs.map((x, i) => model(x, p) - ys[i]);
+    }
+    function sumSq(r: number[]): number {
+      return r.reduce((s, v) => s + v * v, 0);
+    }
+    function jacobian(p: number[]): number[][] {
+      const J: number[][] = Array.from({ length: m }, () => new Array(n).fill(0));
+      for (let j = 0; j < n; j++) {
+        const step = 1e-6 * (Math.abs(p[j]) + 1e-6);
+        const pPlus = [...p];
+        const pMinus = [...p];
+        pPlus[j] += step;
+        pMinus[j] -= step;
+        const rPlus = residuals(pPlus);
+        const rMinus = residuals(pMinus);
+        for (let i = 0; i < m; i++) J[i][j] = (rPlus[i] - rMinus[i]) / (2 * step);
+      }
+      return J;
+    }
+
+    let r = residuals(params);
+    let currentSumSq = sumSq(r);
+    let iterations = 0;
+    let converged = currentSumSq < tolerance;
+
+    for (; iterations < maxIterations && !converged; iterations++) {
+      const J = jacobian(params);
+      const JtJ: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+      const Jtr: number[] = new Array(n).fill(0);
+      for (let a = 0; a < n; a++) {
+        for (let b = 0; b < n; b++) {
+          let s = 0;
+          for (let i = 0; i < m; i++) s += (J[i] as number[])[a] * (J[i] as number[])[b];
+          (JtJ[a] as number[])[b] = s;
+        }
+        let s2 = 0;
+        for (let i = 0; i < m; i++) s2 += (J[i] as number[])[a] * r[i];
+        Jtr[a] = s2;
+      }
+
+      let accepted = false;
+      for (let tries = 0; tries < 30 && !accepted; tries++) {
+        const A = JtJ.map((row, a) => row.map((v, b) => v + (a === b ? lambda * (JtJ[a] as number[])[a] : 0)));
+        let delta: number[];
+        try {
+          delta = [...MatrixMath.solve(A, Jtr.map((v) => -v))];
+        } catch {
+          lambda *= 10;
+          continue;
+        }
+        const candidate = params.map((p, i) => p + (delta[i] as number));
+        const rCandidate = residuals(candidate);
+        const candidateSumSq = sumSq(rCandidate);
+        if (Number.isFinite(candidateSumSq) && candidateSumSq < currentSumSq) {
+          params = candidate;
+          r = rCandidate;
+          currentSumSq = candidateSumSq;
+          lambda = Math.max(lambda / 10, 1e-12);
+          accepted = true;
+        } else {
+          lambda *= 10;
+        }
+      }
+      if (!accepted) break;
+      if (currentSumSq < tolerance) converged = true;
+    }
+
+    return { params, residualNorm: Math.sqrt(currentSumSq), iterations, converged };
   }
 }
