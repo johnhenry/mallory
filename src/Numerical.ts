@@ -263,17 +263,25 @@ export class Numerical {
    * shrunk 10x on an accepted one (faster, more like Gauss-Newton near the
    * optimum).
    *
-   * `tolerance` bounds the sum of squared residuals directly (not RMS, not
-   * relative change) -- simple and matches this file's other tolerance
-   * parameters being on the quantity being driven to zero, not a normalized
-   * version of it.
+   * `converged` is true once *either* the sum of squared residuals itself
+   * drops below `tolerance` (a near-exact fit) *or* at least one step has
+   * improved it and further steps stop improving it meaningfully (no
+   * damped step improves it at all, or the relative improvement has
+   * dropped below 1e-12) -- deliberately not "the residual itself is near
+   * zero" as the only success criterion, since real (noisy) data's true
+   * best fit essentially never drives the residual anywhere near
+   * `tolerance`, even when the fit has genuinely converged to the best
+   * achievable parameters; requiring near-zero residual would wrongly
+   * report `converged: false` for every realistic (as opposed to
+   * synthetic/noiseless) dataset.
    *
    * NON-GOALS: no bounds/constraints on `params`; only ever finds one local
    * minimum near `params0`, the same "no guarantee of the global optimum"
    * caveat as `newton`. Returns `converged: false` (with the best `params`
-   * found) rather than throwing when damping grows without bound before an
-   * improving step is found -- a model/data pairing that can't be fit
-   * usefully isn't a numerical error the way a divergent root-find is.
+   * found, not a throw) when no step ever improved on `params0` at all --
+   * a model/data pairing that can't be fit usefully isn't a numerical error
+   * the way a divergent root-find is, but is still worth flagging distinctly
+   * from "converged to some local optimum, however good or mediocre."
    */
   static levenbergMarquardt(
     model: Model,
@@ -312,9 +320,10 @@ export class Numerical {
     let r = residuals(params);
     let currentSumSq = sumSq(r);
     let iterations = 0;
-    let converged = currentSumSq < tolerance;
+    let everImproved = false;
 
-    for (; iterations < maxIterations && !converged; iterations++) {
+    for (; iterations < maxIterations; iterations++) {
+      if (currentSumSq < tolerance) break; // a near-exact fit -- stop early regardless of real data's usual nonzero floor below
       const J = jacobian(params);
       const JtJ: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
       const Jtr: number[] = new Array(n).fill(0);
@@ -329,6 +338,7 @@ export class Numerical {
         Jtr[a] = s2;
       }
 
+      const prevSumSq = currentSumSq;
       let accepted = false;
       for (let tries = 0; tries < 30 && !accepted; tries++) {
         const A = JtJ.map((row, a) => row.map((v, b) => v + (a === b ? lambda * (JtJ[a] as number[])[a] : 0)));
@@ -353,14 +363,28 @@ export class Numerical {
           currentSumSq = candidateSumSq;
           lambda = Math.max(lambda / 10, 1e-12);
           accepted = true;
+          everImproved = true;
         } else {
           lambda *= 10;
         }
       }
+      // Either terminating condition below is a real local minimum, not a
+      // failure: no damped step improves further (`!accepted`), or the ones
+      // that do are only shaving off numerically-insignificant amounts
+      // (`relativeImprovement` near zero) -- real (noisy) data's best fit
+      // essentially never drives `currentSumSq` itself near zero the way
+      // `tolerance` alone would require, so treating only *that* as success
+      // would wrongly call every noisy-data fit unconverged.
       if (!accepted) break;
-      if (currentSumSq < tolerance) converged = true;
+      const relativeImprovement = (prevSumSq - currentSumSq) / Math.max(1, prevSumSq);
+      if (relativeImprovement < 1e-12) break;
     }
 
-    return { params, residualNorm: Math.sqrt(currentSumSq), iterations, converged };
+    return {
+      params,
+      residualNorm: Math.sqrt(currentSumSq),
+      iterations,
+      converged: everImproved || currentSumSq < tolerance,
+    };
   }
 }

@@ -151,3 +151,17 @@ test("levenbergMarquardt also fits a model that's linear in its own parameters",
   assert.ok(close(result.params[0] as number, 2, 1e-3));
   assert.ok(close(result.params[1] as number, 3, 1e-3));
 });
+
+test("levenbergMarquardt reports converged:true for realistic (noisy, non-exact-fit) data", () => {
+  // This data has real scatter (not generated from the model exactly), so the
+  // best-fit residual is genuinely nonzero -- converged must not require the
+  // residual itself to be near zero, only that the iteration found a local
+  // optimum (no further step improves it).
+  const model = (x: number, p: number[]) => (p[0] as number) * Math.exp((p[1] as number) * x);
+  const xs = [1, 2, 3, 4, 5];
+  const ys = [2.1, 3.9, 6.2, 7.8, 10.1];
+  const result = Numerical.levenbergMarquardt(model, [1, 0.1], xs, ys);
+  assert.ok(result.converged);
+  assert.ok(result.residualNorm > 1e-6, "a real dataset's best fit has a genuinely nonzero residual");
+  assert.ok(result.residualNorm < 2, "but still a reasonably good fit, not a divergence");
+});
