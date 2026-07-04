@@ -234,6 +234,48 @@ const collectFreeVars = (e: Expr, found: Set<string> = new Set()): Set<string> =
   }
 };
 
+export type Assumption = "positive" | "negative" | "nonnegative" | "nonpositive" | "nonzero";
+
+/** See {@link Symbolic.simplifyAssuming} -- the tree-walk applying each assumption's specific rewrite patterns. */
+function applyAssumptions(e: Expr, assumptions: Record<string, Assumption>): Expr {
+  const isNonneg = (name: string) => assumptions[name] === "positive" || assumptions[name] === "nonnegative";
+  const isNonpos = (name: string) => assumptions[name] === "negative" || assumptions[name] === "nonpositive";
+
+  function walk(node: Expr): Expr {
+    switch (node.type) {
+      case "const":
+      case "var":
+        return node;
+      case "neg":
+        return { type: "neg", arg: walk(node.arg) };
+      case "func": {
+        const arg = walk(node.arg);
+        if (node.name === "sqrt" && arg.type === "pow" && isConst(arg.exp, 2) && arg.base.type === "var") {
+          if (isNonneg(arg.base.name)) return arg.base;
+          if (isNonpos(arg.base.name)) return { type: "neg", arg: arg.base };
+        }
+        if (node.name === "abs" && arg.type === "var") {
+          if (isNonneg(arg.name)) return arg;
+          if (isNonpos(arg.name)) return { type: "neg", arg };
+        }
+        return { type: "func", name: node.name, arg };
+      }
+      case "pow":
+        return { type: "pow", base: walk(node.base), exp: walk(node.exp) };
+      case "piecewise":
+        return {
+          type: "piecewise",
+          branches: node.branches.map((br) => ({ cond: walk(br.cond), expr: walk(br.expr) })),
+          otherwise: walk(node.otherwise),
+        };
+      default:
+        return { ...node, left: walk(node.left), right: walk(node.right) };
+    }
+  }
+
+  return walk(e);
+}
+
 export class NotIntegrableError extends Error {
   constructor(message = "This expression cannot be integrated by the elementary rules implemented.") {
     super(message);
@@ -277,6 +319,13 @@ export class UndeclaredVariableError extends Error {
   }
 }
 
+export class SystemDidNotConvergeError extends Error {
+  constructor(message = "solveSystemNumeric: Newton's method did not converge from the given initial guess.") {
+    super(message);
+    this.name = "SystemDidNotConvergeError";
+  }
+}
+
 export class Symbolic {
   /** Parse an expression string such as `"sin(x^2) + 3*x"` into an AST. */
   static parse(input: string): Expr {
@@ -310,6 +359,28 @@ export class Symbolic {
       e = next;
     }
     return e;
+  }
+
+  /**
+   * Simplifies `expr` with additional domain knowledge about specific
+   * variables (e.g. "x is positive"), unlocking simplifications that aren't
+   * sound in general -- `sqrt(x^2) -> x` requires x >= 0 (otherwise the
+   * correct simplification is |x|), and `abs(x) -> x`/`-x` requires knowing
+   * x's sign. Runs ordinary `simplify` first, then a second tree-walk pass
+   * applying the specific patterns each assumption unlocks, then
+   * `simplify`s once more in case a rewrite exposes a further reduction
+   * (e.g. `sqrt(x^2)*2` -> `x*2` -> could combine with a like term
+   * elsewhere).
+   *
+   * NON-GOALS: a small, explicit pattern set (`sqrt(x^2)`, `abs(x)`), not a
+   * general constraint-propagation/theorem-proving simplifier; assumptions
+   * are a flat per-variable fact (`Assumption`), not compound/derived
+   * assumptions (e.g. "x+y is positive" isn't expressible).
+   */
+  static simplifyAssuming(expr: Expr | string, assumptions: Record<string, Assumption>): Expr {
+    const simplified = Symbolic.simplify(expr);
+    const rewritten = applyAssumptions(simplified, assumptions);
+    return Symbolic.simplify(rewritten);
   }
 
   /** Symbolic anti-derivative (elementary rules; throws {@link NotIntegrableError} otherwise). */
@@ -574,6 +645,130 @@ export class Symbolic {
       result[name] = x[i] as number;
     });
     return result;
+  }
+
+  /**
+   * Numerically solves a square system of (possibly nonlinear) equations
+   * via multivariable Newton's method with a finite-difference Jacobian,
+   * starting from `initialGuess` (default: all 1s). Unlike `solveSystem`,
+   * this never throws `NonLinearSystemError` -- a genuinely linear system
+   * just converges in one Newton step, since Newton's method reduces to a
+   * single linear solve whenever the Jacobian is already constant. Added as
+   * a separate opt-in method (not `solveSystem`'s new default behavior) so
+   * `solveSystem`'s existing "throw on nonlinear" contract, and the tests
+   * that rely on it, stay unchanged -- callers who want a nonlinear-capable
+   * solve opt in explicitly.
+   *
+   * NON-GOALS: plain (undamped) Newton steps, no line search/trust region,
+   * so a poor `initialGuess` can diverge even for a system with a real
+   * solution nearby a *better* guess; only ever finds one root near the
+   * initial guess, not every root of a system with multiple solutions.
+   *
+   * @throws {SystemDidNotConvergeError} if the residual doesn't shrink
+   *   below tolerance within the iteration budget, or evaluation produces a
+   *   non-finite value (e.g. leaving the function's domain) at some step.
+   */
+  static solveSystemNumeric(
+    equations: (Expr | string)[],
+    variables: string[],
+    initialGuess?: number[],
+  ): Record<string, number> {
+    const exprs = equations.map((eq) => (typeof eq === "string" ? Symbolic.parse(eq) : eq));
+    if (exprs.length !== variables.length) {
+      throw new Error(
+        `solveSystemNumeric: expected ${variables.length} equations for ${variables.length} variables, got ${exprs.length}.`,
+      );
+    }
+    const n = variables.length;
+    const compiled = exprs.map((e) => Symbolic.compile(e));
+    const evalF = (point: number[]): number[] => {
+      const env: Record<string, number> = {};
+      variables.forEach((v, i) => {
+        env[v] = point[i] as number;
+      });
+      return compiled.map((f) => f(env));
+    };
+
+    let x = initialGuess ? [...initialGuess] : new Array(n).fill(1);
+    const h = 1e-6;
+    const maxIterations = 100;
+    const tolerance = 1e-10;
+
+    for (let iter = 0; iter < maxIterations; iter++) {
+      const fx = evalF(x);
+      if (!fx.every(Number.isFinite)) {
+        throw new SystemDidNotConvergeError("solveSystemNumeric: evaluation produced a non-finite value.");
+      }
+      const residualNorm = Math.sqrt(fx.reduce((sum, v) => sum + v * v, 0));
+      if (residualNorm < tolerance) {
+        const result: Record<string, number> = {};
+        variables.forEach((name, i) => {
+          result[name] = x[i] as number;
+        });
+        return result;
+      }
+
+      const jacobian: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+      for (let col = 0; col < n; col++) {
+        const perturbed = [...x];
+        perturbed[col] = (perturbed[col] as number) + h;
+        const fPerturbed = evalF(perturbed);
+        for (let row = 0; row < n; row++) {
+          (jacobian[row] as number[])[col] = ((fPerturbed[row] as number) - (fx[row] as number)) / h;
+        }
+      }
+
+      let delta: number[];
+      try {
+        delta = MatrixMath.solve(
+          jacobian,
+          fx.map((v) => -v),
+        );
+      } catch {
+        throw new SystemDidNotConvergeError("solveSystemNumeric: the Jacobian became singular during iteration.");
+      }
+      x = x.map((xi, i) => xi + (delta[i] as number));
+    }
+    throw new SystemDidNotConvergeError(
+      `solveSystemNumeric: did not converge within ${maxIterations} iterations from the given initial guess.`,
+    );
+  }
+
+  /**
+   * Numerically spot-checks that `candidate` is (approximately) a root of
+   * `equation` (the same "implicitly equals zero" convention `solve` uses):
+   * substitutes `candidate` for `variable` and checks the result is near
+   * zero. A lightweight reviewer/verification pass over a CAS result, not a
+   * proof of exactness -- catches an outright wrong candidate (e.g. from a
+   * heuristic search or a downstream bug) before it's presented, using the
+   * same probe-and-compare technique this codebase's own test suite already
+   * relies on for anything heuristic.
+   */
+  static verifySolution(
+    equation: Expr | string,
+    variable: string,
+    candidate: number,
+    env: Record<string, number> = {},
+    tolerance = 1e-6,
+  ): boolean {
+    const value = Symbolic.evaluate(equation, { ...env, [variable]: candidate });
+    return Number.isFinite(value) && Math.abs(value) < tolerance;
+  }
+
+  /**
+   * The `solveSystem`/`solveSystemNumeric` analog of {@link verifySolution}:
+   * substitutes `solution` into every equation and requires all of them to
+   * land near zero.
+   */
+  static verifySystemSolution(
+    equations: (Expr | string)[],
+    solution: Record<string, number>,
+    tolerance = 1e-6,
+  ): boolean {
+    return equations.every((eq) => {
+      const value = Symbolic.evaluate(eq, solution);
+      return Number.isFinite(value) && Math.abs(value) < tolerance;
+    });
   }
 
   /**

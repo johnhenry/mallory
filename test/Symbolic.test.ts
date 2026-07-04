@@ -8,6 +8,7 @@ import {
   SeriesDivergesError,
   SingularSystemError,
   Symbolic,
+  SystemDidNotConvergeError,
   UndeclaredVariableError,
 } from "../src/Symbolic.ts";
 
@@ -895,4 +896,80 @@ test("evaluate/compile with declaredVariables: strict mode throws on an undeclar
   // Default (no options) behavior is unchanged: missing env entries silently resolve to NaN.
   assert.ok(Number.isNaN(Symbolic.evaluate("a*x", { x: 2 })));
   assert.equal(Symbolic.evaluate("a*x", { x: 2, a: 3 }, { declaredVariables: ["a", "x"] }), 6);
+});
+
+test("solveSystemNumeric solves a genuinely nonlinear system (circle x^2+y^2=25 meets line x-y=1)", () => {
+  const result = Symbolic.solveSystemNumeric(["x^2+y^2-25", "x-y-1"], ["x", "y"], [4, 3]);
+  // Exact intersection points: x-y=1 -> x=y+1; (y+1)^2+y^2=25 -> 2y^2+2y-24=0 -> y=3 or y=-4.
+  // Starting near (4,3) should converge to (4,3).
+  assert.ok(Math.abs(result.x - 4) < 1e-6);
+  assert.ok(Math.abs(result.y - 3) < 1e-6);
+  // Verify by substitution, not just proximity to the expected point.
+  assert.ok(Math.abs(result.x ** 2 + result.y ** 2 - 25) < 1e-6);
+  assert.ok(Math.abs(result.x - result.y - 1) < 1e-6);
+});
+
+test("solveSystemNumeric also solves a plain linear system (Newton reduces to one step)", () => {
+  const result = Symbolic.solveSystemNumeric(["2*x + y - 5", "x - y - 1"], ["x", "y"]);
+  assert.ok(Math.abs(result.x - 2) < 1e-9);
+  assert.ok(Math.abs(result.y - 1) < 1e-9);
+});
+
+test("solveSystemNumeric throws SystemDidNotConvergeError for a system with no real solution", () => {
+  assert.throws(() => Symbolic.solveSystemNumeric(["x^2+1"], ["x"]), SystemDidNotConvergeError);
+});
+
+test("solveSystemNumeric rejects a non-square system", () => {
+  assert.throws(() => Symbolic.solveSystemNumeric(["x + y - 1"], ["x", "y"]));
+});
+
+test("verifySolution accepts a genuine root and rejects a wrong candidate", () => {
+  assert.ok(Symbolic.verifySolution("x^2-4", "x", 2));
+  assert.ok(Symbolic.verifySolution("x^2-4", "x", -2));
+  assert.ok(!Symbolic.verifySolution("x^2-4", "x", 3));
+});
+
+test("verifySolution honors env for free constants alongside the solved variable", () => {
+  assert.ok(Symbolic.verifySolution("k*x-6", "x", 2, { k: 3 }));
+  assert.ok(!Symbolic.verifySolution("k*x-6", "x", 2, { k: 4 }));
+});
+
+test("verifySystemSolution requires every equation to zero out, not just one", () => {
+  const goodSolution = { x: 2, y: 1 };
+  assert.ok(Symbolic.verifySystemSolution(["2*x + y - 5", "x - y - 1"], goodSolution));
+  assert.ok(!Symbolic.verifySystemSolution(["2*x + y - 5", "x - y - 1"], { x: 2, y: 2 }));
+});
+
+test("simplifyAssuming reduces sqrt(x^2) to x when x is assumed positive/nonnegative", () => {
+  assert.equal(Symbolic.toString(Symbolic.simplifyAssuming("sqrt(x^2)", { x: "positive" })), "x");
+  assert.equal(Symbolic.toString(Symbolic.simplifyAssuming("sqrt(x^2)", { x: "nonnegative" })), "x");
+});
+
+test("simplifyAssuming reduces sqrt(x^2) to -x when x is assumed negative/nonpositive", () => {
+  assert.equal(Symbolic.toString(Symbolic.simplifyAssuming("sqrt(x^2)", { x: "negative" })), "-x");
+  assert.equal(Symbolic.toString(Symbolic.simplifyAssuming("sqrt(x^2)", { x: "nonpositive" })), "-x");
+});
+
+test("simplifyAssuming leaves sqrt(x^2) unchanged with no assumption (matches plain simplify)", () => {
+  assert.equal(
+    Symbolic.toString(Symbolic.simplifyAssuming("sqrt(x^2)", {})),
+    Symbolic.toString(Symbolic.simplify("sqrt(x^2)")),
+  );
+});
+
+test("simplifyAssuming reduces abs(x) to x or -x per the sign assumption", () => {
+  assert.equal(Symbolic.toString(Symbolic.simplifyAssuming("abs(x)", { x: "positive" })), "x");
+  assert.equal(Symbolic.toString(Symbolic.simplifyAssuming("abs(x)", { x: "negative" })), "-x");
+});
+
+test("simplifyAssuming applies its rewrite inside a larger expression, then re-simplifies", () => {
+  // sqrt(x^2) + 3*x -> x + 3*x -> 4*x, once x is assumed positive.
+  assert.equal(Symbolic.evaluate(Symbolic.simplifyAssuming("sqrt(x^2) + 3*x", { x: "positive" }), { x: 2 }), 8);
+});
+
+test("simplifyAssuming does not affect unrelated variables", () => {
+  assert.equal(
+    Symbolic.toString(Symbolic.simplifyAssuming("sqrt(y^2)", { x: "positive" })),
+    Symbolic.toString(Symbolic.simplify("sqrt(y^2)")),
+  );
 });

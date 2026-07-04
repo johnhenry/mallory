@@ -70,6 +70,7 @@ export { StringEvaluator } from "./StringEvaluator.ts";
 // Algebraic structures & geometry
 export { Structure, type StructureOptions } from "./Structure.ts";
 export {
+  type Assumption,
   type BinaryFuncName,
   type CmpOp,
   type DifferentiationStep,
@@ -81,6 +82,7 @@ export {
   SeriesDivergesError,
   SingularSystemError,
   Symbolic,
+  SystemDidNotConvergeError,
   UndeclaredVariableError,
 } from "./Symbolic.ts";
 export { Type, TypeTag } from "./Type.ts";
