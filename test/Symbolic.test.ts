@@ -915,6 +915,20 @@ test("solveSystemNumeric also solves a plain linear system (Newton reduces to on
   assert.ok(Math.abs(result.y - 1) < 1e-9);
 });
 
+test("solveSystemNumeric solves a 3-variable nonlinear system", () => {
+  // x=1, y=2, z=3 is the unique nearby root (nonsingular Jacobian there, verified
+  // separately) of this triangular-chained system: x -> y via eq1, y -> z via
+  // eq2, x&z tied together independently via eq3.
+  const result = Symbolic.solveSystemNumeric(["x^2+y-3", "y^2-z-1", "x+z-4"], ["x", "y", "z"], [1.1, 1.9, 3.0]);
+  assert.ok(Math.abs(result.x - 1) < 1e-6);
+  assert.ok(Math.abs(result.y - 2) < 1e-6);
+  assert.ok(Math.abs(result.z - 3) < 1e-6);
+  // Verify by substitution, not just proximity to the expected point.
+  assert.ok(Math.abs(result.x ** 2 + result.y - 3) < 1e-6);
+  assert.ok(Math.abs(result.y ** 2 - result.z - 1) < 1e-6);
+  assert.ok(Math.abs(result.x + result.z - 4) < 1e-6);
+});
+
 test("solveSystemNumeric throws SystemDidNotConvergeError for a system with no real solution", () => {
   assert.throws(() => Symbolic.solveSystemNumeric(["x^2+1"], ["x"]), SystemDidNotConvergeError);
 });
