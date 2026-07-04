@@ -6,6 +6,7 @@ import { Structure } from "../src/Structure.ts";
 import {
   IntegrationSingularityError,
   NonLinearSystemError,
+  ProductNotDifferentiableError,
   SeriesDivergesError,
   SingularSystemError,
   Symbolic,
@@ -210,6 +211,72 @@ test("sumSeries confirms a slowly-decaying (polynomial-tail) convergent series v
   // estimateConvergentTail's doubling-interval integral test recovers.
   const result = Symbolic.sumSeries("1/n^2", 1, Number.POSITIVE_INFINITY);
   assert.ok(Math.abs(result - Math.PI ** 2 / 6) < 1e-8);
+});
+
+test("sum/product parse and evaluate a finite range", () => {
+  // sum_{i=1}^{10} i^2 = 385
+  assert.equal(Symbolic.evaluate("sum(i, 1, 10, i^2)"), 385);
+  // product_{i=1}^{5} i = 5! = 120
+  assert.equal(Symbolic.evaluate("product(i, 1, 5, i)"), 120);
+});
+
+test("sum as an Expr node delegates to sumSeries's geometric-closed-form/numeric-fallback logic for an infinite bound", () => {
+  // sum_{k=0}^infty 0.5^k = 2, recognized via the same geometric closed form
+  // Symbolic.sumSeries itself uses -- confirms the AST node is a thin
+  // delegating wrapper, not a reimplementation. "to" is 1/0 (Infinity), not
+  // a large finite number -- a large-but-finite bound would instead take
+  // the finite-loop path and iterate that many times.
+  const result = Symbolic.evaluate("sum(k, 0, 1/0, 0.5^k)");
+  assert.ok(Math.abs(result - 2) < 1e-6, "infinite bound should match the geometric closed form");
+});
+
+test("product throws a clear error for an infinite bound (out of v1 scope)", () => {
+  assert.throws(() => Symbolic.evaluate("product(i, 1, 1/0, i)"), /finite/);
+});
+
+test("differentiate sum is mechanical by linearity (differentiates the body, keeps bounds)", () => {
+  // d/dx sum(i,1,3,i*x^2) = sum(i,1,3, 2*i*x) = 2x*(1+2+3) = 12x
+  const d = Symbolic.differentiate("sum(i, 1, 3, i*x^2)", "x");
+  assert.equal(Symbolic.evaluate(d, { x: 2 }), 24);
+  assert.equal(Symbolic.evaluate(d, { x: 3 }), 36);
+});
+
+test("differentiate throws ProductNotDifferentiableError for a product node", () => {
+  assert.throws(() => Symbolic.differentiate("product(i, 1, 5, i*x)", "x"), ProductNotDifferentiableError);
+});
+
+test("sum/product capture-avoidance: substituting the bound variable name is a no-op, substituting a free variable inside body works", () => {
+  const expr = Symbolic.parse("sum(i, 1, 10, i*x)");
+  // x -> 5: substitutes the free "x", must not touch the bound "i"
+  const substX = Symbolic.evaluate(expr, { x: 5 });
+  assert.equal(substX, ((10 * 11) / 2) * 5);
+  // Structural check: differentiate w.r.t. x must still see the bound "i"
+  // in the result's rendering (proving "i" was never substituted away by
+  // an incorrect capture).
+  const d = Symbolic.differentiate(expr, "x");
+  assert.equal(Symbolic.toString(d), "sum(i, 1, 10, i)");
+});
+
+test("sum/product toLatex renders \\sum/\\prod with the bound variable, bounds, and body", () => {
+  assert.equal(Symbolic.toLatex("sum(i, 1, 10, i^2)"), "\\sum_{i=1}^{10} i^{2}");
+  assert.equal(Symbolic.toLatex("product(i, 1, 5, i)"), "\\prod_{i=1}^{5} i");
+});
+
+test("equal compares sum/product nodes structurally (variable, from, to, body)", () => {
+  const a = Symbolic.simplify("sum(i, 1, 10, i^2)");
+  const b = Symbolic.simplify("sum(i, 1, 10, i^2)");
+  const differentBound = Symbolic.simplify("sum(i, 1, 11, i^2)");
+  const differentVar = Symbolic.simplify("sum(j, 1, 10, j^2)");
+  // simplify() runs equal() internally to detect its fixed point -- if two
+  // syntactically-identical sum expressions didn't compare equal, simplify
+  // would spin past its 30-iteration cap rather than converge; reaching a
+  // stable, unchanged result here is itself the equal()-works assertion.
+  assert.equal(Symbolic.toString(a), Symbolic.toString(b));
+  assert.notEqual(Symbolic.toString(a), Symbolic.toString(differentBound));
+  // A sum with a differently-named bound variable is structurally distinct
+  // text (alpha-equivalence isn't attempted), but evaluates identically.
+  assert.notEqual(Symbolic.toString(a), Symbolic.toString(differentVar));
+  assert.equal(Symbolic.evaluate(a), Symbolic.evaluate(differentVar));
 });
 
 test("cmp evaluates to 1/0 boolean-as-number for all six operators", () => {

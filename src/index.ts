@@ -80,6 +80,7 @@ export {
   IntegrationSingularityError,
   NonLinearSystemError,
   NotIntegrableError,
+  ProductNotDifferentiableError,
   SeriesDivergesError,
   SingularSystemError,
   Symbolic,

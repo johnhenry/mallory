@@ -71,7 +71,9 @@ export type Expr =
   | { type: "func"; name: FuncName; arg: Expr }
   | { type: "call2"; name: BinaryFuncName; left: Expr; right: Expr }
   | { type: "cmp"; op: CmpOp; left: Expr; right: Expr }
-  | { type: "piecewise"; branches: { cond: Expr; expr: Expr }[]; otherwise: Expr };
+  | { type: "piecewise"; branches: { cond: Expr; expr: Expr }[]; otherwise: Expr }
+  | { type: "sum"; variable: string; from: Expr; to: Expr; body: Expr }
+  | { type: "product"; variable: string; from: Expr; to: Expr; body: Expr };
 
 const FUNCS: FuncName[] = [
   "sin",
@@ -161,6 +163,8 @@ export const FUNCTION_NAMES: readonly string[] = [
   "log",
   "clamp",
   "piecewise",
+  "sum",
+  "product",
 ];
 
 // -- constructors -----------------------------------------------------------
@@ -179,6 +183,20 @@ const piecewise = (branches: { cond: Expr; expr: Expr }[], otherwise: Expr): Exp
   type: "piecewise",
   branches,
   otherwise,
+});
+const sumExpr = (variable: string, from: Expr, to: Expr, body: Expr): Expr => ({
+  type: "sum",
+  variable,
+  from,
+  to,
+  body,
+});
+const productExpr = (variable: string, from: Expr, to: Expr, body: Expr): Expr => ({
+  type: "product",
+  variable,
+  from,
+  to,
+  body,
 });
 
 const isConst = (e: Expr, value?: number): boolean => e.type === "const" && (value === undefined || e.value === value);
@@ -199,6 +217,9 @@ const containsVar = (e: Expr, name: string): boolean => {
         e.branches.some((br) => containsVar(br.cond, name) || containsVar(br.expr, name)) ||
         containsVar(e.otherwise, name)
       );
+    case "sum":
+    case "product":
+      return containsVar(e.from, name) || containsVar(e.to, name) || (e.variable !== name && containsVar(e.body, name));
     default:
       return containsVar(e.left, name) || containsVar(e.right, name);
   }
@@ -227,6 +248,17 @@ const collectFreeVars = (e: Expr, found: Set<string> = new Set()): Set<string> =
       }
       collectFreeVars(e.otherwise, found);
       return found;
+    case "sum":
+    case "product": {
+      collectFreeVars(e.from, found);
+      collectFreeVars(e.to, found);
+      // e.variable is bound within e.body -- collect its free vars into a
+      // scratch set and merge everything except the bound name, so a
+      // same-named free variable elsewhere in `e` isn't shadowed out.
+      const bodyFound = collectFreeVars(e.body, new Set());
+      for (const n of bodyFound) if (n !== e.variable) found.add(n);
+      return found;
+    }
     default:
       collectFreeVars(e.left, found);
       collectFreeVars(e.right, found);
@@ -268,6 +300,9 @@ function applyAssumptions(e: Expr, assumptions: Record<string, Assumption>): Exp
           branches: node.branches.map((br) => ({ cond: walk(br.cond), expr: walk(br.expr) })),
           otherwise: walk(node.otherwise),
         };
+      case "sum":
+      case "product":
+        return { ...node, from: walk(node.from), to: walk(node.to), body: walk(node.body) };
       default:
         return { ...node, left: walk(node.left), right: walk(node.right) };
     }
@@ -332,6 +367,15 @@ export class IntegrationSingularityError extends Error {
   ) {
     super(message);
     this.name = "IntegrationSingularityError";
+  }
+}
+
+export class ProductNotDifferentiableError extends Error {
+  constructor(
+    message = 'differentiate: a "product" (Π) node has no mechanical differentiation rule -- it needs the general Leibniz/logarithmic-derivative rule, which isn\'t implemented.',
+  ) {
+    super(message);
+    this.name = "ProductNotDifferentiableError";
   }
 }
 
@@ -1126,6 +1170,17 @@ function diffTraced(e: Expr, x: string, steps: DifferentiationStep[]): Expr {
         diffTraced(e.otherwise, x, steps),
       );
       break;
+    case "sum":
+      // Mechanical by linearity: differentiate the body, keep the bound
+      // variable/bounds unchanged. NON-GOAL: a differentiation variable
+      // that happens to share a name with e.variable (a bound-variable
+      // shadowing collision) isn't specially detected -- same class of
+      // edge case as any other variable shadowing in this file.
+      rule = "Sum Rule (Σ, term-wise by linearity)";
+      result = sumExpr(e.variable, e.from, e.to, diffTraced(e.body, x, steps));
+      break;
+    case "product":
+      throw new ProductNotDifferentiableError();
   }
   steps.push({ rule, input: e, output: result });
   return result;
@@ -1269,6 +1324,10 @@ function diff(e: Expr, x: string): Expr {
         e.branches.map((br) => ({ cond: br.cond, expr: diff(br.expr, x) })),
         diff(e.otherwise, x),
       );
+    case "sum":
+      return sumExpr(e.variable, e.from, e.to, diff(e.body, x));
+    case "product":
+      throw new ProductNotDifferentiableError();
   }
 }
 
@@ -1314,6 +1373,10 @@ function simplifyOnce(e: Expr): Expr {
       e.branches.map((br) => ({ cond: simplifyOnce(br.cond), expr: simplifyOnce(br.expr) })),
       simplifyOnce(e.otherwise),
     );
+  }
+  if (e.type === "sum") return sumExpr(e.variable, simplifyOnce(e.from), simplifyOnce(e.to), simplifyOnce(e.body));
+  if (e.type === "product") {
+    return productExpr(e.variable, simplifyOnce(e.from), simplifyOnce(e.to), simplifyOnce(e.body));
   }
   const l = simplifyOnce((e as { left: Expr }).left);
   const r = simplifyOnce((e as { right: Expr }).right);
@@ -1375,6 +1438,11 @@ function equal(a: Expr, b: Expr): boolean {
         equal(a.otherwise, bb.otherwise)
       );
     }
+    case "sum":
+    case "product": {
+      const bb = b as typeof a;
+      return a.variable === bb.variable && equal(a.from, bb.from) && equal(a.to, bb.to) && equal(a.body, bb.body);
+    }
     default:
       return equal(a.left, (b as typeof a).left) && equal(a.right, (b as typeof a).right);
   }
@@ -1410,6 +1478,17 @@ function subst(e: Expr, name: string, r: Expr): Expr {
         e.branches.map((br) => ({ cond: subst(br.cond, name, r), expr: subst(br.expr, name, r) })),
         subst(e.otherwise, name, r),
       );
+    case "sum":
+    case "product": {
+      // Capture-avoidance: e.variable is bound within e.body, so a
+      // substitution targeting that same name must not reach inside it --
+      // only from/to (and body, when name differs from the bound variable)
+      // are substituted.
+      const from = subst(e.from, name, r);
+      const to = subst(e.to, name, r);
+      const body = e.variable === name ? e.body : subst(e.body, name, r);
+      return e.type === "sum" ? sumExpr(e.variable, from, to, body) : productExpr(e.variable, from, to, body);
+    }
   }
 }
 
@@ -1457,6 +1536,10 @@ function expandOnce(e: Expr): Expr {
         e.branches.map((br) => ({ cond: expandOnce(br.cond), expr: expandOnce(br.expr) })),
         expandOnce(e.otherwise),
       );
+    case "sum":
+      return sumExpr(e.variable, expandOnce(e.from), expandOnce(e.to), expandOnce(e.body));
+    case "product":
+      return productExpr(e.variable, expandOnce(e.from), expandOnce(e.to), expandOnce(e.body));
   }
 }
 
@@ -1514,6 +1597,10 @@ function collectLikeTerms(e: Expr): Expr {
         e.branches.map((br) => ({ cond: collectLikeTerms(br.cond), expr: collectLikeTerms(br.expr) })),
         collectLikeTerms(e.otherwise),
       );
+    case "sum":
+      return sumExpr(e.variable, collectLikeTerms(e.from), collectLikeTerms(e.to), collectLikeTerms(e.body));
+    case "product":
+      return productExpr(e.variable, collectLikeTerms(e.from), collectLikeTerms(e.to), collectLikeTerms(e.body));
   }
 }
 
@@ -1709,6 +1796,12 @@ function containsExpr(e: Expr, target: Expr): boolean {
         e.branches.some((br) => containsExpr(br.cond, target) || containsExpr(br.expr, target)) ||
         containsExpr(e.otherwise, target)
       );
+    // sum/product aren't u-substitution candidates or targets (integration
+    // over them isn't supported -- see integRules's default case), so no
+    // structural descent is needed beyond the equal() check above.
+    case "sum":
+    case "product":
+      return false;
     default:
       return containsExpr(e.left, target) || containsExpr(e.right, target);
   }
@@ -1738,6 +1831,10 @@ function substExpr(e: Expr, target: Expr, replacement: Expr): Expr {
         })),
         substExpr(e.otherwise, target, replacement),
       );
+    // Not a substitution target (see containsExpr above) -- returned as-is.
+    case "sum":
+    case "product":
+      return e;
     default:
       return { ...e, left: substExpr(e.left, target, replacement), right: substExpr(e.right, target, replacement) };
   }
@@ -1821,6 +1918,10 @@ function collectSubstitutionCandidates(e: Expr, x: string): Expr[] {
           visit(br.expr);
         }
         visit(node.otherwise);
+        return;
+      // Not a u-substitution candidate site (see containsExpr above).
+      case "sum":
+      case "product":
         return;
       default:
         visit(node.left);
@@ -2288,7 +2389,41 @@ function evalExpr(e: Expr, env: Record<string, number>): number {
       }
       return evalExpr(e.otherwise, env);
     }
+    case "sum":
+      return evalSum(e, env);
+    case "product":
+      return evalProduct(e, env);
   }
+}
+
+/**
+ * Delegates entirely to {@link Symbolic.sumSeries}'s existing finite-loop /
+ * geometric-closed-form / numeric-tail-convergence logic (`to` may be
+ * `Infinity`, same convention `sumSeries` itself uses for an infinite
+ * series) -- shared by {@link evalExpr} and {@link compileExpr} so neither
+ * reimplements it.
+ */
+function evalSum(e: Extract<Expr, { type: "sum" }>, env: Record<string, number>): number {
+  const from = Math.round(evalExpr(e.from, env));
+  const to = evalExpr(e.to, env);
+  return Symbolic.sumSeries(e.body, from, Number.isFinite(to) ? Math.round(to) : to, e.variable, env);
+}
+
+/**
+ * Unlike {@link evalSum}, an infinite product's convergence isn't handled --
+ * v1 only supports finite bounds (mirrors {@link ProductNotDifferentiableError}'s
+ * scope note on `differentiate`). Shared by {@link evalExpr} and {@link compileExpr}.
+ */
+function evalProduct(e: Extract<Expr, { type: "product" }>, env: Record<string, number>): number {
+  const from = Math.round(evalExpr(e.from, env));
+  const to = evalExpr(e.to, env);
+  if (!Number.isFinite(to)) throw new Error("product (Π): only finite upper bounds are supported.");
+  const roundedTo = Math.round(to);
+  if (from > roundedTo) return 1; // empty product
+  const f = compileExpr(e.body);
+  let total = 1;
+  for (let k = from; k <= roundedTo; k++) total *= f({ ...env, [e.variable]: k });
+  return total;
 }
 
 // -- compilation --------------------------------------------------------------
@@ -2436,6 +2571,14 @@ function compileExpr(e: Expr): (env: Record<string, number>) => number {
         return otherwise(env);
       };
     }
+    // Not pre-compiled further -- evalSum/evalProduct each recompile the body
+    // per call via Symbolic.sumSeries/compileExpr(e.body), matching evalExpr's
+    // own approach (this is a rare node type, not the hot per-sample path
+    // compile() is meant to speed up).
+    case "sum":
+      return (env) => evalSum(e, env);
+    case "product":
+      return (env) => evalProduct(e, env);
   }
 }
 
@@ -2496,6 +2639,10 @@ function evalExprExact(e: Expr, env: Record<string, Rational>): Rational {
       }
       return evalExprExact(e.otherwise, env);
     }
+    case "sum":
+      throw new Error("sum (Σ) is not exactly representable as a Rational");
+    case "product":
+      throw new Error("product (Π) is not exactly representable as a Rational");
   }
 }
 
@@ -2561,6 +2708,10 @@ function evalExprOverStructure<T>(e: Expr, structure: Structure<T>, env: Record<
       }
       return evalExprOverStructure(e.otherwise, structure, env);
     }
+    case "sum":
+      throw new Error("sum (Σ) has no general meaning over this structure");
+    case "product":
+      throw new Error("product (Π) has no general meaning over this structure");
   }
 }
 
@@ -2596,6 +2747,10 @@ function render(e: Expr, parentPrec: number): string {
       const parts = e.branches.map((br) => `${render(br.cond, 0)}, ${render(br.expr, 0)}`);
       return `piecewise(${parts.join(", ")}, ${render(e.otherwise, 0)})`;
     }
+    case "sum":
+      return `sum(${e.variable}, ${render(e.from, 0)}, ${render(e.to, 0)}, ${render(e.body, 0)})`;
+    case "product":
+      return `product(${e.variable}, ${render(e.from, 0)}, ${render(e.to, 0)}, ${render(e.body, 0)})`;
   }
 }
 const wrap = (s: string, prec: number, parentPrec: number): string => (prec < parentPrec ? `(${s})` : s);
@@ -2703,6 +2858,12 @@ function toLatexRec(e: Expr, parentPrec: number): string {
       rows.push(`${toLatexRec(e.otherwise, 0)} & \\text{otherwise}`);
       return `\\begin{cases}${rows.join("\\\\")}\\end{cases}`;
     }
+    // \sum_{}^{}/\prod_{}^{} are self-delimiting via their sub/superscript,
+    // same as \frac/\begin{cases} above -- never need outer parens.
+    case "sum":
+      return `\\sum_{${e.variable}=${toLatexRec(e.from, 0)}}^{${toLatexRec(e.to, 0)}} ${toLatexRec(e.body, 0)}`;
+    case "product":
+      return `\\prod_{${e.variable}=${toLatexRec(e.from, 0)}}^{${toLatexRec(e.to, 0)}} ${toLatexRec(e.body, 0)}`;
   }
 }
 
@@ -3355,6 +3516,32 @@ class Parser {
     return piecewise(branches, args[args.length - 1]);
   }
 
+  /**
+   * `sum(i, from, to, body)` / `product(i, from, to, body)` -- the bound
+   * variable is a bare identifier (not a general expression, unlike the
+   * other three slots), parsed directly off `this.s` rather than through
+   * `comparison()`/`expr()`. `from`/`to`/`body` parse at `comparison()`
+   * level, same rationale as `piecewiseArgs`.
+   */
+  private sumOrProductArgs(kind: "sum" | "product"): Expr {
+    const idMatch = /^[a-zA-Z_]\w*/.exec(this.s.slice(this.pos));
+    if (!idMatch) throw new Error(`${kind}() expects a bound variable name as its first argument`);
+    const variable = idMatch[0];
+    this.pos += variable.length;
+    if (this.peek() !== ",") throw new Error("Expected ','");
+    this.pos++;
+    const from = this.comparison();
+    if (this.peek() !== ",") throw new Error("Expected ','");
+    this.pos++;
+    const to = this.comparison();
+    if (this.peek() !== ",") throw new Error("Expected ','");
+    this.pos++;
+    const body = this.comparison();
+    if (this.peek() !== ")") throw new Error("Expected ')'");
+    this.pos++;
+    return kind === "sum" ? sumExpr(variable, from, to, body) : productExpr(variable, from, to, body);
+  }
+
   private expr(): Expr {
     let left = this.term();
     while (this.peek() === "+" || this.peek() === "-") {
@@ -3429,6 +3616,10 @@ class Parser {
       if (name === "piecewise" && this.peek() === "(") {
         this.pos++;
         return this.piecewiseArgs();
+      }
+      if ((name === "sum" || name === "product") && this.peek() === "(") {
+        this.pos++;
+        return this.sumOrProductArgs(name);
       }
       if ((BINARY_FUNCS as string[]).includes(name) && this.peek() === "(") {
         const binaryName = name as BinaryFuncName;
