@@ -81,6 +81,7 @@ export {
   SeriesDivergesError,
   SingularSystemError,
   Symbolic,
+  UndeclaredVariableError,
 } from "./Symbolic.ts";
 export { Type, TypeTag } from "./Type.ts";
 // Utilities & leaves
