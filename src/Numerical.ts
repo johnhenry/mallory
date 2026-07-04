@@ -334,7 +334,12 @@ export class Numerical {
         const A = JtJ.map((row, a) => row.map((v, b) => v + (a === b ? lambda * (JtJ[a] as number[])[a] : 0)));
         let delta: number[];
         try {
-          delta = [...MatrixMath.solve(A, Jtr.map((v) => -v))];
+          delta = [
+            ...MatrixMath.solve(
+              A,
+              Jtr.map((v) => -v),
+            ),
+          ];
         } catch {
           lambda *= 10;
           continue;
