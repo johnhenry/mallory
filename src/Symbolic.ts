@@ -370,6 +370,12 @@ export class IntegrationSingularityError extends Error {
   }
 }
 
+/**
+ * No longer thrown internally -- `differentiate` now handles `product` via
+ * the logarithmic-derivative identity (see `diff`/`diffTraced`'s `case
+ * "product":`). Kept exported for backward compatibility with any code
+ * that imports/catches it.
+ */
 export class ProductNotDifferentiableError extends Error {
   constructor(
     message = 'differentiate: a "product" (Π) node has no mechanical differentiation rule -- it needs the general Leibniz/logarithmic-derivative rule, which isn\'t implemented.',
@@ -394,6 +400,15 @@ export class NoClosedFormError extends Error {
   ) {
     super(message);
     this.name = "NoClosedFormError";
+  }
+}
+
+export class DegenerateOdeError extends Error {
+  constructor(
+    message = "solveOde2ndOrderConstCoeff: a === 0 -- this isn't actually a second-order equation (it's first-order, or not an ODE at all in the caller's intended sense).",
+  ) {
+    super(message);
+    this.name = "DegenerateOdeError";
   }
 }
 
@@ -530,8 +545,8 @@ export class Symbolic {
 
   /**
    * Attempts a closed-form (symbolic) solution to the first-order initial
-   * value problem `dy/dx = dyDxExpr(x, y)`, `y(x0) = y0`, trying two
-   * elementary methods in order -- both built entirely on {@link integrate}'s
+   * value problem `dy/dx = dyDxExpr(x, y)`, `y(x0) = y0`, trying four
+   * elementary methods in order -- all built entirely on {@link integrate}'s
    * existing elementary-rule coverage, not new integration machinery:
    *
    * 1. **Separable**: if `dyDxExpr` factors as `g(x)*h(y)` (including the
@@ -541,15 +556,23 @@ export class Symbolic {
    * 2. **Linear first-order**: if `dyDxExpr` is affine in `y` (i.e.
    *    `dy/dx + p(x)*y = q(x)` for some `p`,`q` depending only on `x`),
    *    solves via the integrating factor `μ(x)=exp(∫p(x)dx)`.
+   * 3. **Homogeneous**: if `dyDxExpr` depends only on the ratio `y/x`
+   *    (tested by substituting `y=v·x` and checking whether `x` cancels
+   *    out), the substitution reduces it to a separable equation in `v`
+   *    and `x`, reusing method 1.
+   * 4. **Bernoulli**: if `dyDxExpr` has the shape `q(x)·y^n - p(x)·y`
+   *    (`n != 0, 1`), the substitution `w=y^(1-n)` reduces it to a linear
+   *    equation in `w` and `x`, reusing method 2.
    *
-   * Both paths legitimately fail on realistic inputs whose required
-   * antiderivative isn't in {@link integrate}'s elementary coverage
-   * (polynomials, `1/x`, linear-argument `sin`/`cos`/`exp`, and two
-   * quadratic-denominator forms) -- that surfaces as
-   * {@link NoClosedFormError}. An equation that's neither separable nor
-   * affine in `y` surfaces as {@link NotSeparableError}.
+   * All four paths legitimately fail on realistic inputs whose required
+   * antiderivative isn't in {@link integrate}'s elementary coverage -- that
+   * surfaces as {@link NoClosedFormError}. An equation matching none of the
+   * four structural patterns (e.g. a genuinely nonlinear/non-homogeneous
+   * case like a Riccati equation) surfaces as {@link NotSeparableError}.
+   * Exact equations and second-order ODEs (constant-coefficient or
+   * otherwise) remain out of scope.
    *
-   * @throws {NotSeparableError} if neither method's structural pattern matches.
+   * @throws {NotSeparableError} if no method's structural pattern matches.
    * @throws {NoClosedFormError} if a method matches but its required integral(s) aren't elementary.
    */
   static solveOdeClosedForm(
@@ -564,7 +587,99 @@ export class Symbolic {
     if (sep) return solveSeparableOde(sep, xVar, yVar, x0, y0);
     const lin = matchLinearOde(e, xVar, yVar);
     if (lin) return solveLinearOde(lin, xVar, yVar, x0, y0);
+    const hom = matchHomogeneous(e, xVar, yVar);
+    if (hom) return solveHomogeneousOde(hom, xVar, yVar, x0, y0);
+    const bern = matchBernoulli(e, xVar, yVar);
+    if (bern) return solveBernoulliOde(bern, xVar, yVar, x0, y0);
     throw new NotSeparableError();
+  }
+
+  /**
+   * Closed-form solution to the second-order, constant-coefficient,
+   * *homogeneous* linear ODE `a*y'' + b*y' + c*y = 0`, given
+   * `y(x0)=y0`, `y'(x0)=yPrime0` -- a separate method from
+   * {@link solveOdeClosedForm} (not an extension of it): that method
+   * represents a first-order equation as a single `dy/dx=f(x,y)` `Expr`,
+   * but this file has no AST node for a second derivative, so a
+   * second-order equation is instead specified directly by its three
+   * numeric coefficients. Built directly from the characteristic
+   * equation's roots (`a*r^2+b*r+c=0`) via basic algebra -- no calls to
+   * {@link integrate}, unlike every first-order method above.
+   *
+   * Three cases by discriminant `disc = b^2 - 4ac`:
+   * 1. `disc > 0`: two distinct real roots `r1,r2`; general solution
+   *    `y = C1*e^(r1*x) + C2*e^(r2*x)`, `C1`/`C2` from the 2x2 linear
+   *    system the two initial conditions impose.
+   * 2. `disc ≈ 0` (tolerance `1e-9`): repeated root `r=-b/(2a)`; general
+   *    solution `y = (C1+C2*x)*e^(r*x)`.
+   * 3. `disc < 0`: complex conjugate roots `α±iβ`; general solution
+   *    `y = e^(α*x)*(C1*cos(β*x)+C2*sin(β*x))`.
+   *
+   * NON-GOALS: homogeneous only -- no forcing term `f(x)` on the
+   * right-hand side (a nonhomogeneous `a*y''+b*y'+c*y=f(x)` would need
+   * undetermined coefficients or variation of parameters, out of scope
+   * for this pass); no third-order-or-higher or non-constant-coefficient
+   * support.
+   *
+   * @throws {DegenerateOdeError} if `a === 0` (not actually second-order).
+   */
+  static solveOde2ndOrderConstCoeff(a: number, b: number, c: number, x0: number, y0: number, yPrime0: number): Expr {
+    if (a === 0) throw new DegenerateOdeError();
+    const disc = b * b - 4 * a * c;
+    const x = v("x");
+    if (Math.abs(disc) < 1e-9) {
+      // Repeated root r = -b/(2a): y = (C1+C2*x)*e^(rx).
+      // C2 = (yPrime0 - r*y0)*e^(-r*x0), C1 = y0*e^(-r*x0) - C2*x0
+      // (verified: differentiating y and matching y(x0)=y0, y'(x0)=yPrime0
+      // with these C1/C2 holds numerically at several probe points).
+      const r = -b / (2 * a);
+      const eNegRX0 = Math.exp(-r * x0);
+      const C2 = (yPrime0 - r * y0) * eNegRX0;
+      const C1 = y0 * eNegRX0 - C2 * x0;
+      return mul(add(num(C1), mul(num(C2), x)), fn("exp", mul(num(r), x)));
+    }
+    if (disc > 0) {
+      // Two distinct real roots r1,r2: y = C1*e^(r1x) + C2*e^(r2x).
+      // C1,C2 solved from the 2x2 linear system the initial conditions
+      // impose (y(x0)=y0, y'(x0)=yPrime0), via the same MatrixMath.solve
+      // this file's own solveSystem already uses for small linear solves.
+      const sqrtDisc = Math.sqrt(disc);
+      const r1 = (-b + sqrtDisc) / (2 * a);
+      const r2 = (-b - sqrtDisc) / (2 * a);
+      const e1 = Math.exp(r1 * x0);
+      const e2 = Math.exp(r2 * x0);
+      const [C1, C2] = MatrixMath.solve(
+        [
+          [e1, e2],
+          [r1 * e1, r2 * e2],
+        ],
+        [y0, yPrime0],
+      );
+      return add(
+        mul(num(C1 as number), fn("exp", mul(num(r1), x))),
+        mul(num(C2 as number), fn("exp", mul(num(r2), x))),
+      );
+    }
+    // Complex conjugate roots α±iβ: y = e^(αx)*(C1*cos(βx)+C2*sin(βx)).
+    // C1,C2 solved the same way from y(x0)=y0, y'(x0)=yPrime0 (the second
+    // equation's own α*y0 term comes from differentiating the e^(αx)
+    // factor via the product rule).
+    const alpha = -b / (2 * a);
+    const beta = Math.sqrt(4 * a * c - b * b) / (2 * a);
+    const eAlphaX0 = Math.exp(alpha * x0);
+    const cosB = Math.cos(beta * x0);
+    const sinB = Math.sin(beta * x0);
+    const [C1, C2] = MatrixMath.solve(
+      [
+        [eAlphaX0 * cosB, eAlphaX0 * sinB],
+        [-eAlphaX0 * beta * sinB, eAlphaX0 * beta * cosB],
+      ],
+      [y0, yPrime0 - alpha * y0],
+    );
+    return mul(
+      fn("exp", mul(num(alpha), x)),
+      add(mul(num(C1 as number), fn("cos", mul(num(beta), x))), mul(num(C2 as number), fn("sin", mul(num(beta), x)))),
+    );
   }
 
   /** Taylor expansion of `expr` about `center` up to `order`, as an expression. */
@@ -1253,7 +1368,18 @@ function diffTraced(e: Expr, x: string, steps: DifferentiationStep[]): Expr {
       result = sumExpr(e.variable, e.from, e.to, diffTraced(e.body, x, steps));
       break;
     case "product":
-      throw new ProductNotDifferentiableError();
+      // Logarithmic-derivative identity: ln(P) = sum(i,from,to, ln(body)),
+      // so d(ln P)/dx = sum(i,from,to, dbody/dx / body), and
+      // dP/dx = P * d(ln P)/dx. Well-defined whenever no body value is
+      // zero over the range -- a legitimate restriction of the technique
+      // itself (division by zero otherwise), not special-cased here, same
+      // as every other division in this file.
+      rule = "Product Rule (Π, via the logarithmic-derivative identity: d(ln P)/dx = Σ (dbody/dx)/body)";
+      result = mul(
+        productExpr(e.variable, e.from, e.to, e.body),
+        sumExpr(e.variable, e.from, e.to, div(diffTraced(e.body, x, steps), e.body)),
+      );
+      break;
   }
   steps.push({ rule, input: e, output: result });
   return result;
@@ -1400,7 +1526,10 @@ function diff(e: Expr, x: string): Expr {
     case "sum":
       return sumExpr(e.variable, e.from, e.to, diff(e.body, x));
     case "product":
-      throw new ProductNotDifferentiableError();
+      return mul(
+        productExpr(e.variable, e.from, e.to, e.body),
+        sumExpr(e.variable, e.from, e.to, div(diff(e.body, x), e.body)),
+      );
   }
 }
 
@@ -1797,8 +1926,8 @@ function integRules(e: Expr, x: string): Expr {
     }
     case "div": {
       if (!containsVar(e.right, x)) return div(integ(e.left, x), e.right); // ∫ u/c
-      // 1/x -> ln x
-      if (isConst(e.left, 1) && e.right.type === "var" && e.right.name === x) return fn("ln", v(x));
+      // c/x -> c*ln(x), any constant c (not just literally 1)
+      if (!containsVar(e.left, x) && e.right.type === "var" && e.right.name === x) return mul(e.left, fn("ln", v(x)));
       // numerator constant wrt x — check rational/radical forms with an x^2 denominator
       if (!containsVar(e.left, x)) {
         const c = evalExpr(e.left, {});
@@ -1814,6 +1943,22 @@ function integRules(e: Expr, x: string): Expr {
           if (under && Math.abs(under.a + 1) < 1e-9 && Math.abs(under.b) < 1e-9 && under.c > 0) {
             const s = Math.sqrt(under.c);
             return mul(num(c), fn("asin", div(v(x), num(s))));
+          }
+        }
+        // ∫ c / (a·x^2 + b·x + c0) dx, two distinct real roots (disc > 0):
+        // partial fractions c/(a(x-r1)(x-r2)) = A/(x-r1) + B/(x-r2), giving
+        // A·ln(x-r1) + B·ln(x-r2). A = c/(a(r1-r2)), B = -A (re-derived and
+        // numerically verified against d/dx of the result before trusting it).
+        const quad2 = quadraticCoeffs(e.right, x);
+        if (quad2) {
+          const disc = quad2.b * quad2.b - 4 * quad2.a * quad2.c;
+          if (disc > 1e-9) {
+            const sqrtDisc = Math.sqrt(disc);
+            const r1 = (-quad2.b + sqrtDisc) / (2 * quad2.a);
+            const r2 = (-quad2.b - sqrtDisc) / (2 * quad2.a);
+            const A = c / (quad2.a * (r1 - r2));
+            const B = -A;
+            return add(mul(num(A), fn("ln", sub(v(x), num(r1)))), mul(num(B), fn("ln", sub(v(x), num(r2)))));
           }
         }
       }
@@ -1840,6 +1985,30 @@ function integRules(e: Expr, x: string): Expr {
           return scale(fn("sin", inner));
         case "exp":
           return scale(fn("exp", inner));
+        case "ln":
+          return scale(sub(mul(inner, fn("ln", inner)), inner));
+        case "sqrt":
+          return scale(mul(num(2 / 3), pow(inner, num(1.5))));
+        case "tan":
+          return scale(neg(fn("ln", fn("cos", inner))));
+        case "cot":
+          return scale(fn("ln", fn("sin", inner)));
+        case "sec":
+          return scale(fn("ln", add(fn("sec", inner), fn("tan", inner))));
+        case "csc":
+          return scale(neg(fn("ln", add(fn("csc", inner), fn("cot", inner)))));
+        case "sinh":
+          return scale(fn("cosh", inner));
+        case "cosh":
+          return scale(fn("sinh", inner));
+        case "tanh":
+          return scale(fn("ln", fn("cosh", inner)));
+        case "asin":
+          return scale(add(mul(inner, fn("asin", inner)), fn("sqrt", sub(num(1), pow(inner, num(2))))));
+        case "acos":
+          return scale(sub(mul(inner, fn("acos", inner)), fn("sqrt", sub(num(1), pow(inner, num(2))))));
+        case "atan":
+          return scale(sub(mul(inner, fn("atan", inner)), mul(num(0.5), fn("ln", add(num(1), pow(inner, num(2)))))));
         default:
           throw new NotIntegrableError();
       }
@@ -1926,11 +2095,24 @@ function flattenFactors(e: Expr): Expr[] {
  * factor cancellation for products, so `simplify(div(e, divisor))` alone
  * would never collapse e.g. `(2·x·sin(x²))/(2·x)` down to `sin(x²)`. Returns
  * `null` if `divisor`'s symbolic factors aren't all found in `e`'s.
+ *
+ * When `e` is itself a `div` node (e.g. `x/(x²+1)`), cancellation is
+ * attempted only against `e`'s own *numerator* factors -- `e`'s denominator
+ * is deliberately left untouched (not flattened/merged into the same
+ * cancellation pool) and just carried through unchanged into the result's
+ * denominator. This matters for u-substitution: `e`'s denominator is
+ * typically the substitution candidate `g` itself, which needs to survive
+ * intact in the quotient so the caller's later `substExpr(quotient, g, u)`
+ * can still find and replace it -- if it got tangled up in cancellation
+ * here, it might come out simplified into a form that no longer matches
+ * `g` structurally.
  */
 function divideOutFactors(e: Expr, divisor: Expr): Expr | null {
+  const eDen = e.type === "div" ? e.right : null;
+  const eNumeratorSource = e.type === "div" ? e.left : e;
   let eNumeric = 1;
   const eSymbolic: Expr[] = [];
-  for (const f of flattenFactors(e)) {
+  for (const f of flattenFactors(eNumeratorSource)) {
     if (f.type === "const") eNumeric *= f.value;
     else eSymbolic.push(f);
   }
@@ -1948,8 +2130,8 @@ function divideOutFactors(e: Expr, divisor: Expr): Expr | null {
   }
   const coeff = eNumeric / dNumeric;
   const factors = coeff === 1 ? eSymbolic : [num(coeff), ...eSymbolic];
-  if (factors.length === 0) return num(coeff);
-  return factors.reduce((acc, f) => (acc ? mul(acc, f) : f)) as Expr;
+  const numerator = factors.length === 0 ? num(coeff) : (factors.reduce((acc, f) => (acc ? mul(acc, f) : f)) as Expr);
+  return eDen ? div(numerator, eDen) : numerator;
 }
 
 /**
@@ -1995,6 +2177,15 @@ function collectSubstitutionCandidates(e: Expr, x: string): Expr[] {
       // Not a u-substitution candidate site (see containsExpr above).
       case "sum":
       case "product":
+        return;
+      case "div":
+        // The entire denominator is itself a classic u-substitution
+        // candidate (e.g. u = x^2+1 for x/(x^2+1)) -- not just whatever's
+        // nested inside it, which is all the generic default: branch below
+        // would ever find via node.left/node.right.
+        if (containsVar(node.right, x)) found.push(node.right);
+        visit(node.left);
+        visit(node.right);
         return;
       default:
         visit(node.left);
@@ -2273,6 +2464,215 @@ function solveLinearOde(
   const muQIntegralAtX0 = evalExpr(muQIntegral, { [xVar]: x0 });
   const C = y0 * muAtX0 - muQIntegralAtX0;
   const y = Symbolic.simplify(div(add(muQIntegral, num(C)), mu));
+  return { explicit: true, y };
+}
+
+/** A variable name distinct from every name in `avoid` and not free in `e`, for a temporary substitution variable (like {@link freshVariableName}, but avoiding a whole list of names rather than just one). */
+function freshVarAvoiding(e: Expr, avoid: string[]): string {
+  let name = "v";
+  let i = 2;
+  while (avoid.includes(name) || containsVar(e, name)) name = `v${i++}`;
+  return name;
+}
+
+/**
+ * `dyDxExpr = F(y/x)` (depends only on the ratio y/x)? Substitute `y -> v·x`
+ * for a fresh `v`, then check whether the result is actually independent of
+ * `x` -- NOT via `Symbolic.simplify` (which doesn't perform the
+ * cross-term factor/cancellation this needs: e.g. `(x+v·x)/x` doesn't
+ * auto-simplify to `1+v`), but numerically, the same probe-point
+ * convention {@link verifyByDifferentiation}/`polynomialCoeffs` already use
+ * elsewhere in this file: for each of a few `v` probe values, evaluate at
+ * several different `x` probe values and require they all agree (within
+ * tolerance; a probe pair that hits a domain error/NaN is skipped, not
+ * treated as disagreement). If confirmed independent of `x`, `F(v)` is
+ * obtained by literally substituting the concrete value `x=1` into the
+ * expression tree -- a plain substitution, not something that depends on
+ * `simplify` proving anything algebraically. By the time this runs, `e`
+ * already failed both `matchSeparable` and `matchLinearOde`, and
+ * `matchSeparable`'s own `hasX`/`hasY` degenerate branches mean `e` is
+ * guaranteed to depend on both `xVar` and `yVar` already -- no separate
+ * guard needed here.
+ */
+function matchHomogeneous(e: Expr, xVar: string, yVar: string): { vName: string; F: Expr } | null {
+  const vName = freshVarAvoiding(e, [xVar, yVar]);
+  const substituted = subst(e, yVar, mul(v(vName), v(xVar)));
+  let agreements = 0;
+  let attempts = 0;
+  for (const vp of [0.6, 1.4, -0.8]) {
+    let baseline: number | null = null;
+    for (const xp of [1, 2.3, -1.7]) {
+      attempts++;
+      const val = evalExpr(substituted, { [xVar]: xp, [vName]: vp });
+      if (!Number.isFinite(val)) continue;
+      if (baseline === null) {
+        baseline = val;
+        agreements++;
+      } else if (Math.abs(val - baseline) > 1e-6 * Math.max(1, Math.abs(baseline))) {
+        return null; // depends on x -- not homogeneous
+      } else {
+        agreements++;
+      }
+    }
+  }
+  if (attempts === 0 || agreements < 4) return null; // not enough usable probes to trust the match
+  const F = Symbolic.simplify(subst(substituted, xVar, num(1)));
+  return { vName, F };
+}
+
+/**
+ * `y = v·x` transforms `dy/dx = F(v)` into `v + x·dv/dx = F(v)`, i.e.
+ * `dv/dx = (1/x)·(F(v) - v)` -- separable in `x`/`v` with `g(x) = 1/x` and
+ * `h(v) = F(v) - v` (NOT its reciprocal: {@link solveSeparableOde} itself
+ * inverts `h` before integrating, since the separable ODE `dv/dx=g·h`
+ * rearranges to `dv/h(v) = g(x)dx`). Reuses `solveSeparableOde` directly by
+ * passing `vName` in place of the dependent-variable name it expects.
+ *
+ * `F(v) - v` simplifying to the exact constant 0 is a degenerate special
+ * case (`dv/dx = 0` identically, i.e. `y = v0·x` for the constant
+ * `v0 = y0/x0`) handled directly, since `solveSeparableOde` would otherwise
+ * divide by zero when it inverts `h`.
+ *
+ * Back-substitution is NOT "replace `v` with `y/x` inside the result" --
+ * `solveSeparableOde`'s explicit result is `v` already solved as a function
+ * of `x` alone (no `vName` symbol remains in it), so the original `y` is
+ * `v(x)·x` directly. Only the *implicit*-relation branch still literally
+ * contains `vName` and needs that substitution.
+ */
+function solveHomogeneousOde(
+  hom: { vName: string; F: Expr },
+  xVar: string,
+  yVar: string,
+  x0: number,
+  y0: number,
+): OdeClosedFormResult {
+  const { vName, F } = hom;
+  const v0 = y0 / x0;
+  const FMinusV = Symbolic.simplify(sub(F, v(vName)));
+  if (FMinusV.type === "const" && FMinusV.value === 0) {
+    return { explicit: true, y: Symbolic.simplify(mul(num(v0), v(xVar))) };
+  }
+  const sepResult = solveSeparableOde({ g: div(num(1), v(xVar)), h: FMinusV }, xVar, vName, x0, v0);
+  if (sepResult.explicit && sepResult.y) {
+    return { explicit: true, y: Symbolic.simplify(mul(sepResult.y, v(xVar))) };
+  }
+  const implicitRelation = Symbolic.simplify(subst(sepResult.implicitRelation as Expr, vName, div(v(yVar), v(xVar))));
+  return { explicit: false, implicitRelation };
+}
+
+/**
+ * Recognizes a single additive term as `coef(x)·y^n` (or `coef(x)·y` when
+ * `n` is omitted, i.e. `n=1`, or bare `y`/`y^n` when `coef` is omitted,
+ * i.e. `coef=1`) -- the building block {@link matchBernoulli} needs for
+ * both the `y^n` term (n != 0, 1) and the plain `y^1` term of
+ * `dy/dx = q(x)·y^n - p(x)·y`. `coef` must be a pure function of `xVar`
+ * only (no `yVar`, no other free variables) -- same conservatism
+ * `matchSeparable`/`matchLinearOde` already use.
+ */
+function matchPureXTimesYPow(term: Expr, xVar: string, yVar: string): { coef: Expr; n: number } | null {
+  const isYVar = (t: Expr): boolean => t.type === "var" && t.name === yVar;
+  const asYPow = (t: Expr): number | null => {
+    if (isYVar(t)) return 1;
+    if (t.type === "pow" && isYVar(t.base) && t.exp.type === "const") return t.exp.value;
+    return null;
+  };
+  const xOnly = new Set([xVar]);
+  if (term.type !== "mul") {
+    const n = asYPow(term);
+    return n === null ? null : { coef: num(1), n };
+  }
+  for (const [coef, yPart] of [
+    [term.left, term.right],
+    [term.right, term.left],
+  ] as const) {
+    if (!isPureFunctionOf(coef, xOnly)) continue;
+    const n = asYPow(yPart);
+    if (n !== null) return { coef, n };
+  }
+  return null;
+}
+
+/**
+ * `dyDxExpr = q(x)·y^n - p(x)·y` (n != 0, 1 -- those degenerate to
+ * separable/linear, already handled earlier)? `e` must be `add`/`sub` of
+ * exactly two terms, one matching the `y^n` shape and the other the plain
+ * `y^1` shape (either order). Converts both to a canonical signed-term
+ * form first (`e = termA + signA·termB`... really `e = signA·termA +
+ * signB·termB` with `signA=+1` always and `signB` = -1 for `sub`, +1 for
+ * `add`) so the sign bookkeeping for `q`/`p` is one formula rather than
+ * four separate cases: whichever term matches `y^n` (n != 1) contributes
+ * `q(x) = sign·coef`; whichever matches plain `y` contributes
+ * `p(x) = -sign·coef`. Verified against all four sub/add x left/right
+ * orderings by hand before relying on it.
+ */
+function matchBernoulli(e: Expr, xVar: string, yVar: string): { p: Expr; q: Expr; n: number } | null {
+  let termA: Expr;
+  let termB: Expr;
+  let signB: number;
+  if (e.type === "sub") {
+    termA = e.left;
+    termB = e.right;
+    signB = -1;
+  } else if (e.type === "add") {
+    termA = e.left;
+    termB = e.right;
+    signB = 1;
+  } else {
+    return null;
+  }
+  const matchA = matchPureXTimesYPow(termA, xVar, yVar);
+  const matchB = matchPureXTimesYPow(termB, xVar, yVar);
+  if (!matchA || !matchB) return null;
+  let powMatch: { coef: Expr; n: number };
+  let powSign: number;
+  let linMatch: { coef: Expr; n: number };
+  let linSign: number;
+  if (matchA.n !== 1 && matchB.n === 1) {
+    powMatch = matchA;
+    powSign = 1;
+    linMatch = matchB;
+    linSign = signB;
+  } else if (matchB.n !== 1 && matchA.n === 1) {
+    powMatch = matchB;
+    powSign = signB;
+    linMatch = matchA;
+    linSign = 1;
+  } else {
+    return null;
+  }
+  if (powMatch.n === 0) return null; // y^0=1: really just linear, matchLinearOde's job
+  const q = powSign === 1 ? powMatch.coef : Symbolic.simplify(neg(powMatch.coef));
+  const p = linSign === 1 ? Symbolic.simplify(neg(linMatch.coef)) : linMatch.coef;
+  return { p, q, n: powMatch.n };
+}
+
+/**
+ * Bernoulli's substitution `w = y^(1-n)` transforms
+ * `dy/dx + p(x)·y = q(x)·y^n` into the LINEAR first-order equation
+ * `dw/dx + (1-n)·p(x)·w = (1-n)·q(x)` -- reuses {@link solveLinearOde}
+ * directly for that transformed equation (its third parameter, the
+ * dependent-variable name, is never actually read inside
+ * `solveLinearOde`'s own body, so no fresh-name bookkeeping is needed
+ * here). `solveLinearOde` never returns an implicit result (only throws or
+ * returns explicit), so `y = w^(1/(1-n))` is always immediately explicit
+ * too -- no further inversion step is possible or needed. A negative `y0`
+ * with a non-integer `1/(1-n)` produces a non-finite `w0`/result, a
+ * genuine restriction of raising a negative number to a fractional power,
+ * not a bug to special-case around.
+ */
+function solveBernoulliOde(
+  bern: { p: Expr; q: Expr; n: number },
+  xVar: string,
+  yVar: string,
+  x0: number,
+  y0: number,
+): OdeClosedFormResult {
+  const oneMinusN = 1 - bern.n;
+  const w0 = y0 ** oneMinusN;
+  const transformedP = Symbolic.simplify(mul(num(oneMinusN), bern.p));
+  const transformedQ = Symbolic.simplify(mul(num(oneMinusN), bern.q));
+  const wResult = solveLinearOde({ p: transformedP, q: transformedQ }, xVar, yVar, x0, w0);
+  const y = Symbolic.simplify(pow(wResult.y as Expr, num(1 / oneMinusN)));
   return { explicit: true, y };
 }
 

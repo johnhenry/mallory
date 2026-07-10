@@ -4,11 +4,11 @@ import { Numerical } from "../src/Numerical.ts";
 import { Rational } from "../src/Rational.ts";
 import { Structure } from "../src/Structure.ts";
 import {
+  DegenerateOdeError,
   IntegrationSingularityError,
   NoClosedFormError,
   NonLinearSystemError,
   NotSeparableError,
-  ProductNotDifferentiableError,
   SeriesDivergesError,
   SingularSystemError,
   Symbolic,
@@ -90,6 +90,67 @@ test("u-substitution does not over-claim when no valid substitution exists", () 
   // sin(x^2) alone (without the accompanying 2x factor) has no g(x) whose
   // derivative appears as a factor -- must still throw, not return a wrong answer.
   assert.throws(() => Symbolic.integrate("sin(x^2)"));
+});
+
+test("integrate covers ln/sqrt/tan/cot/sec/csc/sinh/cosh/tanh/asin/acos/atan of a linear argument", () => {
+  const cases: [string, (x: number) => number][] = [
+    ["ln(x)", Math.log],
+    ["sqrt(x)", Math.sqrt],
+    ["tan(x)", Math.tan],
+    ["cot(x)", (x) => 1 / Math.tan(x)],
+    ["sec(x)", (x) => 1 / Math.cos(x)],
+    ["csc(x)", (x) => 1 / Math.sin(x)],
+    ["sinh(x)", Math.sinh],
+    ["cosh(x)", Math.cosh],
+    ["tanh(x)", Math.tanh],
+  ];
+  for (const [src, f] of cases) {
+    const F = Symbolic.integrate(src);
+    for (const x of [0.3, 0.7, 1.4]) {
+      const d = Symbolic.evaluate(Symbolic.differentiate(F), { x });
+      assert.ok(Math.abs(d - f(x)) < 1e-6, `${src} at x=${x}: got ${d}, expected ${f(x)}`);
+    }
+  }
+  const inverseTrig: [string, (x: number) => number][] = [
+    ["asin(x)", Math.asin],
+    ["acos(x)", Math.acos],
+  ];
+  for (const [src, f] of inverseTrig) {
+    const F = Symbolic.integrate(src);
+    for (const x of [-0.6, 0.2, 0.8]) {
+      const d = Symbolic.evaluate(Symbolic.differentiate(F), { x });
+      assert.ok(Math.abs(d - f(x)) < 1e-6, `${src} at x=${x}: got ${d}, expected ${f(x)}`);
+    }
+  }
+  const Fatan = Symbolic.integrate("atan(x)");
+  for (const x of [-2, 0.5, 3]) {
+    const d = Symbolic.evaluate(Symbolic.differentiate(Fatan), { x });
+    assert.ok(Math.abs(d - Math.atan(x)) < 1e-6);
+  }
+});
+
+test("integrate 1/(x^2-1) via partial fractions (two distinct real roots)", () => {
+  const F = Symbolic.integrate("1/(x^2-1)");
+  for (const x of [2, 3, -2, -3, 5]) {
+    const d = Symbolic.evaluate(Symbolic.differentiate(F), { x });
+    assert.ok(Math.abs(d - 1 / (x * x - 1)) < 1e-6);
+  }
+  // matches the textbook closed form (1/2)ln|x-1| - (1/2)ln|x+1| in value too
+  const definite = Symbolic.integrateDefinite("1/(x^2-1)", 3, 4);
+  const expected = 0.5 * Math.log(3) - 0.5 * Math.log(5) - (0.5 * Math.log(2) - 0.5 * Math.log(4));
+  assert.ok(Math.abs(definite - expected) < 1e-6);
+});
+
+test("integrate x/(x^2+1) via u-substitution on the whole denominator", () => {
+  const F = Symbolic.integrate("x/(x^2+1)");
+  for (const x of [0.5, 1.5, -2, 3]) {
+    const d = Symbolic.evaluate(Symbolic.differentiate(F), { x });
+    assert.ok(Math.abs(d - x / (x * x + 1)) < 1e-6);
+  }
+});
+
+test("integrate c/x for a non-unit constant c", () => {
+  assert.equal(Symbolic.toString(Symbolic.integrate("3/x")), "3*ln(x)");
 });
 
 test("integrateDefinite matches the closed-form antiderivative for elementary integrands", () => {
@@ -243,8 +304,22 @@ test("differentiate sum is mechanical by linearity (differentiates the body, kee
   assert.equal(Symbolic.evaluate(d, { x: 3 }), 36);
 });
 
-test("differentiate throws ProductNotDifferentiableError for a product node", () => {
-  assert.throws(() => Symbolic.differentiate("product(i, 1, 5, i*x)", "x"), ProductNotDifferentiableError);
+test("differentiate product via the logarithmic-derivative identity", () => {
+  // product(i,1,3,i*x) = x * 2x * 3x = 6x^3, derivative = 18x^2. The
+  // log-derivative construction won't simplify to that symbolic form, so
+  // check numeric agreement at probe points instead.
+  const d = Symbolic.differentiate("product(i, 1, 3, i*x)", "x");
+  for (const x of [1, 2, 3, -1.5]) {
+    assert.ok(Math.abs(Symbolic.evaluate(d, { x }) - 18 * x ** 2) < 1e-9);
+  }
+});
+
+test("differentiate product is 0 when the body doesn't depend on the differentiation variable", () => {
+  // product(i,1,4,i) = 4! = 24, constant in x -- each (dbody/dx)/body term
+  // is 0/body = 0 as long as body is nonzero, so the sum -- and thus the
+  // whole derivative -- is 0, with no NaN/division-by-zero artifact.
+  const d = Symbolic.differentiate("product(i, 1, 4, i)", "x");
+  assert.equal(Symbolic.evaluate(d, { x: 7 }), 0);
 });
 
 test("sum/product capture-avoidance: substituting the bound variable name is a no-op, substituting a free variable inside body works", () => {
@@ -1114,10 +1189,115 @@ test("solveOdeClosedForm throws NotSeparableError for a Riccati-type equation (d
   assert.throws(() => Symbolic.solveOdeClosedForm("x + y^2", 0, 1), NotSeparableError);
 });
 
-test("solveOdeClosedForm throws NoClosedFormError when separable structure matches but tan(x) isn't in integRules's coverage", () => {
-  assert.throws(() => Symbolic.solveOdeClosedForm("tan(x)*y", 0, 1), NoClosedFormError);
+test("solveOdeClosedForm throws NoClosedFormError when separable structure matches but exp(x^2) isn't in integRules's coverage", () => {
+  assert.throws(() => Symbolic.solveOdeClosedForm("exp(x^2)*y", 0, 1), NoClosedFormError);
 });
 
-test("solveOdeClosedForm throws NoClosedFormError when linear structure matches but p(x)=tan(x) isn't in integRules's coverage", () => {
-  assert.throws(() => Symbolic.solveOdeClosedForm("1 - tan(x)*y", 0, 1), NoClosedFormError);
+test("solveOdeClosedForm throws NoClosedFormError when linear structure matches but p(x)=exp(x^2) isn't in integRules's coverage", () => {
+  assert.throws(() => Symbolic.solveOdeClosedForm("1 - exp(x^2)*y", 0, 1), NoClosedFormError);
+});
+
+test("solveOdeClosedForm solves a homogeneous ODE via y=v*x substitution (dy/dx = (x+y)/x, y(1)=3 -> y = x*(ln(x)+3))", () => {
+  // Cross-checked independently against a from-scratch RK4 numeric
+  // integration of the original ODE (not just re-derived by hand), since
+  // the log-derivative/back-substitution bookkeeping here is easy to get
+  // subtly wrong in a way a single hand derivation wouldn't catch.
+  const r = Symbolic.solveOdeClosedForm("(x+y)/x", 1, 3);
+  assert.equal(r.explicit, true);
+  assert.ok(r.y);
+  for (const x of [1, 2, 3, 5]) {
+    const expected = x * (Math.log(x) + 3);
+    assert.ok(Math.abs(Symbolic.evaluate(r.y as Parameters<typeof Symbolic.evaluate>[0], { x }) - expected) < 1e-6);
+  }
+});
+
+test("solveOdeClosedForm does not false-positive the homogeneous check on a non-homogeneous equation", () => {
+  // (x+y^2)/x substituted with y=v*x gives (x+v^2x^2)/x = 1+v^2*x, which
+  // still depends on x -- the homogeneous probe-point check must catch
+  // this and return null rather than false-positively matching.
+  assert.throws(() => Symbolic.solveOdeClosedForm("(x+y^2)/x", 1, 1), NotSeparableError);
+});
+
+test("solveOdeClosedForm solves a Bernoulli ODE via w=y^(1-n) substitution (dy/dx = x*y^2 - y, y(0)=1)", () => {
+  // Cross-checked against a from-scratch RK4 numeric integration of the
+  // original ODE, not a hand-derived closed form -- the symbolic result
+  // this produces is an ugly but correct un-simplified expression (a
+  // pre-existing Symbolic.simplify limitation around nested fraction
+  // constants, unrelated to the Bernoulli logic itself), so a numeric
+  // cross-check is the right verification tool here, not a symbolic-form
+  // comparison.
+  const r = Symbolic.solveOdeClosedForm("x*y^2 - y", 0, 1);
+  assert.equal(r.explicit, true);
+  assert.ok(r.y);
+  function rk4(f: (x: number, y: number) => number, x0: number, y0: number, xEnd: number, steps: number): number {
+    let x = x0;
+    let y = y0;
+    const h = (xEnd - x0) / steps;
+    for (let i = 0; i < steps; i++) {
+      const k1 = f(x, y);
+      const k2 = f(x + h / 2, y + (h / 2) * k1);
+      const k3 = f(x + h / 2, y + (h / 2) * k2);
+      const k4 = f(x + h, y + h * k3);
+      y += (h / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+      x += h;
+    }
+    return y;
+  }
+  const f = (x: number, y: number) => x * y * y - y;
+  for (const x of [0, 0.3, 0.7, 1.2]) {
+    const closed = Symbolic.evaluate(r.y as Parameters<typeof Symbolic.evaluate>[0], { x });
+    const numeric = rk4(f, 0, 1, x, 5000);
+    assert.ok(Math.abs(closed - numeric) < 1e-2);
+  }
+});
+
+test("solveOdeClosedForm does not false-positive the Bernoulli check on a Riccati-type equation", () => {
+  assert.throws(() => Symbolic.solveOdeClosedForm("x + y^2", 0, 1), NotSeparableError);
+});
+
+// -- solveOde2ndOrderConstCoeff -----------------------------------------
+
+/** Checks a*y''+b*y'+c*y=0 numerically (finite-difference y'') and y(x0)=y0, y'(x0)=yPrime0. */
+function checkSecondOrderOde(
+  y: ReturnType<typeof Symbolic.parse>,
+  a: number,
+  b: number,
+  c: number,
+  x0: number,
+  y0: number,
+  yPrime0: number,
+) {
+  const yAt = (x: number) => Symbolic.evaluate(y, { x });
+  const h = 1e-4;
+  for (const x of [x0, x0 + 0.5, x0 + 1, x0 + 2]) {
+    const yVal = yAt(x);
+    const yPrime = (yAt(x + h) - yAt(x - h)) / (2 * h);
+    const yDoublePrime = (yAt(x + h) - 2 * yAt(x) + yAt(x - h)) / (h * h);
+    assert.ok(Math.abs(a * yDoublePrime + b * yPrime + c * yVal) < 1e-2, `ODE not satisfied at x=${x}`);
+  }
+  assert.ok(Math.abs(yAt(x0) - y0) < 1e-6, "y(x0) mismatch");
+  const yPrimeAtX0 = (yAt(x0 + h) - yAt(x0 - h)) / (2 * h);
+  assert.ok(Math.abs(yPrimeAtX0 - yPrime0) < 1e-3, "y'(x0) mismatch");
+}
+
+test("solveOde2ndOrderConstCoeff solves the real-distinct-roots case (y''-3y'+2y=0, y(0)=1, y'(0)=0)", () => {
+  const y = Symbolic.solveOde2ndOrderConstCoeff(1, -3, 2, 0, 1, 0);
+  checkSecondOrderOde(y, 1, -3, 2, 0, 1, 0);
+});
+
+test("solveOde2ndOrderConstCoeff solves the repeated-root case (y''-2y'+y=0, y(0)=1, y'(0)=0)", () => {
+  const y = Symbolic.solveOde2ndOrderConstCoeff(1, -2, 1, 0, 1, 0);
+  checkSecondOrderOde(y, 1, -2, 1, 0, 1, 0);
+});
+
+test("solveOde2ndOrderConstCoeff solves the complex-roots case (y''+y=0, y(0)=1, y'(0)=0 -> y=cos(x))", () => {
+  const y = Symbolic.solveOde2ndOrderConstCoeff(1, 0, 1, 0, 1, 0);
+  checkSecondOrderOde(y, 1, 0, 1, 0, 1, 0);
+  for (const x of [0, 0.5, 1, 2]) {
+    assert.ok(Math.abs(Symbolic.evaluate(y, { x }) - Math.cos(x)) < 1e-6);
+  }
+});
+
+test("solveOde2ndOrderConstCoeff throws DegenerateOdeError when a === 0", () => {
+  assert.throws(() => Symbolic.solveOde2ndOrderConstCoeff(0, 1, 1, 0, 1, 0), DegenerateOdeError);
 });

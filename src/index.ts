@@ -73,6 +73,7 @@ export {
   type Assumption,
   type BinaryFuncName,
   type CmpOp,
+  DegenerateOdeError,
   type DifferentiationStep,
   type Expr,
   FUNCTION_NAMES,
