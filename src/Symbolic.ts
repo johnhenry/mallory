@@ -387,7 +387,7 @@ export class ProductNotDifferentiableError extends Error {
 
 export class NotSeparableError extends Error {
   constructor(
-    message = "solveOdeClosedForm: dy/dx isn't separable (g(x)*h(y)) and isn't affine in y (q(x) - p(x)*y) -- no recognized closed-form method applies.",
+    message = "solveOdeClosedForm: dy/dx matches none of the five recognized closed-form methods (separable, linear first-order, homogeneous, Bernoulli, exact).",
   ) {
     super(message);
     this.name = "NotSeparableError";
@@ -396,7 +396,7 @@ export class NotSeparableError extends Error {
 
 export class NoClosedFormError extends Error {
   constructor(
-    message = "solveOdeClosedForm: the equation matches a recognized closed-form method (separable or linear first-order), but the antiderivative(s) it requires aren't in this engine's elementary-rule coverage.",
+    message = "solveOdeClosedForm: the equation matches a recognized closed-form method, but the antiderivative(s) it requires aren't in this engine's elementary-rule coverage.",
   ) {
     super(message);
     this.name = "NoClosedFormError";
@@ -545,7 +545,7 @@ export class Symbolic {
 
   /**
    * Attempts a closed-form (symbolic) solution to the first-order initial
-   * value problem `dy/dx = dyDxExpr(x, y)`, `y(x0) = y0`, trying four
+   * value problem `dy/dx = dyDxExpr(x, y)`, `y(x0) = y0`, trying five
    * elementary methods in order -- all built entirely on {@link integrate}'s
    * existing elementary-rule coverage, not new integration machinery:
    *
@@ -563,14 +563,24 @@ export class Symbolic {
    * 4. **Bernoulli**: if `dyDxExpr` has the shape `q(x)·y^n - p(x)·y`
    *    (`n != 0, 1`), the substitution `w=y^(1-n)` reduces it to a linear
    *    equation in `w` and `x`, reusing method 2.
+   * 5. **Exact**: if `dyDxExpr` is a quotient `P/Q`, cross-multiplying
+   *    gives `M dx + N dy = 0` with `M=P`, `N=-Q`; when `∂M/∂y ≡ ∂N/∂x`
+   *    (verified numerically at probe points), a potential function
+   *    `F(x,y)` with `∂F/∂x=M`, `∂F/∂y=N` is constructed by integration,
+   *    giving the (usually implicit) solution `F(x,y) = F(x0,y0)`.
+   *    Deliberately tried LAST: the four methods above produce cleaner,
+   *    usually-explicit results where they apply, and many equations match
+   *    both (any separable quotient is also exact, for example) -- exact
+   *    only picks up quotients none of the others could handle.
    *
-   * All four paths legitimately fail on realistic inputs whose required
+   * All five paths legitimately fail on realistic inputs whose required
    * antiderivative isn't in {@link integrate}'s elementary coverage -- that
    * surfaces as {@link NoClosedFormError}. An equation matching none of the
-   * four structural patterns (e.g. a genuinely nonlinear/non-homogeneous
+   * five structural patterns (e.g. a genuinely nonlinear/non-homogeneous
    * case like a Riccati equation) surfaces as {@link NotSeparableError}.
-   * Exact equations and second-order ODEs (constant-coefficient or
-   * otherwise) remain out of scope.
+   * Second-order ODEs remain out of scope here (but see
+   * {@link solveOde2ndOrderConstCoeff} for the constant-coefficient
+   * homogeneous case).
    *
    * @throws {NotSeparableError} if no method's structural pattern matches.
    * @throws {NoClosedFormError} if a method matches but its required integral(s) aren't elementary.
@@ -591,6 +601,8 @@ export class Symbolic {
     if (hom) return solveHomogeneousOde(hom, xVar, yVar, x0, y0);
     const bern = matchBernoulli(e, xVar, yVar);
     if (bern) return solveBernoulliOde(bern, xVar, yVar, x0, y0);
+    const exact = matchExact(e, xVar, yVar);
+    if (exact) return solveExactOde(exact, xVar, yVar, x0, y0);
     throw new NotSeparableError();
   }
 
@@ -1780,8 +1792,21 @@ function collectLikeTerms(e: Expr): Expr {
       return fn(e.name, collectLikeTerms(e.arg));
     case "call2":
       return call2(e.name, collectLikeTerms(e.left), collectLikeTerms(e.right));
-    case "div":
-      return div(collectLikeTerms(e.left), collectLikeTerms(e.right));
+    case "div": {
+      const l = collectLikeTerms(e.left);
+      const r = collectLikeTerms(e.right);
+      // A monomial numerator over a nonzero-constant denominator goes
+      // through the same coefficient-extraction path as a mul chain (see
+      // flattenMonomial's div rule), so `(2*x^2)/2` folds to `x^2`. A
+      // sum-shaped numerator stays a plain div -- distributing a constant
+      // across a sum is expand's job, not simplify's. `rebuildAdditive`'s
+      // reciprocal rendering keeps the no-op cases (e.g. `x^2/2`)
+      // rendering back as the identical division they started as.
+      if (r.type === "const" && r.value !== 0 && l.type !== "add" && l.type !== "sub") {
+        return rebuildAdditive(groupTerms([flattenMonomial(div(l, r))]));
+      }
+      return div(l, r);
+    }
     case "pow":
       return pow(collectLikeTerms(e.base), collectLikeTerms(e.exp));
     case "neg":
@@ -1836,12 +1861,21 @@ function flattenMonomial(e: Expr): Term {
     const r = flattenMonomial(e.right);
     return mergeFactors(l.coeff * r.coeff, [...l.factors, ...r.factors]);
   }
+  // A division by a nonzero constant is just a fractional coefficient --
+  // extracting it here (rather than treating the whole div as an opaque
+  // atom, the old behavior) is what lets the surrounding term's constants
+  // cancel against it: `2*(x^2/2)` -> `x^2`, `(2*x^2)/2` -> `x^2`,
+  // `x/2 + x/2` -> `x`. A div by a non-constant stays opaque below.
+  if (e.type === "div" && e.right.type === "const" && e.right.value !== 0) {
+    const inner = flattenMonomial(e.left);
+    return { coeff: inner.coeff / e.right.value, factors: inner.factors };
+  }
   // a power with a constant exponent contributes a single (base, exp) factor;
   // the base itself is collected so nested sums inside it are also handled.
   if (e.type === "pow" && e.exp.type === "const") {
     return mergeFactors(1, [{ base: collectLikeTerms(e.base), exp: e.exp.value }]);
   }
-  // opaque atom (var, func, div, or pow with a non-constant exponent)
+  // opaque atom (var, func, div with a non-constant denominator, or pow with a non-constant exponent)
   return mergeFactors(1, [{ base: collectLikeTerms(e), exp: 1 }]);
 }
 
@@ -1885,8 +1919,21 @@ function rebuildAdditive(terms: Term[]): Expr {
   for (const t of terms) {
     const monomial = buildMonomial(t.factors);
     const magnitude = Math.abs(t.coeff);
+    // A fractional coefficient whose reciprocal is an integer renders as a
+    // division (`x/2`, not `0.5*x`) -- this is what keeps expressions that
+    // entered the flattener already division-shaped (`-(x/2)`, `x^2/2`)
+    // rendering back out in their original, conventional form now that
+    // flattenMonomial extracts constant denominators into the coefficient.
+    const reciprocal = magnitude !== 0 ? 1 / magnitude : 0;
+    const asDivision = magnitude < 1 && Math.abs(Math.round(reciprocal) - reciprocal) < 1e-12;
     const positivePart: Expr =
-      monomial === null ? num(magnitude) : magnitude === 1 ? monomial : mul(num(magnitude), monomial);
+      monomial === null
+        ? num(magnitude)
+        : magnitude === 1
+          ? monomial
+          : asDivision
+            ? div(monomial, num(Math.round(reciprocal)))
+            : mul(num(magnitude), monomial);
     if (result === null) {
       result = t.coeff < 0 ? neg(positivePart) : positivePart;
     } else {
@@ -1926,8 +1973,16 @@ function integRules(e: Expr, x: string): Expr {
     }
     case "div": {
       if (!containsVar(e.right, x)) return div(integ(e.left, x), e.right); // ∫ u/c
-      // c/x -> c*ln(x), any constant c (not just literally 1)
-      if (!containsVar(e.left, x) && e.right.type === "var" && e.right.name === x) return mul(e.left, fn("ln", v(x)));
+      // c/x -> c*ln|x|, any constant c (not just literally 1). abs() because
+      // the integrand 1/x is perfectly real for x < 0 where a naked ln(x)
+      // would evaluate to NaN -- the textbook antiderivative is ln|x| + C.
+      // The same reasoning drives every abs() below: wrap exactly where the
+      // integrand is real but the ln argument can go negative; leave rules
+      // whose ln argument is nonnegative whenever the integrand itself is
+      // defined (∫ln(u)du, tanh's ln(cosh), atan's ln(1+u^2)) unwrapped.
+      if (!containsVar(e.left, x) && e.right.type === "var" && e.right.name === x) {
+        return mul(e.left, fn("ln", fn("abs", v(x))));
+      }
       // numerator constant wrt x — check rational/radical forms with an x^2 denominator
       if (!containsVar(e.left, x)) {
         const c = evalExpr(e.left, {});
@@ -1947,8 +2002,11 @@ function integRules(e: Expr, x: string): Expr {
         }
         // ∫ c / (a·x^2 + b·x + c0) dx, two distinct real roots (disc > 0):
         // partial fractions c/(a(x-r1)(x-r2)) = A/(x-r1) + B/(x-r2), giving
-        // A·ln(x-r1) + B·ln(x-r2). A = c/(a(r1-r2)), B = -A (re-derived and
+        // A·ln|x-r1| + B·ln|x-r2|. A = c/(a(r1-r2)), B = -A (re-derived and
         // numerically verified against d/dx of the result before trusting it).
+        // abs() matters here even more than for c/x: evaluating anywhere
+        // *between* the two roots makes exactly one factor negative, so a
+        // naked ln silently returned NaN over that whole interval.
         const quad2 = quadraticCoeffs(e.right, x);
         if (quad2) {
           const disc = quad2.b * quad2.b - 4 * quad2.a * quad2.c;
@@ -1958,7 +2016,10 @@ function integRules(e: Expr, x: string): Expr {
             const r2 = (-quad2.b - sqrtDisc) / (2 * quad2.a);
             const A = c / (quad2.a * (r1 - r2));
             const B = -A;
-            return add(mul(num(A), fn("ln", sub(v(x), num(r1)))), mul(num(B), fn("ln", sub(v(x), num(r2)))));
+            return add(
+              mul(num(A), fn("ln", fn("abs", sub(v(x), num(r1))))),
+              mul(num(B), fn("ln", fn("abs", sub(v(x), num(r2))))),
+            );
           }
         }
       }
@@ -1967,7 +2028,7 @@ function integRules(e: Expr, x: string): Expr {
     case "pow": {
       // x^n (constant n)
       if (e.base.type === "var" && e.base.name === x && e.exp.type === "const") {
-        if (e.exp.value === -1) return fn("ln", v(x));
+        if (e.exp.value === -1) return fn("ln", fn("abs", v(x))); // ∫x^-1 = ln|x|, same reasoning as the c/x rule
         return div(pow(v(x), num(e.exp.value + 1)), num(e.exp.value + 1));
       }
       throw new NotIntegrableError();
@@ -1986,22 +2047,31 @@ function integRules(e: Expr, x: string): Expr {
         case "exp":
           return scale(fn("exp", inner));
         case "ln":
+          // NO abs() here, unlike tan/cot/sec/csc below: the integrand ln(u)
+          // is itself undefined for u <= 0, so the antiderivative's ln shares
+          // the integrand's own domain -- wrapping it would silently turn
+          // this into an antiderivative of ln|u|, a different integrand.
           return scale(sub(mul(inner, fn("ln", inner)), inner));
         case "sqrt":
           return scale(mul(num(2 / 3), pow(inner, num(1.5))));
+        // tan/cot/sec/csc: the integrand is real wherever the ln argument
+        // below is merely *negative* (e.g. tan(2) is real but cos(2) < 0),
+        // so these need the textbook ln|...| form -- a naked ln returned NaN
+        // over every such interval.
         case "tan":
-          return scale(neg(fn("ln", fn("cos", inner))));
+          return scale(neg(fn("ln", fn("abs", fn("cos", inner)))));
         case "cot":
-          return scale(fn("ln", fn("sin", inner)));
+          return scale(fn("ln", fn("abs", fn("sin", inner))));
         case "sec":
-          return scale(fn("ln", add(fn("sec", inner), fn("tan", inner))));
+          return scale(fn("ln", fn("abs", add(fn("sec", inner), fn("tan", inner)))));
         case "csc":
-          return scale(neg(fn("ln", add(fn("csc", inner), fn("cot", inner)))));
+          return scale(neg(fn("ln", fn("abs", add(fn("csc", inner), fn("cot", inner))))));
         case "sinh":
           return scale(fn("cosh", inner));
         case "cosh":
           return scale(fn("sinh", inner));
         case "tanh":
+          // No abs(): cosh(u) >= 1 always, the argument can never go negative.
           return scale(fn("ln", fn("cosh", inner)));
         case "asin":
           return scale(add(mul(inner, fn("asin", inner)), fn("sqrt", sub(num(1), pow(inner, num(2))))));
@@ -2390,16 +2460,33 @@ function matchLinearOde(e: Expr, xVar: string, yVar: string): { p: Expr; q: Expr
 /**
  * Tries to isolate `y` from `H(y) = rhs`, for the bounded set of shapes
  * {@link integ} can actually produce when integrating a pure function of a
- * single variable: `y` itself (h(y)=1 case), `ln(y)` (the `1/y -> ln y`
+ * single variable: `y` itself (h(y)=1 case), `ln|y|` (the `1/y -> ln|y|`
  * rule), or `y^p/p` (the power rule). NOT a general symbolic equation
  * solver -- returns `null` (surfacing as an implicit result) for anything
- * else, which is an explicitly allowed outcome per solveOdeClosedForm's
+ * else, which is an explicitly allowed outcome per solveOdeClosedFrom's
  * contract.
+ *
+ * The `ln(abs(y))` case needs `y0`: |y| = e^rhs has two branches, y = ±e^rhs.
+ * A separable solution can't cross y = 0 (that's where 1/h(y) blew up), so
+ * the branch is pinned by the initial condition's own sign for the entire
+ * solution: y = sign(y0)·e^rhs.
  */
-function tryInvertForY(H: Expr, yVar: string, rhs: Expr): Expr | null {
+function tryInvertForY(H: Expr, yVar: string, rhs: Expr, y0: number): Expr | null {
   if (H.type === "var" && H.name === yVar) return rhs;
   if (H.type === "func" && H.name === "ln" && H.arg.type === "var" && H.arg.name === yVar) {
     return fn("exp", rhs);
+  }
+  if (
+    H.type === "func" &&
+    H.name === "ln" &&
+    H.arg.type === "func" &&
+    H.arg.name === "abs" &&
+    H.arg.arg.type === "var" &&
+    H.arg.arg.name === yVar
+  ) {
+    const branch = Math.sign(y0);
+    if (branch === 0) return null; // y0 = 0 is a degenerate initial condition for a 1/h(y) ~ 1/y separable form
+    return branch === 1 ? fn("exp", rhs) : neg(fn("exp", rhs));
   }
   if (
     H.type === "div" &&
@@ -2436,7 +2523,7 @@ function solveSeparableOde(
   }
   const C = evalExpr(H, { [yVar]: y0 }) - evalExpr(G, { [xVar]: x0 });
   const rhs = Symbolic.simplify(add(G, num(C)));
-  const explicitY = tryInvertForY(H, yVar, rhs);
+  const explicitY = tryInvertForY(H, yVar, rhs, y0);
   if (explicitY) return { explicit: true, y: Symbolic.simplify(explicitY) };
   return { explicit: false, implicitRelation: Symbolic.simplify(sub(H, rhs)) };
 }
@@ -2674,6 +2761,126 @@ function solveBernoulliOde(
   const wResult = solveLinearOde({ p: transformedP, q: transformedQ }, xVar, yVar, x0, w0);
   const y = Symbolic.simplify(pow(wResult.y as Expr, num(1 / oneMinusN)));
   return { explicit: true, y };
+}
+
+/**
+ * `dyDxExpr = P/Q` where `M dx + N dy = 0` (with `M=P`, `N=-Q`) is an
+ * exact differential -- i.e. `∂M/∂y ≡ ∂N/∂x`? Only attempted for a
+ * top-level `div` node, since that's the one shape where the M/N
+ * decomposition is unambiguous. The exactness identity is verified
+ * numerically over a small (x, y) probe grid rather than symbolically
+ * (the same conservative probe-point convention `matchHomogeneous`/
+ * `verifyByDifferentiation` use elsewhere in this file: `simplify` can't
+ * always prove two derivative expressions equal even when they are), with
+ * non-finite probe pairs skipped and a minimum number of successful
+ * agreements required before the match is trusted. Any free variable
+ * besides `xVar`/`yVar` bails, matching every other matcher's philosophy.
+ */
+function matchExact(e: Expr, xVar: string, yVar: string): { M: Expr; N: Expr } | null {
+  if (e.type !== "div") return null;
+  const vars = collectFreeVars(e);
+  if (![...vars].every((n) => n === xVar || n === yVar)) return null;
+  const M = e.left;
+  const N = Symbolic.simplify(neg(e.right));
+  const dMdy = diff(M, yVar);
+  const dNdx = diff(N, xVar);
+  let agreements = 0;
+  for (const xp of [0.7, 1.3, -0.9]) {
+    for (const yp of [0.8, -1.2, 1.7]) {
+      const a = evalExpr(dMdy, { [xVar]: xp, [yVar]: yp });
+      const b = evalExpr(dNdx, { [xVar]: xp, [yVar]: yp });
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+      if (Math.abs(a - b) > 1e-6 * Math.max(1, Math.abs(a), Math.abs(b))) {
+        return null; // ∂M/∂y != ∂N/∂x -- not exact
+      }
+      agreements++;
+    }
+  }
+  if (agreements < 4) return null; // not enough usable probes to trust the match
+  return { M, N };
+}
+
+/**
+ * Constructs the potential function `F(x,y)` with `∂F/∂x = M`,
+ * `∂F/∂y = N`: `F₀ = ∫M dx` (y held as a symbolic constant -- `integ`'s
+ * `containsVar` machinery already treats any non-integration variable
+ * that way), then `g'(y) = N - ∂F₀/∂y`, `g = ∫g' dy`, `F = F₀ + g`.
+ * The solution is the level set through the initial condition:
+ * `F(x,y) = F(x0,y0)`.
+ *
+ * `g'` is mathematically a pure function of `y` whenever the equation is
+ * genuinely exact (which {@link matchExact} just verified numerically), but
+ * `simplify` may fail to cancel the `x` terms *symbolically* -- in that
+ * case `x`-independence is re-verified numerically and a concrete probe
+ * value is substituted for `x`, mirroring how `matchHomogeneous` extracts
+ * `F(v)` by substituting `x=1` rather than trusting algebraic
+ * cancellation. If no finite probe substitution exists, the closed form
+ * can't be constructed reliably -- {@link NoClosedFormError}, same as an
+ * integral outside {@link integ}'s coverage.
+ *
+ * The result is usually implicit (`F` genuinely mixes `x` and `y`; a
+ * cleanly-splitting `F` would almost always have been caught by the
+ * separable path first). The one cheap explicit attempt made: when `F`
+ * splits as `add`/`sub` of a pure-`y` part and a pure-`x` part,
+ * {@link tryInvertForY} is tried on the pure-`y` side.
+ */
+function solveExactOde(
+  exact: { M: Expr; N: Expr },
+  xVar: string,
+  yVar: string,
+  x0: number,
+  y0: number,
+): OdeClosedFormResult {
+  const { M, N } = exact;
+  let F0: Expr;
+  let g: Expr;
+  let gPrime: Expr;
+  try {
+    F0 = Symbolic.simplify(integ(M, xVar));
+    gPrime = Symbolic.simplify(sub(N, diff(F0, yVar)));
+    if (containsVar(gPrime, xVar)) {
+      // Symbolic cancellation fell short -- verify x-independence
+      // numerically, then pin x to a probe value that evaluates finitely.
+      let pinned: Expr | null = null;
+      for (const xp of [1, 2.3, -1.7]) {
+        const atProbe = evalExpr(gPrime, { [xVar]: xp, [yVar]: 0.8 });
+        const atOther = evalExpr(gPrime, { [xVar]: xp === 1 ? 2.3 : 1, [yVar]: 0.8 });
+        if (!Number.isFinite(atProbe) || !Number.isFinite(atOther)) continue;
+        if (Math.abs(atProbe - atOther) > 1e-6 * Math.max(1, Math.abs(atProbe))) {
+          throw new NoClosedFormError();
+        }
+        pinned = Symbolic.simplify(subst(gPrime, xVar, num(xp)));
+        break;
+      }
+      if (!pinned) throw new NoClosedFormError();
+      gPrime = pinned;
+    }
+    g = Symbolic.simplify(integ(gPrime, yVar));
+  } catch (err) {
+    if (err instanceof NotIntegrableError) throw new NoClosedFormError();
+    throw err;
+  }
+  const F = Symbolic.simplify(add(F0, g));
+  const C = evalExpr(F, { [xVar]: x0, [yVar]: y0 });
+  if (!Number.isFinite(C)) throw new NoClosedFormError();
+  // Cheap explicit attempt: F = H(y) + G(x) (either order) inverts via the
+  // same bounded shapes the separable path uses.
+  if (F.type === "add" || F.type === "sub") {
+    const xOnly = new Set([xVar]);
+    const yOnly = new Set([yVar]);
+    const [a, b] = [F.left, F.right];
+    for (const [yPart, xPartSigned] of [
+      [a, F.type === "sub" ? neg(b) : b],
+      [b, F.type === "sub" ? neg(a) : a],
+    ] as const) {
+      if (!isPureFunctionOf(yPart, yOnly) || !isPureFunctionOf(xPartSigned, xOnly)) continue;
+      if (F.type === "sub" && yPart === b) continue; // F = G(x) - H(y): inverting -H is out of tryInvertForY's shapes
+      const rhs = Symbolic.simplify(sub(num(C), xPartSigned));
+      const explicitY = tryInvertForY(yPart, yVar, rhs, y0);
+      if (explicitY) return { explicit: true, y: Symbolic.simplify(explicitY) };
+    }
+  }
+  return { explicit: false, implicitRelation: Symbolic.simplify(sub(F, num(C))) };
 }
 
 /** If `e` is `a·x + b` (a, b constant), return `{ a, b }`, else `null`. */

@@ -52,6 +52,26 @@ test("simplify applies identities", () => {
   assert.equal(Symbolic.toString(Symbolic.simplify("x^0")), "1");
 });
 
+test("simplify folds a constant denominator into the surrounding term's coefficient", () => {
+  // The motivating shape from the Bernoulli-ODE investigation: a constant
+  // denominator used to be locked inside an opaque div atom, so the
+  // surrounding 2 could never cancel it.
+  assert.equal(Symbolic.toString(Symbolic.simplify("2*(x^2/2)")), "x^2");
+  assert.equal(Symbolic.toString(Symbolic.simplify("3*(x/3)")), "x");
+  assert.equal(Symbolic.toString(Symbolic.simplify("(2*x^2)/2")), "x^2");
+  assert.equal(Symbolic.toString(Symbolic.simplify("(x*2)/2")), "x");
+  assert.equal(Symbolic.toString(Symbolic.simplify("2*(sin(x)/2)")), "sin(x)");
+  assert.equal(Symbolic.toString(Symbolic.simplify("6*(x/3)")), "2*x");
+  assert.equal(Symbolic.toString(Symbolic.simplify("x/2 + x/2")), "x");
+  // A leftover fractional coefficient with an integer reciprocal renders
+  // back as a division, so already-conventional forms are stable...
+  assert.equal(Symbolic.toString(Symbolic.simplify("2*(x/4)")), "x/2");
+  assert.equal(Symbolic.toString(Symbolic.simplify("x^2/2")), "x^2/2");
+  assert.equal(Symbolic.toString(Symbolic.simplify("-(x/2)")), "-(x/2)");
+  // ...and one without an integer reciprocal stays a plain coefficient.
+  assert.equal(Symbolic.toString(Symbolic.simplify("5*(x^2/2)")), "2.5*x^2");
+});
+
 test("integrate elementary forms (fundamental theorem check)", () => {
   // ∫ x^2 dx = x^3/3 ; derivative recovers x^2
   const F = Symbolic.integrate("x^2");
@@ -62,8 +82,10 @@ test("integrate elementary forms (fundamental theorem check)", () => {
   // ∫ sin(2x) dx = -cos(2x)/2 ; linear-substitution
   const H = Symbolic.integrate("sin(2*x)");
   assert.ok(Math.abs(Symbolic.evaluate(Symbolic.differentiate(H), { x: 0.3 }) - Math.sin(0.6)) < 1e-9);
-  // ∫ 1/x dx = ln x
-  assert.equal(Symbolic.toString(Symbolic.integrate("1/x")), "ln(x)");
+  // ∫ 1/x dx = ln|x| -- abs(), so the antiderivative is real for x < 0 too,
+  // where the integrand 1/x is perfectly well-defined (issue #9)
+  assert.equal(Symbolic.toString(Symbolic.integrate("1/x")), "ln(abs(x))");
+  assert.ok(Math.abs(Symbolic.evaluate(Symbolic.integrate("1/x"), { x: -2 }) - Math.log(2)) < 1e-9);
 });
 
 test("integrate rejects non-elementary forms", () => {
@@ -150,7 +172,37 @@ test("integrate x/(x^2+1) via u-substitution on the whole denominator", () => {
 });
 
 test("integrate c/x for a non-unit constant c", () => {
-  assert.equal(Symbolic.toString(Symbolic.integrate("3/x")), "3*ln(x)");
+  assert.equal(Symbolic.toString(Symbolic.integrate("3/x")), "3*ln(abs(x))");
+  assert.ok(Math.abs(Symbolic.evaluate(Symbolic.integrate("3/x"), { x: -2 }) - 3 * Math.log(2)) < 1e-9);
+});
+
+test("ln-based antiderivatives are real (not NaN) where the integrand is real but the ln argument is negative (issue #9)", () => {
+  // Partial fractions BETWEEN the roots: x in (-1, 1) makes (x - 1) < 0, so a
+  // naked ln returned NaN over the entire middle interval even though the
+  // integrand 1/(x^2-1) is perfectly real there.
+  const pf = Symbolic.integrate("1/(x^2-1)");
+  for (const x of [-0.5, 0, 0.5, 2, -2]) {
+    const d = Symbolic.evaluate(Symbolic.differentiate(pf), { x });
+    assert.ok(Math.abs(d - 1 / (x * x - 1)) < 1e-6, `d/dx mismatch at x=${x}`);
+    assert.ok(Number.isFinite(Symbolic.evaluate(pf, { x })), `antiderivative NaN at x=${x}`);
+  }
+  // tan/cot/sec/csc at arguments where the ln argument is negative but the
+  // integrand itself is real -- each verified by differentiation round-trip.
+  const cases: Array<[string, number, (x: number) => number]> = [
+    ["tan(x)", 2, (x) => Math.tan(x)], // cos(2) < 0
+    ["cot(x)", 4, (x) => 1 / Math.tan(x)], // sin(4) < 0
+    ["sec(x)", 2.5, (x) => 1 / Math.cos(x)],
+    ["csc(x)", 4, (x) => 1 / Math.sin(x)],
+  ];
+  for (const [expr, x, f] of cases) {
+    const F = Symbolic.integrate(expr);
+    assert.ok(Number.isFinite(Symbolic.evaluate(F, { x })), `${expr}: antiderivative NaN at x=${x}`);
+    const d = Symbolic.evaluate(Symbolic.differentiate(F), { x });
+    assert.ok(Math.abs(d - f(x)) < 1e-6, `${expr}: round-trip mismatch at x=${x}`);
+  }
+  // Deliberately NOT wrapped: the integrand ln(x) is itself undefined for
+  // x <= 0, so its antiderivative legitimately shares that domain.
+  assert.equal(Symbolic.toString(Symbolic.integrate("ln(x)")), "ln(x)*x - x");
 });
 
 test("integrateDefinite matches the closed-form antiderivative for elementary integrands", () => {
@@ -1174,6 +1226,24 @@ test("solveOdeClosedForm solves a trivial separable ODE (dy/dx = x, h(y)=1 degen
   assert.equal(Symbolic.evaluate(r.y as Parameters<typeof Symbolic.evaluate>[0], { x: 2 }), 7);
 });
 
+test("solveOdeClosedForm handles a NEGATIVE initial condition on the separable ln|y| path (issue #9)", () => {
+  // dy/dx = y with y(0) = -2 -> y = -2*e^x. Before the ln|y| fix, H(y0) was
+  // ln(-2) = NaN, poisoning the constant and the whole solve. The abs-wrapped
+  // ln has two inverse branches (y = ±e^rhs); the initial condition's sign
+  // pins the branch, since a separable solution can't cross y = 0.
+  const r = Symbolic.solveOdeClosedForm("y", 0, -2);
+  assert.equal(r.explicit, true);
+  assert.ok(r.y);
+  for (const x of [0, 0.5, 1, 2]) {
+    const got = Symbolic.evaluate(r.y as Parameters<typeof Symbolic.evaluate>[0], { x });
+    assert.ok(Math.abs(got - -2 * Math.exp(x)) < 1e-9, `mismatch at x=${x}: got ${got}`);
+  }
+  // The positive branch still works identically (regression check).
+  const rp = Symbolic.solveOdeClosedForm("y", 0, 2);
+  assert.equal(rp.explicit, true);
+  assert.ok(Math.abs(Symbolic.evaluate(rp.y as Parameters<typeof Symbolic.evaluate>[0], { x: 1 }) - 2 * Math.E) < 1e-9);
+});
+
 test("solveOdeClosedForm solves a linear first-order ODE via integrating factor (dy/dx + y = x, y(0)=1)", () => {
   // dy/dx = x - y; exact solution y = x - 1 + 2*e^-x
   const r = Symbolic.solveOdeClosedForm("x - y", 0, 1);
@@ -1253,6 +1323,99 @@ test("solveOdeClosedForm solves a Bernoulli ODE via w=y^(1-n) substitution (dy/d
 
 test("solveOdeClosedForm does not false-positive the Bernoulli check on a Riccati-type equation", () => {
   assert.throws(() => Symbolic.solveOdeClosedForm("x + y^2", 0, 1), NotSeparableError);
+});
+
+test("solveOdeClosedForm handles the Bernoulli ODE that originally exposed the constant-folding gap (dy/dx = x*y - x*y^3)", () => {
+  // This exact equation used to fail end-to-end: an intermediate of the
+  // shape 2*(x^2/2) never folded, which derailed the u-substitution
+  // search inside integ. With simplify's constant-denominator folding
+  // fixed, it solves cleanly -- RK4 cross-check, same convention as the
+  // other Bernoulli test above.
+  const r = Symbolic.solveOdeClosedForm("x*y - x*y^3", 0, 0.5);
+  assert.equal(r.explicit, true);
+  assert.ok(r.y);
+  function rk4(f: (x: number, y: number) => number, x0: number, y0: number, xEnd: number, steps: number): number {
+    let x = x0;
+    let y = y0;
+    const h = (xEnd - x0) / steps;
+    for (let i = 0; i < steps; i++) {
+      const k1 = f(x, y);
+      const k2 = f(x + h / 2, y + (h / 2) * k1);
+      const k3 = f(x + h / 2, y + (h / 2) * k2);
+      const k4 = f(x + h, y + h * k3);
+      y += (h / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+      x += h;
+    }
+    return y;
+  }
+  const f = (x: number, y: number) => x * y - x * y ** 3;
+  for (const x of [0.3, 0.8, 1.5]) {
+    const closed = Symbolic.evaluate(r.y as Parameters<typeof Symbolic.evaluate>[0], { x });
+    const numeric = rk4(f, 0, 0.5, x, 5000);
+    assert.ok(Math.abs(closed - numeric) < 1e-4, `mismatch at x=${x}: ${closed} vs ${numeric}`);
+  }
+});
+
+test("solveOdeClosedForm solves an exact equation to an implicit relation (dy/dx = -(2xy^3+2)/(3x^2y^2+1), y(1)=1)", () => {
+  // M = -(2xy^3+2), N = 3x^2y^2+1: dM/dy = -6xy^2 = dN/dx after the M/N
+  // sign convention, so the equation is exact with potential
+  // F = -(x^2y^3) - 2x - y and level set F(x,y) = F(1,1) = -4. Not
+  // separable (div node), not linear (y^3/y^2), not homogeneous (mixed
+  // degrees), not Bernoulli (div node) -- only the exact path solves it.
+  // The result is genuinely implicit, so it's verified the only way an
+  // implicit solution can be: integrate the ODE numerically (RK4) from the
+  // initial point and check the returned relation evaluates to ~0 at every
+  // trajectory point.
+  const r = Symbolic.solveOdeClosedForm("-(2*x*y^3 + 2)/(3*x^2*y^2 + 1)", 1, 1);
+  assert.equal(r.explicit, false);
+  assert.ok(r.implicitRelation);
+  function rk4(f: (x: number, y: number) => number, x0: number, y0: number, xEnd: number, steps: number): number {
+    let x = x0;
+    let y = y0;
+    const h = (xEnd - x0) / steps;
+    for (let i = 0; i < steps; i++) {
+      const k1 = f(x, y);
+      const k2 = f(x + h / 2, y + (h / 2) * k1);
+      const k3 = f(x + h / 2, y + (h / 2) * k2);
+      const k4 = f(x + h, y + h * k3);
+      y += (h / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+      x += h;
+    }
+    return y;
+  }
+  const f = (x: number, y: number) => -(2 * x * y ** 3 + 2) / (3 * x ** 2 * y ** 2 + 1);
+  for (const xEnd of [1.2, 1.5, 2]) {
+    const yTraj = rk4(f, 1, 1, xEnd, 5000);
+    const residual = Symbolic.evaluate(r.implicitRelation as Parameters<typeof Symbolic.evaluate>[0], {
+      x: xEnd,
+      y: yTraj,
+    });
+    assert.ok(Math.abs(residual) < 1e-4, `relation violated at x=${xEnd}: residual ${residual}`);
+  }
+});
+
+test("solveOdeClosedForm does not false-positive the exact check on a non-exact quotient", () => {
+  // (x + y^3)/(x^2 + y): dM/dy = 3y^2 vs dN/dx = -2x -- not exact, and it
+  // matches none of the other four methods either, so the whole chain
+  // correctly falls through to NotSeparableError.
+  assert.throws(() => Symbolic.solveOdeClosedForm("(x + y^3)/(x^2 + y)", 1, 1), NotSeparableError);
+});
+
+test("solveOdeClosedForm throws NoClosedFormError for an exact equation whose potential isn't elementary", () => {
+  // Same exact structure as the solvable case above but with exp(x^2) in M
+  // (dM/dy = dN/dx still holds since the added term has no y): the
+  // exactness match succeeds, but F0 = int M dx needs int exp(x^2) dx,
+  // which isn't in integ's elementary coverage.
+  assert.throws(() => Symbolic.solveOdeClosedForm("-(2*x*y^3 + exp(x^2))/(3*x^2*y^2 + 1)", 1, 1), NoClosedFormError);
+});
+
+test("solveOdeClosedForm still routes a separable-and-also-exact equation through the separable path", () => {
+  // x*y is trivially separable; separable runs before exact in the method
+  // chain, so the result must be the same explicit form as before exact
+  // existed -- byte-identical, not just numerically equal.
+  const r = Symbolic.solveOdeClosedForm("x*y", 0, 1);
+  assert.equal(r.explicit, true);
+  assert.equal(Symbolic.toString(r.y as Parameters<typeof Symbolic.toString>[0]), "exp(x^2/2)");
 });
 
 // -- solveOde2ndOrderConstCoeff -----------------------------------------
