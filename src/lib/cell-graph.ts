@@ -115,22 +115,35 @@ export class CellGraph {
     // A cell being defined for the first time (no prior value) is
     // guaranteed to change once computed -- hasValue flips false -> true
     // regardless of what the compute returns -- so it's safe to eagerly
-    // bump its version and notify its own subscribers now, same as before.
+    // bump its version and notify its own subscribers now, same as before,
+    // with no need to actually run the compute early.
+    //
     // A cell that already has a value is being *redefined*: unlike set(),
-    // define() can't synchronously know whether the new compute will yield
-    // the same value (it only has a function, not a value, in hand), so its
-    // own version bump and direct-subscriber notification are deferred to
-    // the first lazy recompute -- see recomputeAndEmit's own
-    // structuralEqual-gated bump. That's what lets a redefine-with-
-    // identical-result (e.g. a component remount, or a config reapply)
-    // skip notifying its own subscribers. Dependents are still eagerly
-    // marked dirty below regardless of which case this is: that's always
-    // safe (their own eventual recompute applies the same structuralEqual
-    // check) and preserves the existing invariant that a write's effects
-    // cascade through the whole known-dependent graph synchronously
-    // (mirrors set()/delete()) -- see the mallory-graph#10-pattern test,
-    // which relies on exactly this cascade firing from a *first* define().
-    if (!isRedefine) {
+    // define() doesn't have the new value in hand to structuralEqual-check
+    // synchronously -- only a function. The fix for #15 is NOT "defer the
+    // notification to some future get()": nothing guarantees a future
+    // get() ever happens. useSyncExternalStore's subscribe callback (see
+    // use-cell.ts) is what schedules a component's next render in the
+    // first place, and that callback only fires from emit() -- so an
+    // un-emitted genuine change would sit invisible until something
+    // UNRELATED happens to re-render the same subscribed component. That's
+    // a missed update, strictly worse than the unwanted-churn bug #15 set
+    // out to fix. Instead, resolve it the same way set() does: eagerly,
+    // synchronously, right here -- via recomputeAndEmit, which already
+    // implements exactly the "recompute, structuralEqual-gate the version
+    // bump/emit" logic this needs (and already detaches/rebuilds
+    // `dependencies` correctly as part of that). A throwing new compute is
+    // swallowed here (recomputeAndEmit already cached it on the cell via
+    // #14's hasError/error fields before rethrowing) so define() keeps its
+    // pre-existing never-throws-synchronously contract; the cached error
+    // surfaces through the normal get()-throws path on the next read.
+    if (isRedefine) {
+      try {
+        this.recomputeAndEmit(id, cell);
+      } catch {
+        // Cached on the cell already; surfaced via get(), not here.
+      }
+    } else {
       cell.version++;
       this.emit(id);
     }

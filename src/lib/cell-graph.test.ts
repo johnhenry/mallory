@@ -393,12 +393,12 @@ test("define() does not bump version/notify when redefining with a compute that 
   g.subscribe("double", () => notified++);
 
   // Redefine with a different compute fn that happens to produce the same
-  // value (e.g. a component remount or a config reapply) -- must not
-  // eagerly bump version or notify before the recompute even runs.
+  // value (e.g. a component remount or a config reapply) -- must not bump
+  // version or notify at all.
   g.define("double", () => 1 + 1);
-  assert.equal(notified, 0, "redefining must not eagerly notify before a recompute confirms a real change");
+  assert.equal(notified, 0, "the redefine resolved to no real change -- no notification");
   assert.equal(g.get("double"), 2);
-  assert.equal(notified, 0, "the deferred recompute found no real change -- still no notification");
+  assert.equal(notified, 0, "reading again afterwards must not notify a second time either");
   assert.equal(
     g.getVersion("double"),
     versionAfterFirst,
@@ -406,7 +406,13 @@ test("define() does not bump version/notify when redefining with a compute that 
   );
 });
 
-test("define() still bumps version/notifies (after the deferred recompute) when a redefine genuinely changes the value", () => {
+test("define() bumps version/notifies SYNCHRONOUSLY (not deferred to some later get()) when a redefine genuinely changes the value", () => {
+  // This is the guarantee that actually matters for the live app:
+  // useSyncExternalStore's re-render is scheduled by the subscribe
+  // callback firing (i.e. emit()), not by some future get() call that
+  // nothing guarantees will ever happen. A fix that deferred notification
+  // to the next get() would leave a subscribed component's UI stale
+  // indefinitely whenever nothing else happens to re-render it.
   const g = new CellGraph();
   g.set("a", 1);
   g.define("double", () => g.get<number>("a") * 2);
@@ -417,10 +423,27 @@ test("define() still bumps version/notifies (after the deferred recompute) when 
   g.subscribe("double", () => notified++);
 
   g.define("double", () => 100); // genuinely different result
-  assert.equal(notified, 0, "not yet notified -- deferred until the first recompute");
-  assert.equal(g.get("double"), 100);
-  assert.equal(notified, 1, "notified once the deferred recompute confirms a real change");
-  assert.ok(g.getVersion("double") > versionAfterFirst);
+  assert.equal(notified, 1, "notified synchronously by define() itself -- no intervening get() call");
+  assert.ok(g.getVersion("double") > versionAfterFirst, "version already bumped synchronously too");
+  assert.equal(g.get("double"), 100, "and the cached value already reflects the new result");
+  assert.equal(notified, 1, "reading it afterwards must not notify a second time");
+});
+
+test("define() redefining with a throwing compute does not throw synchronously, and does not notify (error is cached for the next get(), per #14)", () => {
+  const g = new CellGraph();
+  g.define("risky", () => 1);
+  assert.equal(g.get("risky"), 1);
+
+  let notified = 0;
+  g.subscribe("risky", () => notified++);
+
+  assert.doesNotThrow(() => {
+    g.define("risky", () => {
+      throw new Error("boom");
+    });
+  });
+  assert.equal(notified, 0, "a failed redefine has no real value change to notify about");
+  assert.throws(() => g.get("risky"), /boom/);
 });
 
 test("define() still eagerly notifies dependents on a first-ever definition (no prior value to compare against)", () => {
