@@ -116,6 +116,65 @@ test("throws on a circular dependency", () => {
   assert.throws(() => g.get("a"), CircularDependencyError);
 });
 
+// The four tests below investigate a specific concern raised while surveying
+// this repo for cross-repo interop opportunities (see the mallory-plus
+// FAMILY.md doc and this repo's own issue #18): could redefining a cell to
+// complete a cycle, at a moment when an INTERMEDIATE cell in that cycle is
+// clean/cached (not currently on the live call stack), let a genuine
+// circular dependency slip past `stack.includes(id)`'s live-call check?
+//
+// Empirically -- across every entry point tried below -- the answer is no.
+// `propagateDirty()` runs unconditionally at the end of every `set()`/
+// `define()` call, REGARDLESS of whether the triggering recompute's result
+// was structurally unchanged. The redefine that completes a cycle therefore
+// always ends its own call by transitively dirtying every cell reachable
+// through the (by-then fully-connected) cycle -- so the very next live
+// `get()` on ANY cycle member, no matter which one, forces a fresh walk
+// through every dirty member and correctly lands on `stack.includes(id)`.
+// These tests exist to lock that in as a regression guard, not to document
+// a bug -- see issue #18's closing comment for the full investigation.
+test("cycle completed by redefining an existing (previously clean/cached) cell is still caught, read from the cell that completed it", () => {
+  const g = new CellGraph();
+  g.define("c", () => 5);
+  assert.equal(g.get("c"), 5);
+  g.define("b", () => g.get<number>("c"));
+  assert.equal(g.get("b"), 5); // b reads c while c is a plain leaf -- no cycle yet
+  g.define("a", () => g.get<number>("b")); // deliberately not get()'d yet
+  g.define("c", () => g.get<number>("a")); // redefine c -- completes a -> b -> c -> a
+  assert.throws(() => g.get("c"), CircularDependencyError);
+});
+
+test("cycle completed by redefining an existing cell is caught reading the OTHER end (the cell that was clean at completion time)", () => {
+  const g = new CellGraph();
+  g.define("c", () => 5);
+  g.get("c");
+  g.define("b", () => g.get<number>("c"));
+  g.get("b"); // b clean, cached -- this is the cell that's clean when the cycle completes
+  g.define("a", () => g.get<number>("b"));
+  g.define("c", () => g.get<number>("a"));
+  assert.throws(() => g.get("b"), CircularDependencyError);
+});
+
+test("cycle completed by redefining an existing cell is caught reading a THIRD, previously-untouched cell", () => {
+  const g = new CellGraph();
+  g.define("c", () => 5);
+  g.get("c");
+  g.define("b", () => g.get<number>("c"));
+  g.get("b");
+  g.define("a", () => g.get<number>("b"));
+  g.define("c", () => g.get<number>("a"));
+  assert.throws(() => g.get("a"), CircularDependencyError);
+});
+
+test("cycle completed purely via define() (no cell ever computed before the cycle closes) is still caught on the first live get()", () => {
+  const g = new CellGraph();
+  g.define("b", () => g.get<number>("c"));
+  g.get("b"); // auto-vivifies "c" as an empty, compute-less record (not yet defined)
+  g.define("c", () => g.get<number>("a")); // "c"'s first REAL define -- completes half the cycle
+  g.define("a", () => g.get<number>("b")); // completes the other half
+  assert.throws(() => g.get("a"), CircularDependencyError);
+});
+
 test("delete detaches a cell from its dependents and dependencies", () => {
   const g = new CellGraph();
   g.set("a", 1);
