@@ -25,6 +25,15 @@ interface CellRecord<T = unknown> {
   dependencies: Set<string>;
   dependents: Set<string>;
   auxiliary: boolean;
+  /**
+   * Set when `compute` most recently threw, so a failing (possibly
+   * expensive) compute doesn't get re-run on every subsequent `get()` --
+   * see {@link CellGraph.get} and {@link CellGraph.recomputeAndEmit}.
+   * Cleared by anything that also clears `dirty`'s stale-value equivalent:
+   * a fresh `set()`/successful recompute.
+   */
+  hasError: boolean;
+  error?: unknown;
 }
 
 export type CellRole = "free" | "dependent" | "unknown";
@@ -61,7 +70,18 @@ export class CellGraph {
     const cell = this.ensure<T>(id);
     const wasCompute = cell.compute !== undefined;
     cell.compute = undefined;
+    if (wasCompute) {
+      // This cell is transitioning from dependent (had a compute fn) to
+      // free -- detach its recorded dependency edges the same way
+      // recomputeAndEmit() and delete() already do, so former upstream
+      // cells stop spuriously dirtying/emitting a cell they no longer feed
+      // into.
+      for (const depId of cell.dependencies) this.cells.get(depId)?.dependents.delete(id);
+      cell.dependencies = new Set();
+    }
     if (options?.auxiliary !== undefined && (wasCompute || !cell.hasValue)) cell.auxiliary = options.auxiliary;
+    cell.hasError = false;
+    cell.error = undefined;
     const unchanged = cell.hasValue && structuralEqual(cell.value, value);
     cell.dirty = false;
     if (unchanged) return;
@@ -86,11 +106,34 @@ export class CellGraph {
   define<T>(id: string, compute: ComputeFn<T>, options?: { auxiliary?: boolean }): void {
     const cell = this.ensure<T>(id);
     const wasFree = cell.compute === undefined && cell.hasValue;
+    const isRedefine = cell.hasValue;
     if (options?.auxiliary !== undefined && (wasFree || cell.compute === undefined)) cell.auxiliary = options.auxiliary;
     cell.compute = compute;
     cell.dirty = true;
-    cell.version++;
-    this.emit(id);
+    cell.hasError = false;
+    cell.error = undefined;
+    // A cell being defined for the first time (no prior value) is
+    // guaranteed to change once computed -- hasValue flips false -> true
+    // regardless of what the compute returns -- so it's safe to eagerly
+    // bump its version and notify its own subscribers now, same as before.
+    // A cell that already has a value is being *redefined*: unlike set(),
+    // define() can't synchronously know whether the new compute will yield
+    // the same value (it only has a function, not a value, in hand), so its
+    // own version bump and direct-subscriber notification are deferred to
+    // the first lazy recompute -- see recomputeAndEmit's own
+    // structuralEqual-gated bump. That's what lets a redefine-with-
+    // identical-result (e.g. a component remount, or a config reapply)
+    // skip notifying its own subscribers. Dependents are still eagerly
+    // marked dirty below regardless of which case this is: that's always
+    // safe (their own eventual recompute applies the same structuralEqual
+    // check) and preserves the existing invariant that a write's effects
+    // cascade through the whole known-dependent graph synchronously
+    // (mirrors set()/delete()) -- see the mallory-graph#10-pattern test,
+    // which relies on exactly this cascade firing from a *first* define().
+    if (!isRedefine) {
+      cell.version++;
+      this.emit(id);
+    }
     this.propagateDirty(id);
   }
 
@@ -144,6 +187,13 @@ export class CellGraph {
       this.recomputeAndEmit(id, cell);
     }
 
+    // A cached compute failure (see recomputeAndEmit's catch) is rethrown
+    // here on every subsequent get() -- without re-running the compute --
+    // until the same conditions that would invalidate a cached value (a
+    // fresh set()/define(), or a real upstream change marking this cell
+    // dirty again) clear it.
+    if (cell.hasError) throw cell.error;
+
     return cell.value as T;
   }
 
@@ -157,11 +207,24 @@ export class CellGraph {
     let next: T;
     try {
       next = cell.compute!() as T;
+    } catch (err) {
+      // Cache the failure so a subsequent get() (another render pass, a
+      // sibling compute reading this cell again, etc.) rethrows the same
+      // cached error instead of re-running a compute that's going to fail
+      // identically. `dirty` is still cleared here: this recompute attempt
+      // did happen and did resolve (to a failure), and staying dirty would
+      // otherwise force every future get() back through the compute anyway.
+      cell.dirty = false;
+      cell.hasError = true;
+      cell.error = err;
+      throw err;
     } finally {
       this.stack.pop();
     }
 
     cell.dirty = false;
+    cell.hasError = false;
+    cell.error = undefined;
 
     const unchanged = cell.hasValue && structuralEqual(cell.value, next);
 
@@ -187,7 +250,37 @@ export class CellGraph {
     if (!set) this.listeners.set(id, (set = new Set()));
     set.add(fn);
     this.ensure(id);
-    return () => set.delete(fn);
+    return () => {
+      set.delete(fn);
+      if (set.size !== 0) return;
+      // Last subscriber for this id gone -- drop the now-empty Set instead
+      // of leaving it behind forever (an id that's subscribed-to-then-
+      // unsubscribed-from many times over a session, e.g. a dynamically
+      // created/destroyed notebook row, would otherwise accumulate one dead
+      // empty Set per id in `listeners`).
+      this.listeners.delete(id);
+      // If this cell was never actually given a value or a compute (i.e.
+      // the only reason it exists in `cells` at all is the ensure() call a
+      // few lines up) and nothing else in the graph references it (no
+      // dependents, no recorded dependencies), there's nothing left to
+      // justify keeping that phantom record around either -- clean it up
+      // too. A genuinely "live" cell (has a real value, is define()d, or
+      // participates in the dependency graph as someone's dependency/
+      // dependent) is untouched here; only explicit delete() removes those,
+      // per its own documented semantics -- this is deliberately narrower
+      // than delete() and never fires the "former dependents" notification
+      // delete() does, since there's no real removal of live state here.
+      const cell = this.cells.get(id);
+      if (
+        cell &&
+        !cell.hasValue &&
+        cell.compute === undefined &&
+        cell.dependents.size === 0 &&
+        cell.dependencies.size === 0
+      ) {
+        this.cells.delete(id);
+      }
+    };
   }
 
   /** Subscribe to changes on any cell (e.g. to drive a canvas render loop). */
@@ -252,6 +345,8 @@ export class CellGraph {
         dependencies: new Set(),
         dependents: new Set(),
         auxiliary: false,
+        hasError: false,
+        error: undefined,
       };
       this.cells.set(id, cell);
     }
@@ -314,18 +409,75 @@ export class CellGraph {
 
 /** Deep structural equality, used to skip redraws when a recompute is a no-op. */
 export function structuralEqual(a: unknown, b: unknown): boolean {
+  return structuralEqualInner(a, b, []);
+}
+
+// `seen` is the stack of (a, b) pairs currently being compared by an
+// enclosing call on the stack -- used only as a cycle guard, see below.
+function structuralEqualInner(a: unknown, b: unknown, seen: Array<[object, object]>): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-    return a.every((v, i) => structuralEqual(v, b[i]));
+
+  // Cycle guard: if this exact (a, b) pair is already being compared by an
+  // enclosing (ancestor) call on the stack, it's a cycle -- stop recursing
+  // and treat it as equal here rather than looping forever. Any genuine
+  // difference elsewhere in the structure is still found by the other,
+  // non-cyclic branches of the comparison; this only prevents the recursion
+  // itself from being unbounded.
+  for (const [sa, sb] of seen) {
+    if (sa === a && sb === b) return true;
   }
+
+  // Two objects of genuinely different types (Date vs plain object, Map vs
+  // Set, etc.) are never equal, regardless of their own-key shape below.
+  const aTag = Object.prototype.toString.call(a);
+  const bTag = Object.prototype.toString.call(b);
+  if (aTag !== bTag) return false;
+
+  seen = [...seen, [a, b]];
+
+  if (a instanceof Date) return a.getTime() === (b as Date).getTime();
+
+  if (a instanceof Map) {
+    const bm = b as Map<unknown, unknown>;
+    if (a.size !== bm.size) return false;
+    for (const [k, v] of a) {
+      if (!bm.has(k) || !structuralEqualInner(v, bm.get(k), seen)) return false;
+    }
+    return true;
+  }
+
+  if (a instanceof Set) {
+    // Set membership is by identity/SameValueZero, matching the Set's own
+    // semantics (not a structural comparison of elements) -- two elements
+    // that are merely structurally-equal-but-distinct objects are genuinely
+    // different members of a Set.
+    const bs = b as Set<unknown>;
+    if (a.size !== bs.size) return false;
+    for (const v of a) if (!bs.has(v)) return false;
+    return true;
+  }
+
+  if (Array.isArray(a)) {
+    const ba = b as unknown[];
+    if (a.length !== ba.length) return false;
+    return a.every((v, i) => structuralEqualInner(v, ba[i], seen));
+  }
+
+  // Any other exotic built-in (RegExp, DOM nodes, a real Path2D, etc.) that
+  // isn't a plain object falls through to here -- treat it as *not* equal
+  // by default rather than comparing (typically zero) own enumerable keys,
+  // which would otherwise silently treat any two distinct instances as
+  // identical. Safe default: this only means an extra recompute, never a
+  // missed update.
+  if (aTag !== "[object Object]") return false;
+
   const aKeys = Object.keys(a as object);
   const bKeys = Object.keys(b as object);
   if (aKeys.length !== bKeys.length) return false;
   return aKeys.every(
     (k) =>
       Object.prototype.hasOwnProperty.call(b, k) &&
-      structuralEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+      structuralEqualInner((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], seen),
   );
 }
