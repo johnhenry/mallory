@@ -22,6 +22,10 @@ export function cellIds(cellId: string) {
     structure: `structure:${cellId}`,
     scatter: `scatter:${cellId}`,
     derivative: `derivative:${cellId}`,
+    // Curve-analysis overlays (issue #28): exact numeric f'(x) at the
+    // draggable point, and local-maxima/minima markers over the plotted path.
+    pointDerivative: `pointDerivative:${cellId}`,
+    extrema: `extrema:${cellId}`,
     timelineDuration: `timelineDuration:${cellId}`,
     regionMask: `regionMask:${cellId}`,
     areaLower: `areaLower:${cellId}`,

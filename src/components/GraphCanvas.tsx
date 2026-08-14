@@ -14,6 +14,8 @@ import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { drawFilledArea, drawPath, drawPoint, drawRegionMask, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { sampleExpr, sampleRegionMask } from "../lib/sample-function.ts";
 import { sampleStructureExpr, type ScatterPoint } from "../lib/sample-structure.ts";
+import { evaluateDerivativeAtPoint } from "../lib/point-derivative.ts";
+import { findCurveExtrema, type CurveExtrema } from "../lib/curve-extrema.ts";
 import { HIGHLIGHT_PRELUDE_SECONDS, timelineDuration, type Keyframe } from "../lib/timeline.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
@@ -136,6 +138,21 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
         { auxiliary: true },
       );
 
+      // Local maxima/minima markers over the plotted path (issue #28).
+      // Depends only on ids.path, so it recomputes exactly when the curve
+      // itself changes -- no separate expr/params reads needed here.
+      graph.define(
+        ids.extrema,
+        (): CurveExtrema | null => {
+          try {
+            return findCurveExtrema(graph.get<Path2D>(ids.path));
+          } catch {
+            return null;
+          }
+        },
+        { auxiliary: true },
+      );
+
       // 1D inequality shading: only populated when the top-level parsed
       // expression is a `cmp` node (e.g. "sin(x) < cos(x)"), so nothing
       // changes for the vast majority of non-inequality inputs. Samples at
@@ -176,6 +193,23 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
             // Leave the handle at its last good position on a mid-typing parse error.
           }
           return lastGoodPoint;
+        },
+        { auxiliary: true },
+      );
+
+      // Exact numeric f'(x) at the draggable point (issue #28) -- see
+      // point-derivative.ts's doc comment for why this goes through
+      // Symbolic.differentiate rather than DualNumber forward-mode AD.
+      graph.define(
+        ids.pointDerivative,
+        (): number | null => {
+          try {
+            const x = graph.get<number>(ids.pointX);
+            const params = graph.get<Record<string, number>>(ids.params);
+            return evaluateDerivativeAtPoint(preprocessImplicitMultiplication(graph.get<string>(ids.expr)), x, params, AXIS_VARIABLE);
+          } catch {
+            return null;
+          }
         },
         { auxiliary: true },
       );
@@ -339,6 +373,8 @@ export function GraphCanvas({
   const modulus = useCell<number | null>(graph, ids.structure);
   const scatter = useCell<ScatterPoint[] | null>(graph, ids.scatter);
   const derivative = useCell<Derivative | null>(graph, ids.derivative);
+  const pointDerivative = useCell<number | null>(graph, ids.pointDerivative);
+  const extrema = useCell<CurveExtrema | null>(graph, ids.extrema);
   const regionMask = useCell<boolean[] | null>(graph, ids.regionMask);
   const areaLower = useCell<number>(graph, ids.areaLower);
   const areaUpper = useCell<number>(graph, ids.areaUpper);
@@ -376,6 +412,7 @@ export function GraphCanvas({
   const [mode, setMode] = useState<"float" | "exact">("float");
   const [showSteps, setShowSteps] = useState(false);
   const [showArea, setShowArea] = useState(false);
+  const [showExtrema, setShowExtrema] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(true);
   const [speed, setSpeed] = useState(1);
@@ -544,9 +581,13 @@ export function GraphCanvas({
       if (regionMask) drawRegionMask(ctx, regionMask, viewport, WIDTH, HEIGHT);
       if (showArea && area) drawFilledArea(ctx, area.path, viewport, WIDTH, HEIGHT);
       drawPath(ctx, path, viewport, WIDTH, HEIGHT);
+      if (showExtrema && extrema) {
+        for (const m of extrema.maxima) drawPoint(ctx, m, viewport, WIDTH, HEIGHT, 4, "#16a34a");
+        for (const m of extrema.minima) drawPoint(ctx, m, viewport, WIDTH, HEIGHT, 4, "#dc2626");
+      }
       if (point) drawPoint(ctx, point, viewport, WIDTH, HEIGHT);
     }
-  }, [path, point, scatter, viewport, regionMask, showArea, area]);
+  }, [path, point, scatter, viewport, regionMask, showArea, area, showExtrema, extrema]);
 
   function handlePointerDown(e: PointerEvent<HTMLCanvasElement>) {
     if (!point || modulus !== null) return;
@@ -726,6 +767,7 @@ export function GraphCanvas({
       {modulus === null && point && (
         <div>
           y = {mode === "exact" ? exact ?? `${point.y.toFixed(4)} (not exact)` : point.y.toFixed(4)}
+          {pointDerivative !== null && <>, f'({point.x.toFixed(4)}) = {pointDerivative.toFixed(6)}</>}
         </div>
       )}
       {modulus === null && derivative && (
@@ -775,6 +817,27 @@ export function GraphCanvas({
               </label>
               <span>Area = {area ? area.value.toFixed(4) : "—"}</span>
             </div>
+          )}
+        </div>
+      )}
+      {modulus === null && (
+        <div style={{ margin: "0.5rem 0" }}>
+          <label>
+            <input type="checkbox" checked={showExtrema} onChange={(e) => setShowExtrema(e.target.checked)} /> Show extrema
+          </label>
+          {showExtrema && extrema && (extrema.maxima.length > 0 || extrema.minima.length > 0) && (
+            <ul style={{ margin: "0.25rem 0" }}>
+              {extrema.maxima.map((m, i) => (
+                <li key={`max-${i}`} style={{ color: "#16a34a" }}>
+                  max at ({m.x.toFixed(4)}, {m.y.toFixed(4)})
+                </li>
+              ))}
+              {extrema.minima.map((m, i) => (
+                <li key={`min-${i}`} style={{ color: "#dc2626" }}>
+                  min at ({m.x.toFixed(4)}, {m.y.toFixed(4)})
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
