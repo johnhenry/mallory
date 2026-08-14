@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { Rng } from "mallory-tensor-core";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMonteCarlo, type CellIdsMonteCarlo } from "../lib/cell-ids.ts";
-import { drawHistogram, drawPath, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawHistogram, drawPath, drawPolyline, drawScatter, type Viewport } from "../lib/render-path.ts";
 import {
   estimateDartPi,
+  estimateMonteCarloIntegral,
   sampleDistributionHistogram,
   type DartPiResult,
   type DistributionSampleResult,
   type MonteCarloDistType,
+  type MonteCarloIntegrationResult,
 } from "../lib/monte-carlo.ts";
 import { DEFAULT_MONTE_CARLO_STATE, decodeMonteCarloState, encodeMonteCarloState, type MonteCarloState } from "../lib/monte-carlo-state.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -38,11 +40,15 @@ function seedMonteCarloState(graph: CellGraph, ids: CellIdsMonteCarlo, state: Mo
   graph.set(ids.distP, state.distP);
   graph.set(ids.distLambda, state.distLambda);
   graph.set(ids.sampleCount, state.sampleCount);
+  graph.set(ids.integrandText, state.integrandText);
+  graph.set(ids.integrandA, state.integrandA);
+  graph.set(ids.integrandB, state.integrandB);
+  graph.set(ids.integrandSampleCount, state.integrandSampleCount);
 }
 
 function getCurrentMonteCarloState(graph: CellGraph, ids: CellIdsMonteCarlo): MonteCarloState {
   return {
-    v: 1,
+    v: 2,
     seed: graph.get<string>(ids.seed),
     dartCount: graph.get<string>(ids.dartCount),
     distType: graph.get<MonteCarloDistType>(ids.distType),
@@ -55,11 +61,16 @@ function getCurrentMonteCarloState(graph: CellGraph, ids: CellIdsMonteCarlo): Mo
     distP: graph.get<string>(ids.distP),
     distLambda: graph.get<string>(ids.distLambda),
     sampleCount: graph.get<string>(ids.sampleCount),
+    integrandText: graph.get<string>(ids.integrandText),
+    integrandA: graph.get<string>(ids.integrandA),
+    integrandB: graph.get<string>(ids.integrandB),
+    integrandSampleCount: graph.get<string>(ids.integrandSampleCount),
   };
 }
 
 type DartResult = { ok: true; result: DartPiResult } | { ok: false; message: string };
 type HistResult = { ok: true; result: DistributionSampleResult } | { ok: false; message: string };
+type IntegrandResult = { ok: true; result: MonteCarloIntegrationResult } | { ok: false; message: string };
 
 function useMonteCarloGraph(cellId: string): CellGraph {
   const ref = useRef<CellGraph | null>(null);
@@ -106,6 +117,23 @@ function useMonteCarloGraph(cellId: string): CellGraph {
       }
     });
 
+    graph.define(ids.integrandResult, (): IntegrandResult => {
+      try {
+        const seed = Number(graph.get<string>(ids.seed));
+        const a = Number(graph.get<string>(ids.integrandA));
+        const b = Number(graph.get<string>(ids.integrandB));
+        const n = Number(graph.get<string>(ids.integrandSampleCount));
+        if ([seed, a, b, n].some(Number.isNaN)) throw new Error("Seed, bounds, and sample count must all be numbers.");
+        const exprText = graph.get<string>(ids.integrandText);
+        // A third distinct Rng offset (seed+2), same reasoning as the
+        // histogram's seed+1 -- three independent streams, not one shared
+        // one silently correlating across sections.
+        return { ok: true, result: estimateMonteCarloIntegral(exprText, "x", a, b, n, new Rng(seed + 2)) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
     ref.current = graph;
   }
   return ref.current;
@@ -120,6 +148,7 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
   const dartCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const convergenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const histCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const integrandCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const seed = useCell<string>(graph, ids.seed);
   const dartCount = useCell<string>(graph, ids.dartCount);
@@ -135,6 +164,43 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
   const distLambda = useCell<string>(graph, ids.distLambda);
   const sampleCount = useCell<string>(graph, ids.sampleCount);
   const histResult = useCell<HistResult>(graph, ids.histResult);
+  const integrandText = useCell<string>(graph, ids.integrandText);
+  const integrandA = useCell<string>(graph, ids.integrandA);
+  const integrandB = useCell<string>(graph, ids.integrandB);
+  const integrandSampleCount = useCell<string>(graph, ids.integrandSampleCount);
+  const integrandResult = useCell<IntegrandResult>(graph, ids.integrandResult);
+
+  const [integrandInput, setIntegrandInput] = useState(integrandText);
+  useEffect(() => {
+    setIntegrandInput(integrandText);
+  }, [integrandText]);
+
+  // Animated convergence reveal: steps through the checkpoint list one at a
+  // time on an interval rather than drawing every checkpoint at once, so
+  // "watch it converge" is an actual animation, not a static finished chart.
+  // A purpose-built play/pause counter, not the shared timeline.ts keyframe
+  // system -- that's designed for continuously interpolating a slider
+  // parameter over wall-clock time, not revealing a discrete, already-
+  // computed checkpoint list in order; reaching for it here would be a
+  // worse fit than this much smaller mechanism.
+  const [revealedCheckpoints, setRevealedCheckpoints] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const totalCheckpoints = integrandResult.ok ? integrandResult.result.convergence.length : 0;
+
+  useEffect(() => {
+    setRevealedCheckpoints(0);
+    setPlaying(false);
+  }, [integrandResult]);
+
+  useEffect(() => {
+    if (!playing) return;
+    if (revealedCheckpoints >= totalCheckpoints) {
+      setPlaying(false);
+      return;
+    }
+    const timer = setTimeout(() => setRevealedCheckpoints((c) => c + 1), 30);
+    return () => clearTimeout(timer);
+  }, [playing, revealedCheckpoints, totalCheckpoints]);
 
   const [seedInput, setSeedInput] = useState(seed);
   useEffect(() => {
@@ -209,9 +275,64 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
     }
   }, [histResult]);
 
+  useEffect(() => {
+    const ctx = integrandCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    const height = 220;
+    ctx.clearRect(0, 0, WIDTH, height);
+    if (!integrandResult.ok) return;
+    const { trueValue, convergence, n } = integrandResult.result;
+    const shown = convergence.slice(0, revealedCheckpoints || convergence.length);
+    if (shown.length === 0) return;
+
+    const bandLo = shown.map((c) => c.estimate - c.errorBand);
+    const bandHi = shown.map((c) => c.estimate + c.errorBand);
+    const yMin = Math.min(trueValue, ...bandLo);
+    const yMax = Math.max(trueValue, ...bandHi);
+    const pad = Math.max((yMax - yMin) * 0.1, 1e-6);
+    const viewport: Viewport = { xMin: 0, xMax: n, yMin: yMin - pad, yMax: yMax + pad };
+
+    ctx.save();
+    ctx.fillStyle = "rgba(37, 99, 235, 0.15)";
+    ctx.beginPath();
+    shown.forEach((c, i) => {
+      const sx = (c.n / n) * WIDTH;
+      const sy = height - ((c.estimate + c.errorBand - viewport.yMin) / (viewport.yMax - viewport.yMin)) * height;
+      if (i === 0) ctx.moveTo(sx, sy);
+      else ctx.lineTo(sx, sy);
+    });
+    for (let i = shown.length - 1; i >= 0; i--) {
+      const c = shown[i];
+      if (!c) continue;
+      const sx = (c.n / n) * WIDTH;
+      const sy = height - ((c.estimate - c.errorBand - viewport.yMin) / (viewport.yMax - viewport.yMin)) * height;
+      ctx.lineTo(sx, sy);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    drawPolyline(ctx, shown.map((c) => ({ x: c.n, y: c.estimate })), viewport, WIDTH, height, "#2563eb");
+
+    const trueY = height - ((trueValue - viewport.yMin) / (viewport.yMax - viewport.yMin)) * height;
+    ctx.save();
+    ctx.strokeStyle = "#9ca3af";
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, trueY);
+    ctx.lineTo(WIDTH, trueY);
+    ctx.stroke();
+    ctx.restore();
+  }, [integrandResult, revealedCheckpoints]);
+
   function updateSeed(value: string) {
     setSeedInput(value);
     graph.set(ids.seed, value);
+  }
+
+  function updateIntegrand(value: string) {
+    setIntegrandInput(value);
+    graph.set(ids.integrandText, value);
   }
 
   return (
@@ -311,6 +432,56 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
         </p>
       ) : (
         <p style={{ color: "var(--danger)" }}>{histResult.message}</p>
+      )}
+
+      <h2>Monte Carlo integration</h2>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+        Estimates ∫f(x)dx over [a, b] by averaging random samples, compared against the exact value.
+      </p>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <label>
+          f(x) ={" "}
+          <input value={integrandInput} onChange={(e) => updateIntegrand(e.target.value)} style={{ font: "inherit", width: "14ch" }} />
+        </label>
+        <label>
+          a: <input value={integrandA} onChange={(e) => graph.set(ids.integrandA, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
+        </label>
+        <label>
+          b: <input value={integrandB} onChange={(e) => graph.set(ids.integrandB, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
+        </label>
+        <label>
+          n:{" "}
+          <input
+            type="number"
+            value={integrandSampleCount}
+            onChange={(e) => graph.set(ids.integrandSampleCount, e.target.value)}
+            style={{ font: "inherit", width: "8ch" }}
+          />
+        </label>
+      </div>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.5rem" }}>
+        <button
+          type="button"
+          onClick={() => {
+            if (revealedCheckpoints >= totalCheckpoints) setRevealedCheckpoints(0);
+            setPlaying((p) => !p);
+          }}
+          disabled={!integrandResult.ok || totalCheckpoints === 0}
+        >
+          {playing ? "Pause" : revealedCheckpoints >= totalCheckpoints && totalCheckpoints > 0 ? "Replay" : "Play"}
+        </button>
+        <button type="button" onClick={() => { setPlaying(false); setRevealedCheckpoints(0); }} disabled={!integrandResult.ok}>
+          Reset
+        </button>
+      </div>
+      <canvas ref={integrandCanvasRef} width={WIDTH} height={220} style={{ border: "1px solid var(--border)", display: "block" }} />
+      {integrandResult.ok ? (
+        <p>
+          estimate = {integrandResult.result.estimate.toFixed(5)} (true value {integrandResult.result.trueValue.toFixed(5)}), absolute
+          error = {integrandResult.result.absoluteError.toFixed(5)}
+        </p>
+      ) : (
+        <p style={{ color: "var(--danger)" }}>{integrandResult.message}</p>
       )}
     </div>
   );

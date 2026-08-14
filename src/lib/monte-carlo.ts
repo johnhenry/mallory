@@ -1,4 +1,4 @@
-import { Distributions, GraphUtils, Vector, type ContinuousDistribution, type DiscreteDistribution, type Path2D } from "mallory-math";
+import { Distributions, GraphUtils, Symbolic, Vector, type ContinuousDistribution, type DiscreteDistribution, type Path2D } from "mallory-math";
 import { Rng } from "mallory-tensor-core";
 
 const DENSITY_COLOR = 0xdc2626; // distinct from the histogram bars' blue
@@ -51,6 +51,70 @@ export function estimateDartPi(n: number, rng: Rng): DartPiResult {
   }
 
   return { piEstimate: n > 0 ? (insideCount / n) * 4 : Number.NaN, n, points, convergence };
+}
+
+export interface IntegrationConvergencePoint {
+  n: number;
+  estimate: number;
+  /** 95% CI half-width around `estimate` at this checkpoint, from the running sample standard error -- shrinks like 1/sqrt(n), the visual "error band" narrowing as the run progresses. */
+  errorBand: number;
+}
+
+export interface MonteCarloIntegrationResult {
+  estimate: number;
+  trueValue: number;
+  absoluteError: number;
+  n: number;
+  convergence: IntegrationConvergencePoint[];
+}
+
+/**
+ * Simple (crude) Monte Carlo estimate of the definite integral of `exprText`
+ * over `[a, b]`: (b-a) * mean(f(x_i)) for x_i ~ Uniform(a, b). Compared
+ * against `Symbolic.integrateDefinite`'s exact value as the oracle both for
+ * the returned `absoluteError` and for tests -- note that function's real
+ * signature is `(expr, lower, upper, variable?, env?)`, NOT
+ * `(expr, variable, lower, upper)` as its argument names might suggest;
+ * confirmed directly (a naive `(expr, "x", 0, 1)` call throws
+ * IntegrationSingularityError even for a plain `2*x`, since "x" silently
+ * became the `lower` bound) before relying on it here.
+ *
+ * Per-checkpoint error bands use Welford's online algorithm for the running
+ * sample variance of f(x) (numerically stable, one pass, no O(n) storage of
+ * every sample) -- the half-width of a 95% CI for the mean is
+ * `1.96 * sampleStdDev / sqrt(count)`, scaled by `(b-a)` to match the
+ * integral estimate's own units.
+ */
+export function estimateMonteCarloIntegral(exprText: string, variable: string, a: number, b: number, n: number, rng: Rng): MonteCarloIntegrationResult {
+  if (b <= a) throw new Error(`Upper bound must be greater than lower bound -- got [${a}, ${b}].`);
+  if (!Number.isInteger(n) || n <= 0) throw new Error("Sample count must be a positive integer.");
+  const expr = Symbolic.parse(exprText);
+  const compiled = Symbolic.compile(exprText);
+  const trueValue = Symbolic.integrateDefinite(expr, a, b, variable);
+
+  const convergenceEvery = Math.max(1, Math.floor(n / CONVERGENCE_CHECKPOINTS));
+  const convergence: IntegrationConvergencePoint[] = [];
+  const span = b - a;
+
+  let mean = 0;
+  let m2 = 0; // sum of squared deviations from the running mean (Welford's algorithm)
+  for (let i = 0; i < n; i++) {
+    const x = a + rng.nextFloat() * span;
+    const y = compiled({ [variable]: x });
+    const count = i + 1;
+    const delta = y - mean;
+    mean += delta / count;
+    m2 += delta * (y - mean);
+
+    if (count % convergenceEvery === 0) {
+      const variance = count > 1 ? m2 / (count - 1) : 0;
+      const standardError = Math.sqrt(variance / count);
+      convergence.push({ n: count, estimate: span * mean, errorBand: 1.96 * span * standardError });
+    }
+  }
+
+  const estimate = span * mean;
+  return { estimate, trueValue, absoluteError: Math.abs(estimate - trueValue), n, convergence };
 }
 
 export type MonteCarloDistType = "normal" | "uniform" | "exponential" | "binomial" | "poisson";

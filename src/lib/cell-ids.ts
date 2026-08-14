@@ -227,6 +227,11 @@ export function cellIdsMonteCarlo(cellId: string) {
     distLambda: `mcDistLambda:${cellId}`,
     sampleCount: `mcSampleCount:${cellId}`,
     histResult: `mcHistResult:${cellId}`,
+    integrandText: `mcIntegrandText:${cellId}`,
+    integrandA: `mcIntegrandA:${cellId}`,
+    integrandB: `mcIntegrandB:${cellId}`,
+    integrandSampleCount: `mcIntegrandSampleCount:${cellId}`,
+    integrandResult: `mcIntegrandResult:${cellId}`,
   };
 }
 
