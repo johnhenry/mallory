@@ -1,6 +1,8 @@
 import { Symbolic } from "mallory-math";
 import { rfft } from "mallory-fft";
+import { hannWindow, stft } from "mallory-signal";
 import { Tensor } from "mallory-tensor-core";
+import { finiteRange, heatCellColor } from "./heatmap.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 
 export interface Waveform {
@@ -68,4 +70,121 @@ export function amplitudeSpectrum(waveform: Waveform): AmplitudeSpectrum {
     amplitudes.push(k === 0 || k === nyquistBin ? magnitude / n : (magnitude * 2) / n);
   }
   return { frequencies, amplitudes };
+}
+
+export interface Spectrogram {
+  /** Start time of each frame, in seconds. */
+  frameTimes: number[];
+  /** One-sided frequency bins, in Hz. */
+  frequencies: number[];
+  /** `[frame][bin]` amplitude -- same magnitude/N or 2*magnitude/N conversion as amplitudeSpectrum, applied per-frame. */
+  magnitudes: number[][];
+}
+
+/**
+ * A time-varying spectrum via `mallory-signal`'s windowed `stft`: `spec.shape`
+ * is `[numFrames, nperseg]` (confirmed directly, not assumed, against the
+ * library) with `nperseg - noverlap` as the hop size between frame starts
+ * (also confirmed: a 2048-sample signal at nperseg=64/noverlap=32 produces
+ * exactly `floor((2048-64)/32)+1` frames). Only bins `0..nperseg/2` are kept,
+ * the same one-sided convention as `amplitudeSpectrum` (a real signal's
+ * negative-frequency half is redundant).
+ *
+ * `stft` windows each frame (`window * signal`, default Hann -- confirmed by
+ * reading its source, not assumed) before transforming, which attenuates the
+ * raw magnitude/N conversion `amplitudeSpectrum` uses: a Hann-windowed pure
+ * tone read back out at only ~half its true amplitude (confirmed directly: a
+ * unit-amplitude sinusoid measured 0.4999... before this fix). The fix
+ * divides by the window's own coherent gain (`mean(window)` -- exactly 0.5
+ * for a Hann window, recomputed here from the real `hannWindow(nperseg)`
+ * array rather than hardcoded, so it stays correct if a caller ever supplies
+ * a different window in a future revision) -- confirmed to restore the
+ * measured amplitude to ~1.0 for the same test tone.
+ *
+ * `nperseg` must be a power of two (mallory-signal's own `stft` requirement,
+ * inherited from `mallory-fft`'s per-frame FFT).
+ */
+export function computeSpectrogram(waveform: Waveform, nperseg: number, noverlap: number): Spectrogram {
+  if (nperseg <= 0 || (nperseg & (nperseg - 1)) !== 0) throw new Error(`nperseg must be a positive power of two -- got ${nperseg}.`);
+  if (noverlap < 0 || noverlap >= nperseg) throw new Error(`noverlap must be in [0, nperseg) -- got ${noverlap} with nperseg=${nperseg}.`);
+  const spec = stft(Tensor.from(waveform.y), { nperseg, noverlap });
+  const [numFrames, frameLength] = spec.shape;
+  const hopSize = nperseg - noverlap;
+  const nyquistBin = frameLength / 2;
+  const window = hannWindow(nperseg);
+  const coherentGain = window.reduce((sum, w) => sum + w, 0) / nperseg;
+
+  const frequencies: number[] = [];
+  for (let k = 0; k <= nyquistBin; k++) frequencies.push((k * waveform.sampleRate) / frameLength);
+
+  const frameTimes: number[] = [];
+  const magnitudes: number[][] = [];
+  for (let f = 0; f < numFrames; f++) {
+    frameTimes.push((f * hopSize) / waveform.sampleRate);
+    const row: number[] = [];
+    for (let k = 0; k <= nyquistBin; k++) {
+      const magnitude = spec.at(f, k).magnitude();
+      const raw = k === 0 || k === nyquistBin ? magnitude / frameLength : (magnitude * 2) / frameLength;
+      row.push(raw / coherentGain);
+    }
+    magnitudes.push(row);
+  }
+  return { frameTimes, frequencies, magnitudes };
+}
+
+/**
+ * Draws a spectrogram heatmap: time along x (left-to-right), frequency
+ * along y (low-to-high, bottom-to-top -- the standard spectrogram
+ * orientation, so a rising pitch reads as a rising line). Reuses
+ * heatmap.ts's `heatCellColor`/`finiteRange` color-mapping (the part of
+ * `drawHeatmap` that genuinely generalizes), but not `drawHeatmap` itself --
+ * that function assumes a square matrix with one discrete text label per
+ * row/column index (an adjacency matrix's vertex names), which doesn't fit
+ * a spectrogram's rectangular frame-count x bin-count grid with continuous
+ * time/frequency axes better served by a handful of tick labels than one
+ * label per cell (there can be dozens of frames and bins).
+ */
+export function drawSpectrogram(ctx: CanvasRenderingContext2D, spectrogram: Spectrogram, width: number, height: number, labelGutter = 34): void {
+  const { frameTimes, frequencies, magnitudes } = spectrogram;
+  const numFrames = frameTimes.length;
+  const numBins = frequencies.length;
+  if (numFrames === 0 || numBins === 0) return;
+  const { min, max } = finiteRange(magnitudes);
+  const gridWidth = width - labelGutter;
+  const gridHeight = height - labelGutter;
+  const cellW = gridWidth / numFrames;
+  const cellH = gridHeight / numBins;
+
+  ctx.save();
+  ctx.translate(labelGutter, 0);
+  for (let f = 0; f < numFrames; f++) {
+    const column = magnitudes[f] ?? [];
+    for (let k = 0; k < numBins; k++) {
+      const value = column[k] ?? 0;
+      const rowFromBottom = numBins - 1 - k;
+      ctx.fillStyle = heatCellColor(value, min, max);
+      ctx.fillRect(f * cellW, rowFromBottom * cellH, cellW, cellH);
+    }
+  }
+  ctx.restore();
+
+  const TICK_COUNT = 5;
+  ctx.save();
+  ctx.fillStyle = "#374151";
+  ctx.font = "10px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  for (let i = 0; i < TICK_COUNT; i++) {
+    const frac = i / (TICK_COUNT - 1);
+    const time = frameTimes[Math.min(numFrames - 1, Math.round(frac * (numFrames - 1)))]!;
+    ctx.fillText(`${time.toFixed(2)}s`, labelGutter + frac * gridWidth, gridHeight + 2);
+  }
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i < TICK_COUNT; i++) {
+    const frac = i / (TICK_COUNT - 1);
+    const freq = frequencies[Math.min(numBins - 1, Math.round(frac * (numBins - 1)))]!;
+    ctx.fillText(`${freq.toFixed(0)}Hz`, labelGutter - 4, (1 - frac) * gridHeight);
+  }
+  ctx.restore();
 }

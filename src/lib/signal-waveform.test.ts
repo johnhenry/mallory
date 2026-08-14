@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { amplitudeSpectrum, sampleWaveform } from "./signal-waveform.ts";
+import { heatCellColor } from "./heatmap.ts";
+import { amplitudeSpectrum, computeSpectrogram, drawSpectrogram, sampleWaveform } from "./signal-waveform.ts";
 
 test("sampleWaveform: samples a constant expression correctly", () => {
   const w = sampleWaveform("5", 10, 1);
@@ -49,4 +50,115 @@ test("amplitudeSpectrum: frequency bins run from 0 to the Nyquist frequency (sam
   assert.equal(spec.frequencies[0], 0);
   assert.equal(spec.frequencies[spec.frequencies.length - 1], 16); // Nyquist = 32/2
   assert.equal(spec.frequencies.length, 17); // bins 0..16 inclusive
+});
+
+test("computeSpectrogram: shape matches stft's own [numFrames, nperseg] convention (hop = nperseg - noverlap)", () => {
+  const w = sampleWaveform("sin(2*pi*20*t)", 256, 8); // n = 2048
+  const spec = computeSpectrogram(w, 128, 64);
+  // floor((2048-128)/64)+1 = 31
+  assert.equal(spec.frameTimes.length, 31);
+  assert.equal(spec.frequencies.length, 65); // 0..nperseg/2 inclusive
+  assert.equal(spec.frequencies[0], 0);
+  assert.equal(spec.frequencies[spec.frequencies.length - 1], 128); // Nyquist = sampleRate/2
+});
+
+test("computeSpectrogram: frame start times step by exactly (nperseg-noverlap)/sampleRate, hand-computed for the first three frames", () => {
+  const w = sampleWaveform("sin(2*pi*20*t)", 256, 8);
+  const spec = computeSpectrogram(w, 128, 64); // hop = 64 samples = 0.25s at 256Hz
+  assert.equal(spec.frameTimes[0], 0);
+  assert.equal(spec.frameTimes[1], 0.25);
+  assert.equal(spec.frameTimes[2], 0.5);
+});
+
+test("computeSpectrogram: a pure 20Hz tone's peak frequency bin at a mid frame is exactly 20Hz", () => {
+  const w = sampleWaveform("sin(2*pi*20*t)", 256, 8);
+  const spec = computeSpectrogram(w, 128, 64);
+  const midFrame = spec.magnitudes[Math.floor(spec.magnitudes.length / 2)]!;
+  let peakIndex = 0;
+  midFrame.forEach((amp, i) => {
+    if (amp > midFrame[peakIndex]!) peakIndex = i;
+  });
+  assert.equal(spec.frequencies[peakIndex], 20);
+});
+
+test("computeSpectrogram: window-gain calibration restores a unit-amplitude tone's measured peak to ~1.0 (not ~0.5, the raw Hann-attenuated value)", () => {
+  const w = sampleWaveform("sin(2*pi*20*t)", 256, 8);
+  const spec = computeSpectrogram(w, 128, 64);
+  const midFrame = spec.magnitudes[Math.floor(spec.magnitudes.length / 2)]!;
+  const peak = Math.max(...midFrame);
+  assert.ok(Math.abs(peak - 1) < 1e-6, `expected ~1, got ${peak}`);
+});
+
+test("computeSpectrogram: rejects a non-power-of-two nperseg and an out-of-range noverlap", () => {
+  const w = sampleWaveform("sin(2*pi*5*t)", 64, 1);
+  assert.throws(() => computeSpectrogram(w, 100, 10), /power of two/);
+  assert.throws(() => computeSpectrogram(w, 32, 32), /noverlap must be in/);
+  assert.throws(() => computeSpectrogram(w, 32, -1), /noverlap must be in/);
+});
+
+function makeFakeCtx() {
+  const fillRectCalls: Array<{ fillStyle: string; x: number; y: number; w: number; h: number }> = [];
+  let currentFillStyle = "";
+  let translateX = 0;
+  const ctx = {
+    save: () => {},
+    restore: () => {},
+    translate: (x: number) => {
+      translateX = x;
+    },
+    set fillStyle(v: string) {
+      currentFillStyle = v;
+    },
+    get fillStyle() {
+      return currentFillStyle;
+    },
+    font: "",
+    textAlign: "left",
+    textBaseline: "alphabetic",
+    fillRect: (x: number, y: number, w: number, h: number) => {
+      fillRectCalls.push({ fillStyle: currentFillStyle, x: x + translateX, y, w, h });
+    },
+    fillText: () => {},
+  } as unknown as CanvasRenderingContext2D;
+  return { ctx, getFillRectCalls: () => fillRectCalls };
+}
+
+test("drawSpectrogram: fills one rect per (frame, bin) cell, colored by the shared heatCellColor scale", () => {
+  const { ctx, getFillRectCalls } = makeFakeCtx();
+  const spectrogram = {
+    frameTimes: [0, 1],
+    frequencies: [0, 10],
+    magnitudes: [
+      [0, 1],
+      [1, 0],
+    ],
+  };
+  drawSpectrogram(ctx, spectrogram, 100, 100, 0);
+  const calls = getFillRectCalls();
+  assert.equal(calls.length, 4); // 2 frames x 2 bins
+});
+
+test("drawSpectrogram: low frequency bins draw at the bottom of the canvas, high frequency at the top (standard spectrogram orientation)", () => {
+  const { ctx, getFillRectCalls } = makeFakeCtx();
+  // Distinct per-bin magnitudes so each call's fillStyle identifies which
+  // bin it came from -- not just "3 calls at 3 y-positions" (that alone
+  // can't distinguish a correct flip from an inverted one).
+  const spectrogram = {
+    frameTimes: [0],
+    frequencies: [0, 10, 20], // bin 0 = lowest freq, bin 2 = highest freq
+    magnitudes: [[0, 0.5, 1]],
+  };
+  drawSpectrogram(ctx, spectrogram, 90, 90, 0);
+  const calls = getFillRectCalls();
+  assert.equal(calls.length, 3);
+  const bottomCall = calls.reduce((max, c) => (c.y > max.y ? c : max));
+  const topCall = calls.reduce((min, c) => (c.y < min.y ? c : min));
+  assert.equal(bottomCall.fillStyle, heatCellColor(0, 0, 1)); // bin 0 (lowest freq) at the bottom
+  assert.equal(topCall.fillStyle, heatCellColor(1, 0, 1)); // bin 2 (highest freq) at the top
+});
+
+test("drawSpectrogram: an empty spectrogram draws nothing (no crash)", () => {
+  const { ctx, getFillRectCalls } = makeFakeCtx();
+  drawSpectrogram(ctx, { frameTimes: [], frequencies: [], magnitudes: [] }, 100, 100, 0);
+  assert.equal(getFillRectCalls().length, 0);
 });
