@@ -257,6 +257,21 @@ export function cellIdsDiscrete(cellId: string) {
 
 export type CellIdsDiscrete = ReturnType<typeof cellIdsDiscrete>;
 
+export function cellIdsGraphTheory(cellId: string) {
+  return {
+    edgeListText: `graphEdgeListText:${cellId}`,
+    directed: `graphDirected:${cellId}`,
+    graphResult: `graphParseResult:${cellId}`,
+    analysis: `graphAnalysis:${cellId}`,
+    startVertex: `graphStartVertex:${cellId}`,
+    endVertex: `graphEndVertex:${cellId}`,
+    algorithm: `graphAlgorithm:${cellId}`,
+    algorithmResult: `graphAlgorithmResult:${cellId}`,
+  };
+}
+
+export type CellIdsGraphTheory = ReturnType<typeof cellIdsGraphTheory>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way
