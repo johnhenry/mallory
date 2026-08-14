@@ -298,6 +298,36 @@ export function drawOpenCircles(
 }
 
 /**
+ * Draw a simple connect-the-dots line through an ordered array of
+ * data-space points -- the plain-array counterpart to `drawPath`'s
+ * mallory-math `Path2D` commands, for callers (e.g. a sampled waveform or
+ * FFT spectrum) that already have flat `{x,y}` arrays and have no need for
+ * `Path2D`'s discontinuity-aware `moveTo` segments.
+ */
+export function drawPolyline(
+  ctx: CanvasRenderingContext2D,
+  points: ReadonlyArray<{ x: number; y: number }>,
+  viewport: Viewport,
+  width: number,
+  height: number,
+  color = "#2563eb",
+): void {
+  if (points.length === 0) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const sx = toScreenX(p.x, viewport, width);
+    const sy = toScreenY(p.y, viewport, height);
+    if (i === 0) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
  * Draw a set of `{x0, x1, count}` bins as adjacent filled rectangles from
  * the viewport's y=0 baseline up to each bin's count -- a plain frequency
  * histogram, one bar per bin, in data-space x but count-space y (the

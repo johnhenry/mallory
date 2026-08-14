@@ -287,6 +287,18 @@ export function cellIdsComplex(cellId: string) {
 
 export type CellIdsComplex = ReturnType<typeof cellIdsComplex>;
 
+export function cellIdsSignal(cellId: string) {
+  return {
+    exprText: `signalExprText:${cellId}`,
+    sampleRate: `signalSampleRate:${cellId}`,
+    duration: `signalDuration:${cellId}`,
+    waveformResult: `signalWaveformResult:${cellId}`,
+    spectrumResult: `signalSpectrumResult:${cellId}`,
+  };
+}
+
+export type CellIdsSignal = ReturnType<typeof cellIdsSignal>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way
