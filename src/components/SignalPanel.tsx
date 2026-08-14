@@ -166,11 +166,11 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       )}
 
       <h3>Waveform</h3>
-      <canvas ref={waveformCanvasRef} width={WAVEFORM_WIDTH} height={WAVEFORM_HEIGHT} style={{ border: "1px solid #d1d5db", maxWidth: "100%" }} />
+      <canvas ref={waveformCanvasRef} width={WAVEFORM_WIDTH} height={WAVEFORM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
 
       <h3>Amplitude spectrum</h3>
       {!spectrumResult.ok && <p style={{ color: "crimson" }}>{spectrumResult.message}</p>}
-      <canvas ref={spectrumCanvasRef} width={SPECTRUM_WIDTH} height={SPECTRUM_HEIGHT} style={{ border: "1px solid #d1d5db", maxWidth: "100%" }} />
+      <canvas ref={spectrumCanvasRef} width={SPECTRUM_WIDTH} height={SPECTRUM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
     </div>
   );
 }

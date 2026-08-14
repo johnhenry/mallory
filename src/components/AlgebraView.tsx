@@ -86,7 +86,7 @@ export function AlgebraView({ graph, showAuxiliary = false }: { graph: CellGraph
   if (visible.length === 0) return null;
 
   return (
-    <div style={{ fontSize: "0.9rem", border: "1px solid #ccc", borderRadius: 4, padding: "0.5rem 0.75rem" }}>
+    <div style={{ fontSize: "0.9rem", border: "1px solid var(--border)", borderRadius: 4, padding: "0.5rem 0.75rem" }}>
       <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Objects</div>
       <ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
         {visible.map((e) => {

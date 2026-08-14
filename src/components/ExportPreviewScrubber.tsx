@@ -58,7 +58,7 @@ export function ExportPreviewScrubber({ maxTime, fetchFrame }: ExportPreviewScru
           alt={`Export preview frame at ${time.toFixed(2)}s`}
           width={160}
           height={160}
-          style={{ border: "1px solid #ccc", display: "block", marginTop: "0.25rem", opacity: loading ? 0.5 : 1 }}
+          style={{ border: "1px solid var(--border)", display: "block", marginTop: "0.25rem", opacity: loading ? 0.5 : 1 }}
         />
       )}
       {error && <span style={{ color: "crimson", fontSize: "0.85rem" }}>{error}</span>}

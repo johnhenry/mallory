@@ -231,8 +231,8 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
           />
         </label>
       </div>
-      <canvas ref={dartCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
-      <canvas ref={convergenceCanvasRef} width={WIDTH} height={120} style={{ border: "1px solid #ccc", display: "block", marginTop: "0.25rem" }} />
+      <canvas ref={dartCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <canvas ref={convergenceCanvasRef} width={WIDTH} height={120} style={{ border: "1px solid var(--border)", display: "block", marginTop: "0.25rem" }} />
       {dartResult.ok ? (
         <p>π estimate = {dartResult.result.piEstimate.toFixed(5)} (actual π ≈ 3.14159)</p>
       ) : (
@@ -303,7 +303,7 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
           </label>
         )}
       </div>
-      <canvas ref={histCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+      <canvas ref={histCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       {histResult.ok ? (
         <p>
           sample mean = {histResult.result.sampleMean.toFixed(4)} (theoretical {histResult.result.theoreticalMean.toFixed(4)}), sample

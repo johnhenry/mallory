@@ -211,7 +211,7 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
       ) : (
         closedForm.message && <p style={{ color: "crimson" }}>{closedForm.message}</p>
       )}
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       {!solution.ok && <p style={{ color: "crimson" }}>{solution.message}</p>}
     </div>
   );

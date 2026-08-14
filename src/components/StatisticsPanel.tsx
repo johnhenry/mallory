@@ -420,9 +420,9 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
           point(s) at each edge are trimmed (a "same"-mode convolution boundary sample there averages against zero-padding, not real neighboring data).
         </p>
       )}
-      <canvas ref={smoothingCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid #d1d5db", maxWidth: "100%" }} />
+      <canvas ref={smoothingCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
       {smoothingShowResidual && (
-        <canvas ref={residualCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid #d1d5db", maxWidth: "100%", marginTop: "0.5rem" }} />
+        <canvas ref={residualCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%", marginTop: "0.5rem" }} />
       )}
 
       <h2>Distribution</h2>

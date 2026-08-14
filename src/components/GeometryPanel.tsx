@@ -716,7 +716,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         ref={canvasRef}
         width={WIDTH}
         height={HEIGHT}
-        style={{ border: "1px solid #ccc", cursor: "crosshair", touchAction: "none" }}
+        style={{ border: "1px solid var(--border)", cursor: "crosshair", touchAction: "none" }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

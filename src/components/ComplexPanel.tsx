@@ -176,7 +176,7 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
       </div>
       {showRootsOfUnity && !rootsResult.ok && <p style={{ color: "crimson" }}>{rootsResult.message}</p>}
 
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #d1d5db", maxWidth: "100%" }} />
+      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
 
       <h3>Probe a point</h3>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>

@@ -122,7 +122,7 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
           <input value={tMax} onChange={(e) => graph.set(ids.tMax, e.target.value)} style={{ font: "inherit", width: "8ch" }} />]
         </label>
       </div>
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       {!path.ok && <p style={{ color: "crimson" }}>{path.message}</p>}
     </div>
   );

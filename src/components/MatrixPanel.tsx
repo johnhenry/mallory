@@ -27,7 +27,7 @@ function MatrixTable({ m }: { m: Mat }) {
         {m.map((row, i) => (
           <tr key={i}>
             {row.map((v, j) => (
-              <td key={j} style={{ border: "1px solid #d1d5db", padding: "2px 8px", textAlign: "right", fontFamily: "monospace" }}>
+              <td key={j} style={{ border: "1px solid var(--border)", padding: "2px 8px", textAlign: "right", fontFamily: "monospace" }}>
                 {Number.isFinite(v) ? v.toFixed(4) : String(v)}
               </td>
             ))}
@@ -261,7 +261,7 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
         />
       </div>
       <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
-        <canvas ref={rootCanvasRef} width={ROOT_CANVAS_SIZE} height={ROOT_CANVAS_SIZE} style={{ border: "1px solid #ccc" }} />
+        <canvas ref={rootCanvasRef} width={ROOT_CANVAS_SIZE} height={ROOT_CANVAS_SIZE} style={{ border: "1px solid var(--border)" }} />
         {polyRoots.ok ? (
           <ul>
             {polyRoots.value.map((r, i) => (

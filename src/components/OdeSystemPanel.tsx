@@ -13,6 +13,7 @@ import {
   type VectorFieldPoint,
 } from "../lib/sample-ode.ts";
 import { classifyFixedPoint, findFixedPoints, FIXED_POINT_LABEL, type ClassifiedFixedPoint } from "../lib/phase-portrait.ts";
+import { getThemeColors } from "../lib/theme-colors.ts";
 import { DEFAULT_ODE_SYSTEM_STATE, decodeOdeSystemState, encodeOdeSystemState, type OdeSystemState } from "../lib/ode-system-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -248,6 +249,7 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
     if (fixedPoints.ok) {
       ctx.save();
       ctx.font = "11px sans-serif";
+      const theme = getThemeColors();
       for (const fp of fixedPoints.points) {
         const sx = toScreenX(fp.x, viewport, WIDTH);
         const sy = toScreenY(fp.y, viewport, HEIGHT);
@@ -255,10 +257,10 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
         ctx.beginPath();
         ctx.arc(sx, sy, 6, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "#1f2937";
+        ctx.strokeStyle = theme.ink;
         ctx.lineWidth = 1.5;
         ctx.stroke();
-        ctx.fillStyle = "#1f2937";
+        ctx.fillStyle = theme.ink;
         ctx.fillText(FIXED_POINT_LABEL[fp.kind], sx + 9, sy - 9);
       }
       ctx.restore();
@@ -304,7 +306,7 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
           <input value={yMax} onChange={(e) => graph.set(ids.yMax, e.target.value)} style={{ font: "inherit", width: "6ch" }} />]
         </label>
       </div>
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       {trajectory.ok && (
         <p>
           at t = {trajectory.final.t.toFixed(4)}: x = {trajectory.final.x.toFixed(4)}, y = {trajectory.final.y.toFixed(4)}

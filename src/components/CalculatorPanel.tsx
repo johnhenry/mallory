@@ -160,7 +160,7 @@ export function CalculatorPanel() {
       <div
         ref={historyRef}
         style={{
-          border: "1px solid #ccc",
+          border: "1px solid var(--border)",
           borderRadius: "6px",
           padding: "0.5rem 0.75rem",
           minHeight: "8rem",

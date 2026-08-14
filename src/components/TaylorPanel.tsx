@@ -181,7 +181,7 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
       ) : (
         <p style={{ color: "crimson" }}>{approx.message}</p>
       )}
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <h2>Limit</h2>
       <div style={{ margin: "0.25rem 0" }}>
         <label>
