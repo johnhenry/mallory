@@ -11,6 +11,9 @@ import {
   type StatisticsState,
 } from "../lib/statistics-state.ts";
 import { HYPOTHESIS_TEST_LABELS, runHypothesisTest, type HypothesisTestResult, type HypothesisTestType } from "../lib/hypothesis-test.ts";
+import { buildKernel, residualSeries, smoothSeries, type KernelType, type SmoothedSeries } from "../lib/smoothing.ts";
+import { drawPolyline, drawScatter } from "../lib/render-path.ts";
+import type { Viewport } from "../lib/viewport.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCell } from "../lib/use-cell.ts";
 
@@ -29,6 +32,8 @@ type SummaryResult =
   | { ok: false; message: string };
 
 type QueryResult = { ok: true; lowerCdf: number; upperCdf: number; intervalProbability: number } | { ok: false; message: string };
+
+type SmoothingResult = { ok: true; data: number[]; smoothed: SmoothedSeries; residuals: number[] } | { ok: false; message: string };
 
 type DistType = "normal" | "binomial" | "poisson" | "studentT" | "chiSquare";
 
@@ -102,6 +107,12 @@ function useStatisticsGraph(cellId: string, externalGraph?: CellGraph): CellGrap
       graph.set(ids.testDataB, "1, 2, 3, 4, 5");
       graph.set(ids.testExpected, "");
       graph.set(ids.testAlpha, "0.05");
+
+      // Smoothing-section defaults -- not part of the persisted state
+      // schema (same convention as the inference section above).
+      graph.set(ids.smoothingKernelType, "moving-average" satisfies KernelType);
+      graph.set(ids.smoothingWidth, "5");
+      graph.set(ids.smoothingShowResidual, false);
 
       // Same "surface the real error" deviation SystemSolverPanel uses:
       // this is a discrete action on typed-in text, not a continuous
@@ -211,6 +222,22 @@ function useStatisticsGraph(cellId: string, externalGraph?: CellGraph): CellGrap
           return { ok: false, message: e instanceof Error ? e.message : String(e) };
         }
       });
+
+      // Reuses ids.data too, same as the inference section above.
+      graph.define(ids.smoothingResult, (): SmoothingResult => {
+        try {
+          const parsedData = parseData(graph.get<string>(ids.data));
+          if (parsedData.length === 0 || parsedData.some(Number.isNaN)) throw new Error("Enter valid data in Descriptive statistics above.");
+          const kernelType = graph.get<KernelType>(ids.smoothingKernelType);
+          const width = Number(graph.get<string>(ids.smoothingWidth));
+          const kernel = buildKernel(kernelType, width);
+          const smoothed = smoothSeries(parsedData, kernel);
+          const residuals = residualSeries(parsedData, smoothed);
+          return { ok: true, data: parsedData, smoothed, residuals };
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        }
+      });
     }
     ref.current = graph;
   }
@@ -249,6 +276,12 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
   const testExpected = useCell<string>(graph, ids.testExpected);
   const testAlpha = useCell<string>(graph, ids.testAlpha);
   const testResult = useCell<HypothesisTestResult>(graph, ids.testResult);
+  const smoothingKernelType = useCell<KernelType>(graph, ids.smoothingKernelType);
+  const smoothingWidth = useCell<string>(graph, ids.smoothingWidth);
+  const smoothingShowResidual = useCell<boolean>(graph, ids.smoothingShowResidual);
+  const smoothingResult = useCell<SmoothingResult>(graph, ids.smoothingResult);
+  const smoothingCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const residualCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [dataInput, setDataInput] = useState(data);
   // Keeps the input box in sync when `data` changes for a reason other than
@@ -288,6 +321,42 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
     graph.set(ids.data, value);
   }
 
+  const SMOOTHING_WIDTH = 560;
+  const SMOOTHING_HEIGHT = 200;
+
+  useEffect(() => {
+    const canvas = smoothingCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
+    if (!smoothingResult.ok) return;
+    const { data: rawData, smoothed } = smoothingResult;
+    const allY = [...rawData, ...smoothed.values];
+    const minY = Math.min(...allY);
+    const maxY = Math.max(...allY);
+    const pad = Math.max(1e-9, (maxY - minY) * 0.1);
+    const viewport: Viewport = { xMin: 0, xMax: rawData.length - 1, yMin: minY - pad, yMax: maxY + pad };
+    const rawPoints = rawData.map((y, x) => ({ x, y }));
+    drawScatter(ctx, rawPoints, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, 2.5, "#93c5fd");
+    const smoothedPoints = smoothed.indices.map((idx, i) => ({ x: idx, y: smoothed.values[i]! }));
+    drawPolyline(ctx, smoothedPoints, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, "#dc2626");
+  }, [smoothingResult]);
+
+  useEffect(() => {
+    const canvas = residualCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
+    if (!smoothingShowResidual || !smoothingResult.ok) return;
+    const { smoothed, residuals } = smoothingResult;
+    const maxAbs = Math.max(1e-9, ...residuals.map((r) => Math.abs(r)));
+    const viewport: Viewport = { xMin: 0, xMax: smoothed.indices[smoothed.indices.length - 1] ?? 0, yMin: -maxAbs * 1.1, yMax: maxAbs * 1.1 };
+    const points = smoothed.indices.map((idx, i) => ({ x: idx, y: residuals[i]! }));
+    drawPolyline(ctx, points, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, "#16a34a");
+  }, [smoothingResult, smoothingShowResidual]);
+
   return (
     <div>
       <h2>Descriptive statistics</h2>
@@ -312,6 +381,49 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
           <p style={{ color: "crimson" }}>{summary.message}</p>
         )}
       </div>
+
+      <h2>Smoothing</h2>
+      <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>Uses the data entered in Descriptive statistics above, in entry order.</p>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label>
+          Kernel:{" "}
+          <select value={smoothingKernelType} onChange={(e) => graph.set(ids.smoothingKernelType, e.target.value as KernelType)}>
+            <option value="moving-average">Moving average</option>
+            <option value="gaussian">Gaussian</option>
+          </select>
+        </label>
+        <label>
+          width (odd):{" "}
+          <input
+            type="number"
+            min={1}
+            step={2}
+            value={smoothingWidth}
+            onChange={(e) => graph.set(ids.smoothingWidth, e.target.value)}
+            style={{ font: "inherit", width: "6ch" }}
+          />
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={smoothingShowResidual}
+            onChange={(e) => graph.set(ids.smoothingShowResidual, e.target.checked)}
+          />{" "}
+          show residual (raw − smoothed)
+        </label>
+      </div>
+      {!smoothingResult.ok ? (
+        <p style={{ color: "crimson" }}>{smoothingResult.message}</p>
+      ) : (
+        <p style={{ fontSize: "0.8rem", color: "#5b6b8c" }}>
+          Blue dots = raw data, red line = smoothed. The first/last {Math.floor((smoothingResult.data.length - smoothingResult.smoothed.indices.length) / 2)}{" "}
+          point(s) at each edge are trimmed (a "same"-mode convolution boundary sample there averages against zero-padding, not real neighboring data).
+        </p>
+      )}
+      <canvas ref={smoothingCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid #d1d5db", maxWidth: "100%" }} />
+      {smoothingShowResidual && (
+        <canvas ref={residualCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid #d1d5db", maxWidth: "100%", marginTop: "0.5rem" }} />
+      )}
 
       <h2>Distribution</h2>
       <div style={{ margin: "0.25rem 0" }}>

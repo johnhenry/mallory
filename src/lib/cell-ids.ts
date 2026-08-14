@@ -107,6 +107,12 @@ export function cellIdsStatistics(cellId: string) {
     testExpected: `statsTestExpected:${cellId}`,
     testAlpha: `statsTestAlpha:${cellId}`,
     testResult: `statsTestResult:${cellId}`,
+    // Smoothing section (issue #56) -- same "not part of the persisted
+    // schema" convention as the inference-section fields above.
+    smoothingKernelType: `statsSmoothingKernelType:${cellId}`,
+    smoothingWidth: `statsSmoothingWidth:${cellId}`,
+    smoothingShowResidual: `statsSmoothingShowResidual:${cellId}`,
+    smoothingResult: `statsSmoothingResult:${cellId}`,
   };
 }
 
