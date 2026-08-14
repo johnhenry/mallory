@@ -233,6 +233,105 @@ export function sampleVectorField2D(
   return points;
 }
 
+export interface Ode2ndOrderCoeffs {
+  a: number;
+  b: number;
+  c: number;
+}
+
+export type Ode2ndOrderRootCase = "distinct-real" | "repeated" | "complex";
+
+/** Classifies `a*y''+b*y'+c*y=0`'s characteristic-equation roots by discriminant, matching Symbolic.solveOde2ndOrderConstCoeff's own three cases (same 1e-9 tolerance for "repeated"). */
+export function classifyOde2ndOrderRoots({ a, b, c }: Ode2ndOrderCoeffs): { discriminant: number; rootCase: Ode2ndOrderRootCase } {
+  const discriminant = b * b - 4 * a * c;
+  const rootCase: Ode2ndOrderRootCase = Math.abs(discriminant) < 1e-9 ? "repeated" : discriminant > 0 ? "distinct-real" : "complex";
+  return { discriminant, rootCase };
+}
+
+export interface Ode2ndOrderClosedFormAttempt {
+  found: boolean;
+  latex?: string;
+  discriminant?: number;
+  rootCase?: Ode2ndOrderRootCase;
+  /** Present only when `!found` -- currently only "a === 0" (DegenerateOdeError), surfaced rather than swallowed since it's the one avoidable failure mode here (unlike attemptOdeClosedForm, where "no elementary closed form" is the expected common case). */
+  message?: string;
+}
+
+/**
+ * Closed form for the homogeneous, constant-coefficient `a*y''+b*y'+c*y=0`,
+ * `y(x0)=y0`, `y'(x0)=yPrime0`, via `Symbolic.solveOde2ndOrderConstCoeff`.
+ * That method always solves for `a !== 0` (it's built from the
+ * characteristic equation, not an iterative/heuristic search), so the only
+ * failure case is the degenerate `a === 0` one.
+ */
+export function attemptOde2ndOrderClosedForm(coeffs: Ode2ndOrderCoeffs, x0: number, y0: number, yPrime0: number): Ode2ndOrderClosedFormAttempt {
+  const { a, b, c } = coeffs;
+  try {
+    const expr = Symbolic.solveOde2ndOrderConstCoeff(a, b, c, x0, y0, yPrime0);
+    const { discriminant, rootCase } = classifyOde2ndOrderRoots(coeffs);
+    return { found: true, latex: exprToLatex(expr), discriminant, rootCase };
+  } catch (e) {
+    return { found: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Numeric RK4 trajectory of `a*y''+b*y'+c*y=0`, `y(x0)=y0`, `y'(x0)=yPrime0`,
+ * across `xDomain` -- the self-check counterpart to
+ * `attemptOde2ndOrderClosedForm`'s symbolic solution (the two should overlap
+ * when plotted together). Converts to the first-order system `[y, y']`
+ * directly with plain numeric derivatives -- `a`/`b`/`c` are already
+ * numbers, so unlike `sampleOdeSolution` there's no `Symbolic.compile`
+ * round-trip needed -- and reuses the same bidirectional-RK4 shape
+ * (`Numerical.rk4` forward from x0, and backward via the `s = -x`
+ * substitution) as `sampleOdeSolution`/`sampleOdeSystem2D`.
+ */
+export function sampleOde2ndOrderSolution(
+  coeffs: Ode2ndOrderCoeffs,
+  x0: number,
+  y0: number,
+  yPrime0: number,
+  xDomain: Domain,
+  steps = 200,
+): Path2D {
+  const { a, b, c } = coeffs;
+  if (a === 0) return GraphUtils.vectorToCurve(Vector.fromArray([Vector.fromArray([x0, y0])]), 2, SOLUTION_COLOR);
+
+  const f = (state: number[]): number[] => {
+    const y = state[0] as number;
+    const yp = state[1] as number;
+    return [yp, (-b * yp - c * y) / a];
+  };
+
+  function collectRun(target: number): number[][] {
+    const run: number[][] = [];
+    if (Math.abs(target - x0) < 1e-12) return run;
+    const forward = target > x0;
+    const h = Math.abs(target - x0) / steps;
+    const odeFn = forward ? (_t: number, state: number[]): number[] => f(state) : (_s: number, state: number[]): number[] => f(state).map((v) => -v);
+    const t0 = forward ? x0 : -x0;
+    const t1 = forward ? target : -target;
+    for (const step of Numerical.rk4(odeFn, [y0, yPrime0], t0, t1, h)) {
+      const x = forward ? step.t : -step.t;
+      const y = step.y[0] as number;
+      if (!Number.isFinite(y)) break;
+      run.push([x, y]);
+    }
+    return run;
+  }
+
+  const backwardRun = collectRun(xDomain.min).reverse();
+  const forwardRun = collectRun(xDomain.max);
+  if (backwardRun.length > 0) backwardRun.pop();
+
+  const runs = [backwardRun, forwardRun].filter((run) => run.length > 0);
+  if (runs.length === 0) {
+    return GraphUtils.vectorToCurve(Vector.fromArray([Vector.fromArray([x0, y0])]), 2, SOLUTION_COLOR);
+  }
+  const segments = runs.map((run) => GraphUtils.vectorToCurve(Vector.fromArray(run.map((p) => Vector.fromArray(p))), 2, SOLUTION_COLOR));
+  return { stroke: (segments[0] as Path2D).stroke, commands: segments.flatMap((s) => s.commands) };
+}
+
 /**
  * Samples dy/dx = f(x, y) over a grid spanning `xDomain`×`yDomain` for a
  * slope-field renderer. Points where `f` isn't finite (e.g. a genuine

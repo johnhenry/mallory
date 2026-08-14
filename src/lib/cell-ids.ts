@@ -148,6 +148,25 @@ export type CellIdsOdeSystem = ReturnType<typeof cellIdsOdeSystem>;
 
 export type CellIdsOde = ReturnType<typeof cellIdsOde>;
 
+export function cellIdsOde2(cellId: string) {
+  return {
+    a: `ode2A:${cellId}`,
+    b: `ode2B:${cellId}`,
+    c: `ode2C:${cellId}`,
+    x0: `ode2X0:${cellId}`,
+    y0: `ode2Y0:${cellId}`,
+    yPrime0: `ode2YPrime0:${cellId}`,
+    xMin: `ode2XMin:${cellId}`,
+    xMax: `ode2XMax:${cellId}`,
+    yMin: `ode2YMin:${cellId}`,
+    yMax: `ode2YMax:${cellId}`,
+    solution: `ode2Solution:${cellId}`,
+    closedForm: `ode2ClosedForm:${cellId}`,
+  };
+}
+
+export type CellIdsOde2 = ReturnType<typeof cellIdsOde2>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way

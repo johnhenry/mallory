@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Symbolic } from "mallory-math";
 import {
+  attemptOde2ndOrderClosedForm,
+  classifyOde2ndOrderRoots,
   odeSystemTrajectoryToPhasePath,
+  sampleOde2ndOrderSolution,
   sampleOdeSolution,
   sampleOdeSystem2D,
   sampleSlopeField,
@@ -136,5 +140,80 @@ test("sampleVectorField2D omits points where the field is undefined", () => {
   assert.ok(points.length < 25);
   for (const p of points) {
     assert.ok(p.x !== 0);
+  }
+});
+
+test("classifyOde2ndOrderRoots: distinct real, repeated, and complex cases", () => {
+  assert.equal(classifyOde2ndOrderRoots({ a: 1, b: 5, c: 4 }).rootCase, "distinct-real"); // disc = 25-16 = 9
+  assert.equal(classifyOde2ndOrderRoots({ a: 1, b: 4, c: 4 }).rootCase, "repeated"); // disc = 16-16 = 0
+  assert.equal(classifyOde2ndOrderRoots({ a: 1, b: 0.4, c: 4 }).rootCase, "complex"); // disc = 0.16-16 < 0
+});
+
+test("attemptOde2ndOrderClosedForm: a=0 is degenerate, surfaces a message", () => {
+  const result = attemptOde2ndOrderClosedForm({ a: 0, b: 1, c: 1 }, 0, 1, 0);
+  assert.equal(result.found, false);
+  assert.ok(typeof result.message === "string" && result.message.length > 0);
+});
+
+test("attemptOde2ndOrderClosedForm: finds a closed form and reports the matching root case", () => {
+  const result = attemptOde2ndOrderClosedForm({ a: 1, b: 0, c: 1 }, 0, 1, 0);
+  assert.equal(result.found, true);
+  assert.ok(typeof result.latex === "string" && result.latex.length > 0);
+  assert.equal(result.rootCase, "complex"); // y''+y=0 -> disc = -4
+});
+
+test("sampleOde2ndOrderSolution: a=0 degenerates to the single initial point", () => {
+  const path = sampleOde2ndOrderSolution({ a: 0, b: 1, c: 1 }, 0, 3, 0, { min: -1, max: 1 });
+  assert.equal(path.commands.length, 1);
+  assert.equal(path.commands[0]?.x, 0);
+  assert.equal(path.commands[0]?.y, 3);
+});
+
+test("sampleOde2ndOrderSolution matches y=cos(x) for y''+y=0, y(0)=1, y'(0)=0 (complex-root case)", () => {
+  const path = sampleOde2ndOrderSolution({ a: 1, b: 0, c: 1 }, 0, 1, 0, { min: -2, max: 2 }, 400);
+  const byX = new Map(path.commands.map((cmd) => [Math.round(cmd.x * 1000) / 1000, cmd.y]));
+  for (const x of [-2, -1, 0, 1, 2]) {
+    const y = byX.get(x);
+    assert.ok(y !== undefined, `missing sample at x=${x}`);
+    assert.ok(Math.abs((y as number) - Math.cos(x)) < 1e-3, `x=${x}: expected cos(x)=${Math.cos(x)}, got ${y}`);
+  }
+});
+
+test("sampleOde2ndOrderSolution matches y=e^x for y''-y=0, y(0)=1, y'(0)=1 (distinct-real-root case)", () => {
+  const path = sampleOde2ndOrderSolution({ a: 1, b: 0, c: -1 }, 0, 1, 1, { min: -1, max: 1 }, 400);
+  const byX = new Map(path.commands.map((cmd) => [Math.round(cmd.x * 1000) / 1000, cmd.y]));
+  for (const x of [-1, 0, 1]) {
+    const y = byX.get(x);
+    assert.ok(y !== undefined, `missing sample at x=${x}`);
+    assert.ok(Math.abs((y as number) - Math.exp(x)) < 1e-3, `x=${x}: expected e^x=${Math.exp(x)}, got ${y}`);
+  }
+});
+
+test("sampleOde2ndOrderSolution matches y=(1+x)e^-x for y''+2y'+y=0, y(0)=1, y'(0)=0 (repeated-root case)", () => {
+  const path = sampleOde2ndOrderSolution({ a: 1, b: 2, c: 1 }, 0, 1, 0, { min: -1, max: 1 }, 400);
+  const byX = new Map(path.commands.map((cmd) => [Math.round(cmd.x * 1000) / 1000, cmd.y]));
+  for (const x of [-1, 0, 1]) {
+    const y = byX.get(x);
+    const expected = (1 + x) * Math.exp(-x);
+    assert.ok(y !== undefined, `missing sample at x=${x}`);
+    assert.ok(Math.abs((y as number) - expected) < 1e-3, `x=${x}: expected ${expected}, got ${y}`);
+  }
+});
+
+test("self-check: the RK4 numeric solution agrees with Symbolic.solveOde2ndOrderConstCoeff's own closed form", () => {
+  const a = 1;
+  const b = 0.4;
+  const c = 4;
+  const x0 = 0;
+  const y0 = 1;
+  const yPrime0 = 0;
+  const closedFormExpr = Symbolic.solveOde2ndOrderConstCoeff(a, b, c, x0, y0, yPrime0);
+  const path = sampleOde2ndOrderSolution({ a, b, c }, x0, y0, yPrime0, { min: 0, max: 5 }, 500);
+  const byX = new Map(path.commands.map((cmd) => [Math.round(cmd.x * 1000) / 1000, cmd.y]));
+  for (const x of [0, 1, 2.5, 5]) {
+    const numeric = byX.get(x);
+    const symbolic = Symbolic.evaluate(closedFormExpr, { x });
+    assert.ok(numeric !== undefined, `missing numeric sample at x=${x}`);
+    assert.ok(Math.abs((numeric as number) - symbolic) < 1e-2, `x=${x}: numeric=${numeric}, symbolic=${symbolic}`);
   }
 });
