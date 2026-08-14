@@ -89,6 +89,21 @@ export interface HistogramBin {
   count: number;
 }
 
+/** Partitions `values` into `binCount` equal-width bins spanning [min(values), max(values)], each bin half-open [x0, x1) except the last, which also collects an exact match on the overall max. Pure and separately testable from the distribution-sampling flow around it, since binning correctness is a deterministic question and sampling isn't. */
+export function binValues(values: readonly number[], binCount: number): HistogramBin[] {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const width = (max - min) / binCount || 1;
+  const bins: HistogramBin[] = Array.from({ length: binCount }, (_, i) => ({ x0: min + i * width, x1: min + (i + 1) * width, count: 0 }));
+  for (const v of values) {
+    let idx = width > 0 ? Math.floor((v - min) / width) : 0;
+    if (idx >= binCount) idx = binCount - 1;
+    if (idx < 0) idx = 0;
+    (bins[idx] as HistogramBin).count++;
+  }
+  return bins;
+}
+
 export interface DistributionSampleResult {
   bins: HistogramBin[];
   sampleMean: number;
@@ -117,16 +132,7 @@ export function sampleDistributionHistogram(
   const samples: number[] = [];
   for (let i = 0; i < n; i++) samples.push(dist.sample());
 
-  const min = Math.min(...samples);
-  const max = Math.max(...samples);
-  const width = (max - min) / binCount || 1;
-  const bins: HistogramBin[] = Array.from({ length: binCount }, (_, i) => ({ x0: min + i * width, x1: min + (i + 1) * width, count: 0 }));
-  for (const s of samples) {
-    let idx = width > 0 ? Math.floor((s - min) / width) : 0;
-    if (idx >= binCount) idx = binCount - 1;
-    if (idx < 0) idx = 0;
-    (bins[idx] as HistogramBin).count++;
-  }
+  const bins = binValues(samples, binCount);
 
   const sampleMean = samples.reduce((a, b) => a + b, 0) / n;
   const sampleVariance = samples.reduce((a, b) => a + (b - sampleMean) ** 2, 0) / n;

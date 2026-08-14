@@ -1,7 +1,33 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Rng } from "mallory-tensor-core";
-import { estimateDartPi, sampleDistributionHistogram } from "./monte-carlo.ts";
+import { binValues, estimateDartPi, sampleDistributionHistogram } from "./monte-carlo.ts";
+
+test("binValues: hand-computed placement for [0..9] into 5 bins of width 1.8", () => {
+  // min=0, max=9, width=1.8. Bin edges: [0,1.8) [1.8,3.6) [3.6,5.4) [5.4,7.2) [7.2,9].
+  const values = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+  const bins = binValues(values, 5);
+  assert.equal(bins.length, 5);
+  // 0,1 -> bin0; 2,3 -> bin1; 4,5 -> bin2; 6,7 -> bin3; 8,9 -> bin4 (9 clamped into the last bin).
+  assert.deepEqual(
+    bins.map((b) => b.count),
+    [2, 2, 2, 2, 2],
+  );
+  assert.equal(bins[0]?.x0, 0);
+  assert.ok(Math.abs((bins[4]?.x1 as number) - 9) < 1e-9);
+});
+
+test("binValues: the minimum value lands in the first bin, the maximum in the last", () => {
+  const bins = binValues([-5, -3, 0, 2, 5, 10], 4);
+  assert.ok((bins[0] as { count: number }).count >= 1); // -5 is in bins[0]
+  assert.ok((bins[3] as { count: number }).count >= 1); // 10 is in bins[3]
+});
+
+test("binValues: a constant array (zero width) puts every value in a single bin without throwing", () => {
+  const bins = binValues([5, 5, 5, 5], 4);
+  const total = bins.reduce((sum, b) => sum + b.count, 0);
+  assert.equal(total, 4);
+});
 
 test("estimateDartPi converges toward pi as n grows (law of large numbers)", () => {
   const result = estimateDartPi(20000, new Rng(42));
