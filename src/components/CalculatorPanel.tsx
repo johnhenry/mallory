@@ -99,11 +99,11 @@ export function CalculatorPanel() {
 
   useModelContextTool({
     name: "calculator_set_mode",
-    description: 'Set the calculator\'s arithmetic mode: "float", "exact" (fractions), or a finite structure Z/nZ via modulus (2, 5, 7, or 11).',
+    description: 'Set the calculator\'s arithmetic mode: "float", "exact" (fractions), "units" (dimensional analysis, e.g. "5 m/s * 3 s"), or a finite structure Z/nZ via modulus (2, 5, 7, or 11).',
     inputSchema: {
       type: "object",
       properties: {
-        mode: { type: "string", enum: ["float", "exact"], description: 'Ignored when modulus is set.' },
+        mode: { type: "string", enum: ["float", "exact", "units"], description: 'Ignored when modulus is set.' },
         modulus: { type: ["number", "null"], description: "One of 2, 5, 7, 11 for Z/nZ, or null (or omit) for real numbers." },
       },
     },
@@ -115,7 +115,7 @@ export function CalculatorPanel() {
       } else if (input.modulus === null) {
         setModulus(null);
       }
-      if (input.mode === "float" || input.mode === "exact") setMode(input.mode);
+      if (input.mode === "float" || input.mode === "exact" || input.mode === "units") setMode(input.mode);
       return { ok: true };
     },
   });
@@ -145,8 +145,16 @@ export function CalculatorPanel() {
           </label>{" "}
           <label>
             <input type="radio" name="calc-mode" checked={mode === "exact"} onChange={() => setMode("exact")} /> Exact
+          </label>{" "}
+          <label>
+            <input type="radio" name="calc-mode" checked={mode === "units"} onChange={() => setMode("units")} /> Units
           </label>
         </div>
+      )}
+      {mode === "units" && modulus === null && (
+        <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>
+          e.g. <code>5 m/s * 3 s</code>, <code>9.8 m/s^2 * 70 kg in N</code>, <code>3 mi in km</code>
+        </p>
       )}
 
       <div

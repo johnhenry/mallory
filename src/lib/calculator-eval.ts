@@ -13,8 +13,9 @@
 import { Rational, Symbolic } from "mallory-math";
 import { integersModuloStructure } from "./finite-structure.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
+import { evaluateUnitExpr } from "./unit-expr.ts";
 
-export type CalculatorMode = "float" | "exact";
+export type CalculatorMode = "float" | "exact" | "units";
 
 export interface CalculatorEntry {
   input: string;
@@ -67,6 +68,15 @@ export function evaluateCalculatorExpr(
       const value = Symbolic.evaluateOverStructure(expr, integersModuloStructure(modulus).structure, variables);
       if (Number.isNaN(value)) return { display: `undefined in Z/${modulus}Z`, isError: true, value: null };
       return { display: String(value), isError: false, value };
+    }
+    if (mode === "units") {
+      // Not routed through Symbolic (its Expr AST has no unit-carrying leaf
+      // type) -- see unit-expr.ts for the small hand-written grammar this
+      // uses instead. `variables` are plain dimensionless numbers here (a
+      // stated v1 limitation); the result's magnitude, in whatever unit
+      // symbol it ends up in, is what gets stored on assignment.
+      const result = evaluateUnitExpr(source, variables);
+      return { display: result.toString(), isError: false, value: result.value };
     }
     if (mode === "exact") {
       const expr = Symbolic.parse(preprocessImplicitMultiplication(source));
