@@ -1,0 +1,74 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { evaluateUnitExpr } from "./unit-expr.ts";
+
+test("multiplies velocity by time to distance: 5 m/s * 3 s", () => {
+  const result = evaluateUnitExpr("5 m/s * 3 s");
+  assert.equal(result.value, 15);
+});
+
+test("force from mass and acceleration, converted to a named derived unit: 9.8 m/s^2 * 70 kg in N", () => {
+  const result = evaluateUnitExpr("9.8 m/s^2 * 70 kg in N");
+  assert.equal(result.symbol, "N");
+  assert.ok(Math.abs(result.value - 686) < 1e-9);
+});
+
+test("without an explicit conversion, a product stays in its raw composite unit (no auto-simplification to a named derived unit)", () => {
+  const result = evaluateUnitExpr("9.8 m/s^2 * 70 kg");
+  assert.ok(Math.abs(result.value - 686) < 1e-9);
+  assert.notEqual(result.symbol, "N");
+});
+
+test("adding incompatible dimensions throws a DimensionMismatchError, not a silent wrong answer", () => {
+  assert.throws(() => evaluateUnitExpr("5 m + 3 s"));
+});
+
+test("unit conversion: 3 mi in km", () => {
+  const result = evaluateUnitExpr("3 mi in km");
+  assert.equal(result.symbol, "km");
+  assert.ok(Math.abs(result.value - 4.828032) < 1e-6);
+});
+
+test("standard precedence: 2 m + 3 m * 4 (multiplication before addition)", () => {
+  const result = evaluateUnitExpr("2 m + 3 m * 4");
+  assert.equal(result.value, 14); // 2 + (3*4) = 14, not (2+3)*4 = 20
+});
+
+test("subtraction of compatible units: 10 m - 4 m", () => {
+  const result = evaluateUnitExpr("10 m - 4 m");
+  assert.equal(result.value, 6);
+});
+
+test("division: 100 km / 2 h", () => {
+  const result = evaluateUnitExpr("100 km / 2 h");
+  assert.equal(result.value, 50);
+});
+
+test("dimensionless numbers (no unit token) combine as plain arithmetic", () => {
+  const result = evaluateUnitExpr("2 + 3 * 4");
+  assert.equal(result.value, 14);
+  assert.ok(result.isDimensionless);
+});
+
+test("negative leading operand via a signed numeral token: -5 m + 8 m", () => {
+  const result = evaluateUnitExpr("-5 m + 8 m");
+  assert.equal(result.value, 3);
+});
+
+test("substitutes a known variable's dimensionless value into the expression", () => {
+  const result = evaluateUnitExpr("k m", { k: 5 });
+  assert.equal(result.value, 5);
+  assert.equal(result.symbol, "m");
+});
+
+test("an unknown identifier that isn't a number or a known variable throws a clear error", () => {
+  assert.throws(() => evaluateUnitExpr("k m"), /isn't a number or a known variable/);
+});
+
+test("malformed input throws rather than returning a nonsensical result", () => {
+  assert.throws(() => evaluateUnitExpr(""));
+  assert.throws(() => evaluateUnitExpr("5 m +"));
+  assert.throws(() => evaluateUnitExpr("+ 5 m"));
+  assert.throws(() => evaluateUnitExpr("5 m in"));
+  assert.throws(() => evaluateUnitExpr("in km"));
+});

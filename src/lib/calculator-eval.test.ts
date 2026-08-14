@@ -74,3 +74,28 @@ test("submitCalculatorLine ignores a blank/whitespace-only line", () => {
   const next = submitCalculatorLine("   ", EMPTY_CALCULATOR_STATE, "float", null);
   assert.equal(next, EMPTY_CALCULATOR_STATE);
 });
+
+test("evaluateCalculatorExpr in units mode: 5 m/s * 3 s -> 15 m/s*s (raw composite)", () => {
+  const result = evaluateCalculatorExpr("5 m/s * 3 s", {}, "units", null);
+  assert.equal(result.isError, false);
+  assert.equal(result.value, 15);
+});
+
+test("evaluateCalculatorExpr in units mode: unit conversion via 'in'", () => {
+  const result = evaluateCalculatorExpr("3 mi in km", {}, "units", null);
+  assert.equal(result.isError, false);
+  assert.ok(result.display.startsWith("4.828"));
+});
+
+test("evaluateCalculatorExpr in units mode: incompatible dimensions surface as a clear error, not a throw", () => {
+  const result = evaluateCalculatorExpr("5 m + 3 s", {}, "units", null);
+  assert.equal(result.isError, true);
+  assert.equal(result.value, null);
+});
+
+test("submitCalculatorLine in units mode: assignment stores the magnitude for later reuse", () => {
+  let state = submitCalculatorLine("d = 5 m/s * 3 s", EMPTY_CALCULATOR_STATE, "units", null);
+  assert.equal(state.variables.d, 15);
+  state = submitCalculatorLine("d m", state, "units", null);
+  assert.equal(state.history[1].display, "15 m");
+});
