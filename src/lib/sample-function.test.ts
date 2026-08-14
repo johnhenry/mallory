@@ -103,6 +103,12 @@ test("sampleExprAdaptive gaps tan(x) near its asymptote when visibleYRange is gi
   assert.equal(findDiscontinuities(withoutRange).length, 0);
 });
 
+test("sampleExprAdaptive: identical repeated calls return the SAME Path2D object (memoized, not just structurally equal) -- issue #52's memoization audit", () => {
+  const first = sampleExprAdaptive("sin(x) + cos(2*x)", { min: -5, max: 5 }, 40, "x", { unused: 1 });
+  const second = sampleExprAdaptive("sin(x) + cos(2*x)", { min: -5, max: 5 }, 40, "x", { unused: 1 });
+  assert.equal(second, first, "a cache hit should return the exact same object reference, not a recomputed equal one");
+});
+
 test("findRootCrossings finds the two roots of x^2-4 (a resolution-9 grid over [-3,3])", () => {
   const path = sampleExpr("x^2-4", { min: -3, max: 3 }, 13);
   const roots = findRootCrossings(path);
