@@ -1,5 +1,6 @@
 import { GraphUtils, Symbolic, Vector, type Expr, type Path2D } from "mallory-math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
+import { memoizeLru } from "./memoize-lru.ts";
 
 export interface Domain {
   min: number;
@@ -154,7 +155,7 @@ export interface AdaptiveOptions {
  * plot run-breaking, also applied inside `refine` so bisection doesn't
  * waste depth smoothing a region that's about to be gapped anyway.
  */
-export function sampleExprAdaptive(
+function sampleExprAdaptiveImpl(
   expr: Expr | string,
   domain: Domain,
   baseResolution: number,
@@ -212,6 +213,18 @@ export function sampleExprAdaptive(
   if (segments.length === 0) return GraphUtils.vectorToCurve(Vector.fromArray([]), 2, color);
   return { stroke: (segments[0] as Path2D).stroke, commands: segments.flatMap((s) => s.commands) };
 }
+
+/**
+ * `sampleExprAdaptiveImpl`, memoized (issue #52's "memoization audit" work
+ * item) -- see `memoizeLru`'s own doc comment for why: `CellGraph`'s
+ * dependency tracking already skips a redundant call when nothing changed,
+ * but has no memory of a past call, so panning back to an exact previous
+ * viewport (e.g. a double-click reset) re-triggers a from-scratch resample
+ * even though the result is identical to one already computed. This is the
+ * only production call site (`ExpressionRow.tsx`), so wrapping the export
+ * here benefits it with no call-site changes needed.
+ */
+export const sampleExprAdaptive = memoizeLru(sampleExprAdaptiveImpl);
 
 /**
  * Samples a `cmp` (comparison) Expr at the same resolution/grid as
