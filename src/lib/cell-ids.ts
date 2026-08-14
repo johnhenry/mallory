@@ -272,6 +272,21 @@ export function cellIdsGraphTheory(cellId: string) {
 
 export type CellIdsGraphTheory = ReturnType<typeof cellIdsGraphTheory>;
 
+export function cellIdsComplex(cellId: string) {
+  return {
+    exprText: `complexExprText:${cellId}`,
+    parseResult: `complexParseResult:${cellId}`,
+    probeRe: `complexProbeRe:${cellId}`,
+    probeIm: `complexProbeIm:${cellId}`,
+    probeResult: `complexProbeResult:${cellId}`,
+    showRootsOfUnity: `complexShowRootsOfUnity:${cellId}`,
+    rootsN: `complexRootsN:${cellId}`,
+    rootsResult: `complexRootsResult:${cellId}`,
+  };
+}
+
+export type CellIdsComplex = ReturnType<typeof cellIdsComplex>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way
