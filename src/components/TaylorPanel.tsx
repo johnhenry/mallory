@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsTaylor, type CellIdsTaylor } from "../lib/cell-ids.ts";
 import { drawPath, type Viewport } from "../lib/render-path.ts";
+import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { computeLimit, computeTaylorApproximation, type LimitDirection } from "../lib/taylor-approx.ts";
 import { DEFAULT_TAYLOR_STATE, decodeTaylorState, encodeTaylorState, type TaylorState } from "../lib/taylor-state.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -135,7 +136,7 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
 
   function updateExpr(value: string) {
     setExprInput(value);
-    graph.set(ids.expr, value);
+    graph.set(ids.expr, resolveNaturalLanguageQuery(value) ?? value);
   }
 
   return (

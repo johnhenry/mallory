@@ -90,3 +90,42 @@ test("resolves 'limit of X as x -> infinity'", () => {
   assert.ok(source);
   assert.ok(Math.abs(Number(source) - 0.5) < 1e-6);
 });
+
+test("axisVariable: 'derivative of' differentiates with respect to the given axis variable, not a hardcoded x", () => {
+  assert.equal(resolveNaturalLanguageQuery("derivative of z^2", "z"), "2*z");
+});
+
+test("axisVariable defaults to 'x' when omitted, matching the prior (pre-axisVariable) behavior", () => {
+  assert.equal(resolveNaturalLanguageQuery("derivative of x^2"), "2*x");
+});
+
+test("axisVariable: differentiating w.r.t. the WRONG variable treats the real variable as a constant (0) -- the exact bug axisVariable threading fixes", () => {
+  assert.equal(resolveNaturalLanguageQuery("derivative of z^2"), "0"); // default "x": z^2 has no x
+});
+
+test("axisVariable: 'solve X' still defaults its 'for' variable to the axis variable when unnamed", () => {
+  const source = resolveNaturalLanguageQuery("solve 2*z = 6", "z");
+  assert.ok(source);
+  assert.equal(Symbolic.evaluate(source), 3);
+});
+
+test("axisVariable: 'limit of X as w approaches 0' ignores axisVariable since the limit variable is named inline", () => {
+  const source = resolveNaturalLanguageQuery("limit of sin(w)/w as w approaches 0", "z");
+  assert.ok(source);
+  assert.ok(Math.abs(Number(source) - 1) < 1e-6);
+});
+
+test("resolves 'taylor series of X at C to degree N'", () => {
+  assert.equal(resolveNaturalLanguageQuery("taylor series of sin(x) at 0 to degree 7"), "x - x^3/6 + x^5/120 - x^7/5040");
+});
+
+test("resolves 'taylor series of X' with default center/degree", () => {
+  const source = resolveNaturalLanguageQuery("taylor series of exp(x)");
+  assert.ok(source);
+  // Whatever the default degree is, it should be a genuine polynomial approximation: agrees with exp(x) near 0.
+  assert.ok(Math.abs(Symbolic.evaluate(source, { x: 0.1 }) - Math.exp(0.1)) < 1e-3);
+});
+
+test("resolves 'taylor series of X' honoring the axis variable", () => {
+  assert.equal(resolveNaturalLanguageQuery("taylor series of sin(z) at 0 to degree 7", "z"), "z - z^3/6 + z^5/120 - z^7/5040");
+});

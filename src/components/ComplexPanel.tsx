@@ -1,9 +1,10 @@
 import { ComplexNumber, Symbolic, type Expr } from "mallory-math";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsComplex, type CellIdsComplex } from "../lib/cell-ids.ts";
 import { DEFAULT_COMPLEX_STATE, decodeComplexState, encodeComplexState, type ComplexState } from "../lib/complex-state.ts";
 import { evaluateComplex } from "../lib/complex-eval.ts";
+import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { renderDomainColoring } from "../lib/complex-raster.ts";
 import { nthRootsOfUnity } from "../lib/roots-of-unity.ts";
 import { drawScatter } from "../lib/render-path.ts";
@@ -116,6 +117,19 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
   const rootsN = useCell<string>(graph, ids.rootsN);
   const rootsResult = useCell<Result<ComplexNumber[]>>(graph, ids.rootsResult);
 
+  const [exprInput, setExprInput] = useState(exprText);
+  // Keeps the input box in sync when exprText changes for a reason other
+  // than typing in this box -- e.g. URL-hash hydration -- mirrors
+  // GraphCanvas/TaylorPanel's identically-reasoned effect.
+  useEffect(() => {
+    setExprInput(exprText);
+  }, [exprText]);
+
+  function updateExprText(value: string) {
+    setExprInput(value);
+    graph.set(ids.exprText, resolveNaturalLanguageQuery(value, "z") ?? value);
+  }
+
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeComplexState(getCurrentComplexState(graph, ids))}`);
@@ -148,7 +162,8 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
       </p>
       <div style={{ margin: "0.25rem 0" }}>
         <label>
-          f(z) = <input value={exprText} onChange={(e) => graph.set(ids.exprText, e.target.value)} style={{ font: "inherit", width: "20ch" }} />
+          f(z) ={" "}
+          <input value={exprInput} onChange={(e) => updateExprText(e.target.value)} style={{ font: "inherit", width: "20ch" }} />
         </label>
       </div>
       {!parseResult.ok && <p style={{ color: "crimson" }}>{parseResult.message}</p>}
