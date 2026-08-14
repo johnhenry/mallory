@@ -11,6 +11,7 @@ const CARDS: Array<{ to: string; title: string; description: string }> = [
   { to: "/geo", title: "Geometry", description: "Compass-and-straightedge constructions with live dependent objects." },
   { to: "/calculus", title: "Calculus", description: "Single ODEs and coupled systems, slope fields, closed-form solving." },
   { to: "/data", title: "Data & Algebra", description: "Regression, descriptive statistics, and equation-system solving." },
+  { to: "/signal", title: "Signal", description: "Compose a waveform and see its FFT amplitude spectrum, reactively linked." },
   { to: "/notes", title: "Notebook", description: "Mix text and live graph cells in one reactive document." },
   { to: "/gallery", title: "Gallery", description: "Every graph and notebook you've saved, in one place." },
 ];
@@ -20,7 +21,7 @@ function DashboardPage() {
     <div>
       <div className="page-head">
         <p className="page-eyebrow">mallory-graph</p>
-        <h1>Eight tools, one reactive core.</h1>
+        <h1>Nine tools, one reactive core.</h1>
         <p className="lede">
           Plot, construct, solve, and animate — every tool below shares the same underlying math engine, so a curve
           you build in Graphing can drive a surface in 3D or a slope field in Calculus.

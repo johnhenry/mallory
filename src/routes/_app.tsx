@@ -44,6 +44,11 @@ const NAV_ITEMS: Array<{ to: string; label: string; icon: string }> = [
     icon: '<path d="M2.5 13.5v-4M6.5 13.5v-8M10.5 13.5v-6M14 13.5V4" stroke-linecap="round"/>',
   },
   {
+    to: "/signal",
+    label: "Signal",
+    icon: '<path d="M1.5 8h2.5l1.5-4.5 2.5 9 1.8-6.5 1.4 2h2.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  },
+  {
     to: "/notes",
     label: "Notebook",
     icon: '<rect x="2.5" y="1.8" width="11" height="12.4" rx="1.2"/><path d="M5 5.2h6M5 8h6M5 10.8h3.6" stroke-linecap="round"/>',
