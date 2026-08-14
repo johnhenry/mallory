@@ -668,7 +668,7 @@ export function NotebookPanel() {
           Save to gallery
         </button>
       </div>
-      {saveStatus && <p style={{ fontSize: "0.85rem", color: "#5b6b8c" }}>{saveStatus}</p>}
+      {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{saveStatus}</p>}
     </div>
   );
 }

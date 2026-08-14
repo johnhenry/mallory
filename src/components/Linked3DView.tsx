@@ -162,7 +162,7 @@ export function Linked3DView() {
         <button type="button" onClick={handleSave}>
           Save to gallery
         </button>
-        {saveStatus && <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>{saveStatus}</p>}
+        {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
       </div>
     </div>
   );

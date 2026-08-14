@@ -158,7 +158,7 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
   return (
     <div>
       <h2>Domain coloring of f(z)</h2>
-      <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
         Hue = arg(f(z)), lightness = log-scaled |f(z)| (black at zeros, white at poles, mid-gray at |f(z)|=1).
       </p>
       <div style={{ margin: "0.25rem 0" }}>
@@ -167,7 +167,7 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
           <input value={exprInput} onChange={(e) => updateExprText(e.target.value)} style={{ font: "inherit", width: "20ch" }} />
         </label>
       </div>
-      {!parseResult.ok && <p style={{ color: "crimson" }}>{parseResult.message}</p>}
+      {!parseResult.ok && <p style={{ color: "var(--danger)" }}>{parseResult.message}</p>}
 
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <label>
@@ -190,7 +190,7 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
           />
         </label>
       </div>
-      {showRootsOfUnity && !rootsResult.ok && <p style={{ color: "crimson" }}>{rootsResult.message}</p>}
+      {showRootsOfUnity && !rootsResult.ok && <p style={{ color: "var(--danger)" }}>{rootsResult.message}</p>}
 
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
       <div style={{ margin: "0.25rem 0" }}>
@@ -213,7 +213,7 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
           {probeResult.value.im.toFixed(4)}i (|f(z)| = {probeResult.value.magnitude.toFixed(4)}, arg = {probeResult.value.angle.toFixed(4)})
         </p>
       ) : (
-        <p style={{ color: "crimson" }}>{probeResult.message}</p>
+        <p style={{ color: "var(--danger)" }}>{probeResult.message}</p>
       )}
     </div>
   );

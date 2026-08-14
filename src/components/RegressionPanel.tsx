@@ -382,14 +382,14 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
           </p>
         )
       ) : (
-        <p style={{ color: "crimson" }}>{fit.message}</p>
+        <p style={{ color: "var(--danger)" }}>{fit.message}</p>
       )}
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
             Save to gallery
           </button>
-          {saveStatus && <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>{saveStatus}</p>}
+          {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>
       )}
     </div>

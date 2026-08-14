@@ -93,7 +93,7 @@ export function AlgebraView({ graph, showAuxiliary = false }: { graph: CellGraph
           const isExpanded = expanded.has(e.id);
           return (
             <li key={e.id} style={{ fontFamily: "monospace", maxWidth: "100%" }}>
-              <span style={{ color: e.role === "free" ? "#2563eb" : "#5b6b8c" }}>{e.role === "free" ? "○" : "●"}</span>{" "}
+              <span style={{ color: e.role === "free" ? "#2563eb" : "var(--muted)" }}>{e.role === "free" ? "○" : "●"}</span>{" "}
               <button
                 type="button"
                 onClick={() => toggle(e.id)}

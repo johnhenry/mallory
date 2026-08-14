@@ -152,7 +152,7 @@ export function CalculatorPanel() {
         </div>
       )}
       {mode === "units" && modulus === null && (
-        <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>
+        <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
           e.g. <code>5 m/s * 3 s</code>, <code>9.8 m/s^2 * 70 kg in N</code>, <code>3 mi in km</code>
         </p>
       )}
@@ -177,7 +177,7 @@ export function CalculatorPanel() {
             style={{ display: "flex", justifyContent: "space-between", gap: "1rem", padding: "0.15rem 0" }}
           >
             <span style={{ color: "#555" }}>{entry.input}</span>
-            <span style={{ color: entry.isError ? "crimson" : entry.isAssignment ? "#2563eb" : "inherit", fontWeight: entry.isAssignment ? 600 : 400 }}>
+            <span style={{ color: entry.isError ? "var(--danger)" : entry.isAssignment ? "#2563eb" : "inherit", fontWeight: entry.isAssignment ? 600 : 400 }}>
               {entry.display}
             </span>
           </div>

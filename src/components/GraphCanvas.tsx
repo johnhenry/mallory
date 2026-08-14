@@ -650,7 +650,7 @@ export function GraphCanvas({
         {chatLog.length > 0 && (
           <ul style={{ fontSize: "0.85rem", listStyle: "none", padding: 0, margin: "0.25rem 0" }}>
             {chatLog.slice(-5).map((entry, i) => (
-              <li key={i} style={{ color: entry.ok ? "inherit" : "crimson" }}>
+              <li key={i} style={{ color: entry.ok ? "inherit" : "var(--danger)" }}>
                 <strong>{entry.input}</strong> — {entry.message}
               </li>
             ))}
@@ -679,13 +679,13 @@ export function GraphCanvas({
           <button type="button" onClick={handleExport} disabled={exporting}>
             {exporting ? "Exporting…" : "Export"}
           </button>
-          {exportError && <span style={{ color: "crimson" }}>{exportError}</span>}
+          {exportError && <span style={{ color: "var(--danger)" }}>{exportError}</span>}
         </div>
       )}
       {showTransport && duration > 0 && (
         <div style={{ margin: "0.5rem 0" }}>
           <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.85rem", color: "#5b6b8c" }}>Export preview</span>
+            <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Export preview</span>
             {/* Slider spans the full clip: highlight prelude + parameter
                 animation. With no root crossings the prelude doesn't play
                 and times past the animation clamp to the final frame --
@@ -701,7 +701,7 @@ export function GraphCanvas({
               onPointerUp={() => void fetchPreviewFrame(previewTime)}
               onKeyUp={() => void fetchPreviewFrame(previewTime)}
             />
-            <span style={{ fontSize: "0.85rem", color: "#5b6b8c" }}>
+            <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
               {previewTime.toFixed(2)}s{previewLoading ? " — rendering…" : previewSrc ? "" : " — release to preview"}
             </span>
           </label>

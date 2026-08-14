@@ -123,7 +123,7 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
         </label>
       </div>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
-      {!path.ok && <p style={{ color: "crimson" }}>{path.message}</p>}
+      {!path.ok && <p style={{ color: "var(--danger)" }}>{path.message}</p>}
     </div>
   );
 }

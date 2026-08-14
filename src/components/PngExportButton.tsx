@@ -24,7 +24,7 @@ export function PngExportButton({ getCanvas, label }: { getCanvas: () => HTMLCan
       <button type="button" onClick={handleClick}>
         Download PNG
       </button>
-      {error && <span style={{ color: "crimson", marginLeft: "0.5rem" }}>{error}</span>}
+      {error && <span style={{ color: "var(--danger)", marginLeft: "0.5rem" }}>{error}</span>}
     </span>
   );
 }

@@ -37,7 +37,7 @@ export function CopyableTex({ tex, className }: { tex: string; className?: strin
           border: "1px solid #d7dfef",
           borderRadius: "3px",
           background: "transparent",
-          color: "#5b6b8c",
+          color: "var(--muted)",
           cursor: "pointer",
           verticalAlign: "middle",
         }}

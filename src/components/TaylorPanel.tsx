@@ -180,7 +180,7 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
           Taylor polynomial: <CopyableTex tex={approx.latex} />
         </p>
       ) : (
-        <p style={{ color: "crimson" }}>{approx.message}</p>
+        <p style={{ color: "var(--danger)" }}>{approx.message}</p>
       )}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <h2>Limit</h2>
@@ -189,7 +189,7 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
           lim (x →{" "}
           <input value={limitPoint} onChange={(e) => graph.set(ids.limitPoint, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
           {limitDirection === "left" ? "⁻" : limitDirection === "right" ? "⁺" : ""}) f(x) ={" "}
-          {limitResult.ok ? limitResult.value.toFixed(6) : <span style={{ color: "crimson" }}>{limitResult.message}</span>}
+          {limitResult.ok ? limitResult.value.toFixed(6) : <span style={{ color: "var(--danger)" }}>{limitResult.message}</span>}
         </label>{" "}
         <select value={limitDirection} onChange={(e) => graph.set(ids.limitDirection, e.target.value as LimitDirection)}>
           <option value="both">both sides</option>

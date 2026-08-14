@@ -201,7 +201,7 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
           </div>
         </div>
       ) : (
-        <p style={{ color: "crimson" }}>{groupInfo.message}</p>
+        <p style={{ color: "var(--danger)" }}>{groupInfo.message}</p>
       )}
 
       <h2>Number theory</h2>
@@ -226,7 +226,7 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
           <p>gcd = {gcdResult.value.gcd.toString()}</p>
         </div>
       ) : (
-        <p style={{ color: "crimson" }}>{gcdResult.message}</p>
+        <p style={{ color: "var(--danger)" }}>{gcdResult.message}</p>
       )}
 
       <h3>Factorization</h3>
@@ -240,11 +240,11 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
             : factorizeResult.value.factors.map(([p, e]) => (e === 1 ? p.toString() : `${p}^${e}`)).join(" × ")}
         </p>
       ) : (
-        <p style={{ color: "crimson" }}>{factorizeResult.message}</p>
+        <p style={{ color: "var(--danger)" }}>{factorizeResult.message}</p>
       )}
 
       <h3>Chinese Remainder Theorem</h3>
-      <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>One "remainder, modulus" pair per line.</p>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>One "remainder, modulus" pair per line.</p>
       <div style={{ margin: "0.25rem 0" }}>
         <textarea
           value={crtText}
@@ -259,10 +259,10 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
             x ≡ {crtResult.value.x.toString()} (mod {crtResult.value.modulus.toString()})
           </p>
         ) : (
-          <p style={{ color: "crimson" }}>{crtResult.value.message}</p>
+          <p style={{ color: "var(--danger)" }}>{crtResult.value.message}</p>
         )
       ) : (
-        <p style={{ color: "crimson" }}>{crtResult.message}</p>
+        <p style={{ color: "var(--danger)" }}>{crtResult.message}</p>
       )}
     </div>
   );

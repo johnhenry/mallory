@@ -439,10 +439,10 @@ export function GraphCanvasMulti() {
           Reset view
         </button>
       </div>
-      <p style={{ fontSize: "0.78rem", color: "#5b6b8c", margin: "0.25rem 0" }}>
+      <p style={{ fontSize: "0.78rem", color: "var(--muted)", margin: "0.25rem 0" }}>
         Drag the canvas to pan, scroll to zoom.
       </p>
-      {saveStatus && <p style={{ fontSize: "0.85rem", color: "#5b6b8c" }}>{saveStatus}</p>}
+      {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{saveStatus}</p>}
       <div>
         <canvas
           ref={canvasRef}
@@ -499,7 +499,7 @@ export function GraphCanvasMulti() {
               );
             })}
           </ul>
-          <p style={{ fontSize: "0.78rem", color: "#5b6b8c" }}>
+          <p style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
             Click a marker or its label above to select it — drag a selected marker on the canvas to move it, or edit
             its label in the list.
           </p>

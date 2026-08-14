@@ -204,15 +204,15 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
         <p style={{ margin: "0.25rem 0" }}>
           Closed form: <CopyableTex tex={`y = ${closedForm.latex}`} />
           <br />
-          <span style={{ fontSize: "0.85rem", color: "#5b6b8c" }}>
+          <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
             Discriminant b² − 4ac = {closedForm.discriminant?.toFixed(4)} — {ROOT_CASE_LABEL[closedForm.rootCase ?? ""]}
           </span>
         </p>
       ) : (
-        closedForm.message && <p style={{ color: "crimson" }}>{closedForm.message}</p>
+        closedForm.message && <p style={{ color: "var(--danger)" }}>{closedForm.message}</p>
       )}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
-      {!solution.ok && <p style={{ color: "crimson" }}>{solution.message}</p>}
+      {!solution.ok && <p style={{ color: "var(--danger)" }}>{solution.message}</p>}
     </div>
   );
 }

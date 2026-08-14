@@ -209,13 +209,13 @@ export function SystemSolverPanel({ cellId = "system-1", graph: externalGraph, s
               ))}
             </ul>
             {solution.method === "numeric" && (
-              <p style={{ fontSize: "0.85rem", color: "#5b6b8c" }}>
+              <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
                 Solved numerically (the system isn't linear) -- finds one nearby root, not necessarily every solution.
               </p>
             )}
           </>
         ) : (
-          <p style={{ color: "crimson" }}>{solution.message}</p>
+          <p style={{ color: "var(--danger)" }}>{solution.message}</p>
         )}
       </div>
       {syncUrl && (
@@ -223,7 +223,7 @@ export function SystemSolverPanel({ cellId = "system-1", graph: externalGraph, s
           <button type="button" onClick={handleSave}>
             Save to gallery
           </button>
-          {saveStatus && <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>{saveStatus}</p>}
+          {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>
       )}
     </div>
