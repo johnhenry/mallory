@@ -230,7 +230,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
           Closed form: <CopyableTex tex={closedForm.explicit ? `y = ${closedForm.latex}` : `${closedForm.latex} = 0`} />
         </p>
       )}
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       {(!solution.ok || !slopeField.ok) && (
         <p style={{ color: "crimson" }}>{!solution.ok ? solution.message : !slopeField.ok ? slopeField.message : ""}</p>
       )}

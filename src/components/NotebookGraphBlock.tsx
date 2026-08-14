@@ -98,7 +98,7 @@ export function NotebookGraphBlock({
         + Add expression
       </button>
       <div>
-        <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+        <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       </div>
     </div>
   );

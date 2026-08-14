@@ -328,7 +328,7 @@ export function Graph3DCanvas({
           setSpeed={setSpeed}
         />
       )}
-      <div ref={containerRef} style={{ maxWidth: WIDTH, border: "1px solid #ccc" }} />
+      <div ref={containerRef} style={{ maxWidth: WIDTH, border: "1px solid var(--border)" }} />
       <p style={{ fontSize: "0.85rem", color: "#666" }}>Drag to orbit, scroll to zoom.</p>
       {/* Server-side ecmanim export: a full camera orbit around the current
           surface (johnhenry/mallory-graph#3, pass 2) -- the live Three.js

@@ -363,7 +363,7 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
       <button type="button" onClick={addRow} style={{ margin: "0.5rem 0" }}>
         + Add row
       </button>
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       {fit.ok ? (
         fit.kind === "linear" ? (
           <p>
@@ -396,7 +396,7 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
   );
 }
 
-const headerCellStyle: CSSProperties = { textAlign: "left", padding: "0.15rem 0.6rem", borderBottom: "1px solid #ccc", fontWeight: 600 };
+const headerCellStyle: CSSProperties = { textAlign: "left", padding: "0.15rem 0.6rem", borderBottom: "1px solid var(--border)", fontWeight: 600 };
 const dataCellStyle: CSSProperties = { padding: "0.15rem 0.6rem" };
 
 function autoViewport(points: { x: number; y: number }[]): Viewport {

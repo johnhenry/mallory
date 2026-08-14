@@ -710,7 +710,7 @@ export function GraphCanvas({
               alt={`Export preview frame at ${previewTime.toFixed(2)}s`}
               width={160}
               height={160}
-              style={{ border: "1px solid #ccc", display: "block", marginTop: "0.25rem", opacity: previewLoading ? 0.5 : 1 }}
+              style={{ border: "1px solid var(--border)", display: "block", marginTop: "0.25rem", opacity: previewLoading ? 0.5 : 1 }}
             />
           )}
         </div>
@@ -777,7 +777,7 @@ export function GraphCanvas({
           ref={canvasRef}
           width={WIDTH}
           height={HEIGHT}
-          style={{ border: "1px solid #ccc", touchAction: "none" }}
+          style={{ border: "1px solid var(--border)", touchAction: "none" }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}

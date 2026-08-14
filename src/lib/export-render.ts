@@ -32,6 +32,13 @@
 import { render } from "ecmanim/node";
 import type { ExportVideoResult } from "./export-jobs.ts";
 
+// Deliberately fixed, not theme-aware (issue #57's "decide the export-video
+// policy explicitly" ask): an exported MP4 is a standalone artifact shared
+// outside the app, so it shouldn't silently depend on whichever theme the
+// exporting user happened to have toggled at export time -- always-light
+// output is the stable, predictable choice. If a per-export theme choice is
+// ever wanted, it belongs here as an explicit option, not an implicit read
+// of the live app theme.
 export const AXIS_COLOR = "#334155";
 export const LABEL_COLOR = "#111827";
 export const CURVE_COLOR = "#3b82f6";

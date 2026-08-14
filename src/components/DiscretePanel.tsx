@@ -113,21 +113,21 @@ function CayleyTable({ info }: { info: GroupInfo }) {
     <table style={{ borderCollapse: "collapse", fontFamily: "monospace", fontSize: "0.85rem" }}>
       <tbody>
         <tr>
-          <td style={{ border: "1px solid #d1d5db", padding: "2px 6px" }} />
+          <td style={{ border: "1px solid var(--border)", padding: "2px 6px" }} />
           {info.labels.map((l, j) => (
-            <td key={j} style={{ border: "1px solid #d1d5db", padding: "2px 6px", fontWeight: 600 }}>
+            <td key={j} style={{ border: "1px solid var(--border)", padding: "2px 6px", fontWeight: 600 }}>
               {l}
             </td>
           ))}
         </tr>
         {info.table.map((row, i) => (
           <tr key={i}>
-            <td style={{ border: "1px solid #d1d5db", padding: "2px 6px", fontWeight: 600 }}>{info.labels[i]}</td>
+            <td style={{ border: "1px solid var(--border)", padding: "2px 6px", fontWeight: 600 }}>{info.labels[i]}</td>
             {row.map((cellIdx, j) => (
               <td
                 key={j}
                 style={{
-                  border: "1px solid #d1d5db",
+                  border: "1px solid var(--border)",
                   padding: "2px 6px",
                   background: cellIdx === info.identityIndex ? "#dcfce7" : undefined,
                 }}

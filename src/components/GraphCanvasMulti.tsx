@@ -13,6 +13,7 @@ import {
 import { drawExpressionLayer, drawOpenCircles, drawPath, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { findIntersections } from "../lib/sample-function.ts";
+import { getThemeColors } from "../lib/theme-colors.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY } from "../lib/viewport.ts";
 import { ExpressionRow } from "./ExpressionRow.tsx";
 import { useCell } from "../lib/use-cell.ts";
@@ -354,6 +355,7 @@ export function GraphCanvasMulti() {
       if (!ctx) return;
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
       const viewport = graph.get<Viewport>(VIEWPORT_CELL);
+      const theme = getThemeColors();
       for (const id of graph.get<string[]>(EXPRESSION_LIST_CELL)) {
         const ids = cellIdsMultiRow(id);
         try {
@@ -362,7 +364,7 @@ export function GraphCanvasMulti() {
           drawExpressionLayer(ctx, path, visible, viewport, WIDTH, HEIGHT);
           if (visible) {
             const roots = graph.get<{ x: number; y: number }[]>(ids.roots);
-            if (roots.length > 0) drawScatter(ctx, roots, viewport, WIDTH, HEIGHT, 4, "#142033");
+            if (roots.length > 0) drawScatter(ctx, roots, viewport, WIDTH, HEIGHT, 4, theme.ink);
             const discontinuities = graph.get<{ before: { x: number; y: number }; after: { x: number; y: number } }[]>(
               ids.discontinuities,
             );
@@ -397,7 +399,7 @@ export function GraphCanvasMulti() {
           ctx.stroke();
         }
         ctx.font = selected ? "bold 12px sans-serif" : "12px sans-serif";
-        ctx.fillStyle = selected ? "#dc2626" : "#142033";
+        ctx.fillStyle = selected ? "#dc2626" : theme.ink;
         ctx.fillText(a.label, sx + 8, sy - 8);
         ctx.restore();
       }
@@ -446,7 +448,7 @@ export function GraphCanvasMulti() {
           width={WIDTH}
           height={HEIGHT}
           style={{
-            border: "1px solid #ccc",
+            border: "1px solid var(--border)",
             cursor: annotating ? "crosshair" : selectedAnnotationId ? "move" : "grab",
             touchAction: "none",
           }}

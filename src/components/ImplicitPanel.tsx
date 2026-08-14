@@ -110,7 +110,7 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
           <input value={yMax} onChange={(e) => graph.set(ids.yMax, e.target.value)} style={{ font: "inherit", width: "6ch" }} />]
         </label>
       </div>
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       {!segments.ok && <p style={{ color: "crimson" }}>{segments.message}</p>}
     </div>
   );
