@@ -2,13 +2,20 @@ import { ComplexNumber, Symbolic, type Expr } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsComplex, type CellIdsComplex } from "../lib/cell-ids.ts";
-import { DEFAULT_COMPLEX_STATE, decodeComplexState, encodeComplexState, type ComplexState } from "../lib/complex-state.ts";
+import {
+  DEFAULT_COMPLEX_STATE,
+  decodeComplexState,
+  encodeComplexState,
+  type ComplexState,
+  type ConformalGridType,
+} from "../lib/complex-state.ts";
 import { evaluateComplex } from "../lib/complex-eval.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { renderDomainColoring } from "../lib/complex-raster.ts";
 import { nthRootsOfUnity } from "../lib/roots-of-unity.ts";
+import { autoFitViewport, mapGridLines, polarGridLines, rectangularGridLines, type MappedLine } from "../lib/conformal-grid.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
-import { drawScatter } from "../lib/render-path.ts";
+import { drawPolyline, drawScatter } from "../lib/render-path.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import type { Viewport } from "../lib/viewport.ts";
@@ -25,16 +32,22 @@ function seedComplexState(graph: CellGraph, ids: CellIdsComplex, state: ComplexS
   graph.set(ids.probeIm, state.probeIm);
   graph.set(ids.showRootsOfUnity, state.showRootsOfUnity);
   graph.set(ids.rootsN, state.rootsN);
+  graph.set(ids.showConformalGrid, state.showConformalGrid);
+  graph.set(ids.conformalGridType, state.conformalGridType);
+  graph.set(ids.conformalGridSpacing, state.conformalGridSpacing);
 }
 
 function getCurrentComplexState(graph: CellGraph, ids: CellIdsComplex): ComplexState {
   return {
-    v: 1,
+    v: 2,
     exprText: graph.get<string>(ids.exprText),
     probeRe: graph.get<string>(ids.probeRe),
     probeIm: graph.get<string>(ids.probeIm),
     showRootsOfUnity: graph.get<boolean>(ids.showRootsOfUnity),
     rootsN: graph.get<string>(ids.rootsN),
+    showConformalGrid: graph.get<boolean>(ids.showConformalGrid),
+    conformalGridType: graph.get<ConformalGridType>(ids.conformalGridType),
+    conformalGridSpacing: graph.get<string>(ids.conformalGridSpacing),
   };
 }
 
@@ -43,6 +56,14 @@ interface ProbeReading {
   im: number;
   magnitude: number;
   angle: number;
+}
+
+interface ConformalGridReading {
+  /** The un-mapped generator grid in the z-plane -- drawn as an overlay on the domain-coloring canvas. */
+  zLines: MappedLine[];
+  /** The same grid's image under f -- drawn on its own auto-fit w-plane canvas. */
+  wLines: MappedLine[];
+  wViewport: Viewport;
 }
 
 /**
@@ -91,6 +112,24 @@ function useComplexGraph(cellId: string): CellGraph {
       }
     });
 
+    graph.define(ids.conformalGridResult, (): Result<ConformalGridReading> => {
+      try {
+        const parsed = graph.get<Result<Expr>>(ids.parseResult);
+        if (!parsed.ok) throw new Error(parsed.message);
+        const expr = parsed.value;
+        const spacing = Number(graph.get<string>(ids.conformalGridSpacing));
+        if (Number.isNaN(spacing) || spacing <= 0) throw new Error("Grid spacing must be a positive number.");
+        const gridType = graph.get<ConformalGridType>(ids.conformalGridType);
+        const zGrid = gridType === "polar" ? polarGridLines(VIEWPORT.xMax, spacing, 12) : rectangularGridLines(VIEWPORT, spacing);
+        const zLines = zGrid.map((line) => line.map((z) => ({ x: z.value, y: z.iValue })));
+        const wLines = mapGridLines(zGrid, (z) => evaluateComplex(expr, { z }));
+        const wViewport = autoFitViewport(wLines, VIEWPORT);
+        return { ok: true, value: { zLines, wLines, wViewport } };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
     ref.current = graph;
   }
   return ref.current;
@@ -99,15 +138,16 @@ function useComplexGraph(cellId: string): CellGraph {
 /**
  * v1 of the complex-plane panel (part of #20): domain coloring of f(z) as a
  * per-pixel raster, a probe-point evaluator, and an n-th-roots-of-unity
- * overlay demo. The interactive conformal grid mapping and general zero/
- * pole finding described in the full ticket are deferred -- domain coloring
- * over an arbitrary elementary f(z) is the CAS-correctness-heavy core.
+ * overlay demo. Conformal grid mapping (image of a rectangular/polar grid
+ * under f) shipped as a follow-up, still part of #20. General zero/pole
+ * finding for an arbitrary f(z) and MathLive keyboard entry remain deferred.
  */
 export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {}) {
   const graph = useComplexGraph(cellId);
   useCellGraphTools(`graphing_complex_${cellId}`, graph);
   const ids = cellIdsComplex(cellId);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const wCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const exprText = useCell<string>(graph, ids.exprText);
   const parseResult = useCell<Result<Expr>>(graph, ids.parseResult);
@@ -117,6 +157,10 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
   const showRootsOfUnity = useCell<boolean>(graph, ids.showRootsOfUnity);
   const rootsN = useCell<string>(graph, ids.rootsN);
   const rootsResult = useCell<Result<ComplexNumber[]>>(graph, ids.rootsResult);
+  const showConformalGrid = useCell<boolean>(graph, ids.showConformalGrid);
+  const conformalGridType = useCell<ConformalGridType>(graph, ids.conformalGridType);
+  const conformalGridSpacing = useCell<string>(graph, ids.conformalGridSpacing);
+  const conformalGridResult = useCell<Result<ConformalGridReading>>(graph, ids.conformalGridResult);
 
   const [exprInput, setExprInput] = useState(exprText);
   // Keeps the input box in sync when exprText changes for a reason other
@@ -153,7 +197,21 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
       const points = rootsResult.value.map((r) => ({ x: r.value, y: r.iValue }));
       drawScatter(ctx, points, VIEWPORT, WIDTH, HEIGHT, 6, "#111827");
     }
-  }, [parseResult, showRootsOfUnity, rootsResult]);
+    if (showConformalGrid && conformalGridResult.ok) {
+      for (const line of conformalGridResult.value.zLines) drawPolyline(ctx, line, VIEWPORT, WIDTH, HEIGHT, "rgba(255,255,255,0.6)");
+    }
+  }, [parseResult, showRootsOfUnity, rootsResult, showConformalGrid, conformalGridResult]);
+
+  useEffect(() => {
+    const canvas = wCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    if (!showConformalGrid || !conformalGridResult.ok) return;
+    const { wLines, wViewport } = conformalGridResult.value;
+    for (const line of wLines) drawPolyline(ctx, line, wViewport, WIDTH, HEIGHT, "#2563eb");
+  }, [showConformalGrid, conformalGridResult]);
 
   return (
     <div>
@@ -192,7 +250,52 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
       </div>
       {showRootsOfUnity && !rootsResult.ok && <p style={{ color: "var(--danger)" }}>{rootsResult.message}</p>}
 
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label>
+          <input
+            type="checkbox"
+            checked={showConformalGrid}
+            onChange={(e) => graph.set(ids.showConformalGrid, e.target.checked)}
+          />{" "}
+          show conformal grid mapping
+        </label>
+        <label>
+          grid:{" "}
+          <select
+            value={conformalGridType}
+            onChange={(e) => graph.set(ids.conformalGridType, e.target.value as ConformalGridType)}
+            disabled={!showConformalGrid}
+          >
+            <option value="rectangular">rectangular</option>
+            <option value="polar">polar</option>
+          </select>
+        </label>
+        <label>
+          spacing:{" "}
+          <input
+            type="number"
+            min={0.05}
+            step={0.05}
+            value={conformalGridSpacing}
+            onChange={(e) => graph.set(ids.conformalGridSpacing, e.target.value)}
+            style={{ font: "inherit", width: "6ch" }}
+            disabled={!showConformalGrid}
+          />
+        </label>
+      </div>
+      {showConformalGrid && !conformalGridResult.ok && <p style={{ color: "var(--danger)" }}>{conformalGridResult.message}</p>}
+
+      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+        {showConformalGrid && (
+          <div>
+            <canvas ref={wCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+            <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+              Image of the grid under f(z), z-plane on the left → w-plane on the right (auto-fit window).
+            </p>
+          </div>
+        )}
+      </div>
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="complex-plane" />
       </div>
