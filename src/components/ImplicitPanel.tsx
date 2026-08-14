@@ -2,15 +2,32 @@ import { useEffect, useRef } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsImplicit } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
-import { drawImplicitCurve, type Viewport } from "../lib/render-path.ts";
+import { drawImplicitCurve, drawVectorField, type Viewport } from "../lib/render-path.ts";
 import { sampleImplicitCurve, type ImplicitSegment } from "../lib/sample-implicit.ts";
+import { computeContourLevels, type ContourLevel } from "../lib/contour-plot.ts";
+import { sampleGradientField } from "../lib/gradient-field.ts";
+import { equationToImplicitZero } from "../lib/equation-to-zero.ts";
+import type { VectorFieldPoint } from "../lib/sample-ode.ts";
 import { useCell } from "../lib/use-cell.ts";
 
 const WIDTH = 500;
 const HEIGHT = 500;
 const RESOLUTION = 80;
+const CONTOUR_LEVEL_COUNT = 6;
+const GRADIENT_GRID_DENSITY = 12;
 
 type SegmentsResult = { ok: true; segments: ImplicitSegment[] } | { ok: false; message: string };
+type ContourResult = { ok: true; levels: ContourLevel[] } | { ok: false; message: string };
+type GradientResult = { ok: true; points: VectorFieldPoint[] } | { ok: false; message: string };
+
+/** A blue->red interpolation across level index, so a stack of contour lines reads as a low-to-high ramp. */
+function levelColor(index: number, count: number): string {
+  const t = count > 1 ? index / (count - 1) : 0;
+  const r = Math.round(37 + t * (220 - 37));
+  const g = Math.round(99 + t * (38 - 99));
+  const b = Math.round(235 + t * (38 - 235));
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 const DEFAULTS = { expr: "x^2+y^2=4", xMin: "-5", xMax: "5", yMin: "-5", yMax: "5" };
 
@@ -47,6 +64,53 @@ function useImplicitGraph(cellId: string): CellGraph {
           return { ok: false, message: e instanceof Error ? e.message : String(e) };
         }
       });
+
+      graph.set(ids.showContours, false, { auxiliary: true });
+      graph.set(ids.showGradient, false, { auxiliary: true });
+
+      graph.define(
+        ids.contourResult,
+        (): ContourResult => {
+          if (!graph.get<boolean>(ids.showContours)) return { ok: true, levels: [] };
+          try {
+            const field = equationToImplicitZero(graph.get<string>(ids.expr));
+            const xMin = Number(graph.get<string>(ids.xMin));
+            const xMax = Number(graph.get<string>(ids.xMax));
+            const yMin = Number(graph.get<string>(ids.yMin));
+            const yMax = Number(graph.get<string>(ids.yMax));
+            if ([xMin, xMax, yMin, yMax].some(Number.isNaN)) throw new Error("Every domain field must be a number.");
+            return {
+              ok: true,
+              levels: computeContourLevels(field, { min: xMin, max: xMax }, { min: yMin, max: yMax }, RESOLUTION, CONTOUR_LEVEL_COUNT),
+            };
+          } catch (e) {
+            return { ok: false, message: e instanceof Error ? e.message : String(e) };
+          }
+        },
+        { auxiliary: true },
+      );
+
+      graph.define(
+        ids.gradientResult,
+        (): GradientResult => {
+          if (!graph.get<boolean>(ids.showGradient)) return { ok: true, points: [] };
+          try {
+            const field = equationToImplicitZero(graph.get<string>(ids.expr));
+            const xMin = Number(graph.get<string>(ids.xMin));
+            const xMax = Number(graph.get<string>(ids.xMax));
+            const yMin = Number(graph.get<string>(ids.yMin));
+            const yMax = Number(graph.get<string>(ids.yMax));
+            if ([xMin, xMax, yMin, yMax].some(Number.isNaN)) throw new Error("Every domain field must be a number.");
+            return {
+              ok: true,
+              points: sampleGradientField(field, { min: xMin, max: xMax }, { min: yMin, max: yMax }, GRADIENT_GRID_DENSITY),
+            };
+          } catch (e) {
+            return { ok: false, message: e instanceof Error ? e.message : String(e) };
+          }
+        },
+        { auxiliary: true },
+      );
     }
     ref.current = graph;
   }
@@ -70,6 +134,10 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
   const yMin = useCell<string>(graph, ids.yMin);
   const yMax = useCell<string>(graph, ids.yMax);
   const segments = useCell<SegmentsResult>(graph, ids.segments);
+  const showContours = useCell<boolean>(graph, ids.showContours);
+  const contourResult = useCell<ContourResult>(graph, ids.contourResult);
+  const showGradient = useCell<boolean>(graph, ids.showGradient);
+  const gradientResult = useCell<GradientResult>(graph, ids.gradientResult);
 
   const viewport: Viewport = {
     xMin: Number(xMin) || -5,
@@ -83,8 +151,16 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
     if (segments.ok) drawImplicitCurve(ctx, segments.segments, viewport, WIDTH, HEIGHT);
+    if (showContours && contourResult.ok) {
+      contourResult.levels.forEach((level, i) => {
+        drawImplicitCurve(ctx, level.segments, viewport, WIDTH, HEIGHT, levelColor(i, contourResult.levels.length));
+      });
+    }
+    if (showGradient && gradientResult.ok) {
+      drawVectorField(ctx, gradientResult.points, viewport, WIDTH, HEIGHT);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments, xMin, xMax, yMin, yMax]);
+  }, [segments, xMin, xMax, yMin, yMax, showContours, contourResult, showGradient, gradientResult]);
 
   return (
     <div>
@@ -110,6 +186,18 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
           <input value={yMax} onChange={(e) => graph.set(ids.yMax, e.target.value)} style={{ font: "inherit", width: "6ch" }} />]
         </label>
       </div>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <label>
+          <input type="checkbox" checked={showContours} onChange={(e) => graph.set(ids.showContours, e.target.checked)} /> contour
+          plot (levels of the relation's field)
+        </label>
+        <label>
+          <input type="checkbox" checked={showGradient} onChange={(e) => graph.set(ids.showGradient, e.target.checked)} /> gradient
+          field
+        </label>
+      </div>
+      {showContours && !contourResult.ok && <p style={{ color: "var(--danger)" }}>{contourResult.message}</p>}
+      {showGradient && !gradientResult.ok && <p style={{ color: "var(--danger)" }}>{gradientResult.message}</p>}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       {!segments.ok && <p style={{ color: "var(--danger)" }}>{segments.message}</p>}
     </div>

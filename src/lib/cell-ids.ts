@@ -397,6 +397,13 @@ export function cellIdsImplicit(cellId: string) {
     yMin: `implicitYMin:${cellId}`,
     yMax: `implicitYMax:${cellId}`,
     segments: `implicitSegments:${cellId}`,
+    // Contour/gradient-field overlays (issue #28's remaining scope) --
+    // reuse the same relation field, converted to a bare f(x,y) via
+    // equationToImplicitZero, as their underlying scalar field.
+    showContours: `implicitShowContours:${cellId}`,
+    contourResult: `implicitContourResult:${cellId}`,
+    showGradient: `implicitShowGradient:${cellId}`,
+    gradientResult: `implicitGradientResult:${cellId}`,
   };
 }
 
