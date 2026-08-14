@@ -240,6 +240,23 @@ export function cellIdsMatrix(cellId: string) {
 
 export type CellIdsMatrix = ReturnType<typeof cellIdsMatrix>;
 
+export function cellIdsDiscrete(cellId: string) {
+  return {
+    groupKind: `discreteGroupKind:${cellId}`,
+    groupN: `discreteGroupN:${cellId}`,
+    groupInfo: `discreteGroupInfo:${cellId}`,
+    gcdA: `discreteGcdA:${cellId}`,
+    gcdB: `discreteGcdB:${cellId}`,
+    gcdResult: `discreteGcdResult:${cellId}`,
+    factorizeN: `discreteFactorizeN:${cellId}`,
+    factorizeResult: `discreteFactorizeResult:${cellId}`,
+    crtText: `discreteCrtText:${cellId}`,
+    crtResult: `discreteCrtResult:${cellId}`,
+  };
+}
+
+export type CellIdsDiscrete = ReturnType<typeof cellIdsDiscrete>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way

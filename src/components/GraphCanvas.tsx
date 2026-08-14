@@ -718,10 +718,12 @@ export function GraphCanvas({
       <label style={{ display: "block", margin: "0.5rem 0" }}>
         Structure:{" "}
         <select
-          value={modulus === null ? "real" : String(modulus)}
+          value={modulus === null ? "real" : STRUCTURE_OPTIONS.some((opt) => opt.modulus === modulus) ? String(modulus) : "custom"}
           onChange={(e) => {
             const v = e.target.value;
-            graph.set(ids.structure, v === "real" ? null : Number(v));
+            if (v === "real") graph.set(ids.structure, null);
+            else if (v === "custom") graph.set(ids.structure, 13); // seed a default so the number input below has something to edit
+            else graph.set(ids.structure, Number(v));
           }}
         >
           {STRUCTURE_OPTIONS.map((opt) => (
@@ -729,7 +731,24 @@ export function GraphCanvas({
               {opt.label}
             </option>
           ))}
+          <option value="custom">Custom Z/nZ…</option>
         </select>
+        {modulus !== null && !STRUCTURE_OPTIONS.some((opt) => opt.modulus === modulus) && (
+          <>
+            {" "}
+            n:{" "}
+            <input
+              type="number"
+              min={2}
+              value={modulus}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isInteger(n) && n >= 2) graph.set(ids.structure, n);
+              }}
+              style={{ font: "inherit", width: "6ch" }}
+            />
+          </>
+        )}
       </label>
       {modulus === null && (
         <div role="radiogroup" aria-label="Arithmetic mode" style={{ margin: "0.5rem 0" }}>

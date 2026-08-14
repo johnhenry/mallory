@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { CategoryTabs } from "~/components/CategoryTabs.tsx";
+import { DiscretePanel } from "~/components/DiscretePanel.tsx";
 import { MatrixPanel } from "~/components/MatrixPanel.tsx";
 import { MonteCarloPanel } from "~/components/MonteCarloPanel.tsx";
 import { RegressionPanel } from "~/components/RegressionPanel.tsx";
@@ -34,6 +35,7 @@ function DataPage() {
           { label: "Systems", key: "systems", render: () => <SystemSolverPanel /> },
           { label: "Monte Carlo", key: "monte-carlo", render: () => <MonteCarloPanel /> },
           { label: "Matrix", key: "matrix", render: () => <MatrixPanel /> },
+          { label: "Discrete", key: "discrete", render: () => <DiscretePanel /> },
         ]}
       />
     </div>
