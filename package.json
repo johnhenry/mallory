@@ -19,12 +19,17 @@
     "@tanstack/react-start": "1.168.27",
     "ecmanim": "^0.11.1",
     "katex": "^0.17.0",
+    "mallory-adapter-math": "^0.1.0",
     "mallory-math": "^0.9.0",
+    "mallory-tensor-core": "^0.1.0",
     "mathlive": "^0.110.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "srvx": "^0.10.0",
     "three": "^0.185.1"
+  },
+  "overrides": {
+    "mallory-math": "^0.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.10",

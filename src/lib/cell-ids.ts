@@ -152,6 +152,9 @@ export function cellIdsOdeSystem(cellId: string) {
     yMax: `odeSysYMax:${cellId}`,
     trajectory: `odeSysTrajectory:${cellId}`,
     vectorField: `odeSysVectorField:${cellId}`,
+    // Fixed-point classification (issue #29) -- derived from the same
+    // exprX/exprY/xMin..yMax/t0 cells above, no new inputs needed.
+    fixedPoints: `odeSysFixedPoints:${cellId}`,
   };
 }
 
