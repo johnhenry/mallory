@@ -99,3 +99,27 @@ test("submitCalculatorLine in units mode: assignment stores the magnitude for la
   state = submitCalculatorLine("d m", state, "units", null);
   assert.equal(state.history[1].display, "15 m");
 });
+
+test("evaluateCalculatorExpr in interval mode: sqrt(2) returns rigorous bounds containing the real value", () => {
+  const result = evaluateCalculatorExpr("sqrt(2)", {}, "interval", null);
+  assert.equal(result.isError, false);
+  assert.match(result.display, /^\[1\.41421356\d*, 1\.41421356\d*\]$/);
+  assert.ok(result.value !== null && Math.abs(result.value - Math.SQRT2) < 1e-9);
+});
+
+test("evaluateCalculatorExpr in interval mode: a previously-defined variable is treated as a degenerate point interval", () => {
+  const result = evaluateCalculatorExpr("r^2", { r: 3 }, "interval", null);
+  assert.equal(result.isError, false);
+  assert.equal(result.display, "[9, 9]");
+});
+
+test("evaluateCalculatorExpr in interval mode: division by zero surfaces as an error, not NaN or a crash", () => {
+  const result = evaluateCalculatorExpr("1 / (x - x)", { x: 5 }, "interval", null);
+  assert.equal(result.isError, true);
+  assert.equal(result.value, null);
+});
+
+test("submitCalculatorLine in interval mode: assignment stores the midpoint for later reuse", () => {
+  const state = submitCalculatorLine("k = sqrt(4)", EMPTY_CALCULATOR_STATE, "interval", null);
+  assert.equal(state.variables.k, 2);
+});
