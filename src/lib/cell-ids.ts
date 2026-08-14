@@ -92,6 +92,17 @@ export function cellIdsStatistics(cellId: string) {
     queryLower: `statsQueryLower:${cellId}`,
     queryUpper: `statsQueryUpper:${cellId}`,
     query: `statsQuery:${cellId}`,
+    // Inference section (issue #37) -- deliberately NOT part of the
+    // persisted StatisticsState/URL-hash schema (v1, unchanged) since
+    // these are additive fields; they reset to sane defaults on reload
+    // rather than forcing a schema version bump. Still full CellGraph
+    // cells, so they're agent-visible via useCellGraphTools regardless.
+    testType: `statsTestType:${cellId}`,
+    testMu0: `statsTestMu0:${cellId}`,
+    testDataB: `statsTestDataB:${cellId}`,
+    testExpected: `statsTestExpected:${cellId}`,
+    testAlpha: `statsTestAlpha:${cellId}`,
+    testResult: `statsTestResult:${cellId}`,
   };
 }
 

@@ -10,6 +10,7 @@ import {
   encodeStatisticsState,
   type StatisticsState,
 } from "../lib/statistics-state.ts";
+import { HYPOTHESIS_TEST_LABELS, runHypothesisTest, type HypothesisTestResult, type HypothesisTestType } from "../lib/hypothesis-test.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCell } from "../lib/use-cell.ts";
 
@@ -39,7 +40,7 @@ const DIST_LABELS: Record<DistType, string> = {
   chiSquare: "Chi-square",
 };
 
-function parseData(text: string): number[] {
+export function parseData(text: string): number[] {
   return text
     .split(/[\s,]+/)
     .map((s) => s.trim())
@@ -94,6 +95,13 @@ function useStatisticsGraph(cellId: string, externalGraph?: CellGraph): CellGrap
     if (!graph.has(ids.data)) {
       const decoded = !externalGraph && typeof window !== "undefined" ? decodeStatisticsState(window.location.hash.slice(1)) : null;
       seedStatisticsState(graph, ids, decoded ?? DEFAULT_STATISTICS_STATE);
+
+      // Inference-section defaults -- not part of the persisted state schema (see cell-ids.ts's note).
+      graph.set(ids.testType, "oneSampleT" satisfies HypothesisTestType);
+      graph.set(ids.testMu0, "0");
+      graph.set(ids.testDataB, "1, 2, 3, 4, 5");
+      graph.set(ids.testExpected, "");
+      graph.set(ids.testAlpha, "0.05");
 
       // Same "surface the real error" deviation SystemSolverPanel uses:
       // this is a discrete action on typed-in text, not a continuous
@@ -184,6 +192,25 @@ function useStatisticsGraph(cellId: string, externalGraph?: CellGraph): CellGrap
           return { ok: false, message: e instanceof Error ? e.message : String(e) };
         }
       });
+
+      // Reuses ids.data as the primary/first sample -- the descriptive
+      // summary above and the inference test below share one dataset by
+      // design, so entering data once feeds both sections.
+      graph.define(ids.testResult, (): HypothesisTestResult => {
+        try {
+          const testType = graph.get<HypothesisTestType>(ids.testType);
+          const sample = parseData(graph.get<string>(ids.data));
+          if (sample.length === 0 || sample.some(Number.isNaN)) throw new Error("Enter valid data in the Descriptive statistics section above.");
+          const alpha = Number(graph.get<string>(ids.testAlpha));
+          const mu0 = Number(graph.get<string>(ids.testMu0));
+          const sampleB = parseData(graph.get<string>(ids.testDataB));
+          const expectedText = graph.get<string>(ids.testExpected).trim();
+          const expected = expectedText.length > 0 ? parseData(expectedText) : undefined;
+          return runHypothesisTest(testType, { sample, sampleB, mu0, expected, alpha });
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        }
+      });
     }
     ref.current = graph;
   }
@@ -216,6 +243,12 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
   const queryLower = useCell<string>(graph, ids.queryLower);
   const queryUpper = useCell<string>(graph, ids.queryUpper);
   const query = useCell<QueryResult>(graph, ids.query);
+  const testType = useCell<HypothesisTestType>(graph, ids.testType);
+  const testMu0 = useCell<string>(graph, ids.testMu0);
+  const testDataB = useCell<string>(graph, ids.testDataB);
+  const testExpected = useCell<string>(graph, ids.testExpected);
+  const testAlpha = useCell<string>(graph, ids.testAlpha);
+  const testResult = useCell<HypothesisTestResult>(graph, ids.testResult);
 
   const [dataInput, setDataInput] = useState(data);
   // Keeps the input box in sync when `data` changes for a reason other than
@@ -380,6 +413,69 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
           </p>
         ) : (
           <p style={{ color: "crimson" }}>{query.message}</p>
+        )}
+      </div>
+      <h2>Inference</h2>
+      <div style={{ margin: "0.25rem 0" }}>
+        <label>
+          Test:{" "}
+          <select value={testType} onChange={(e) => graph.set(ids.testType, e.target.value as HypothesisTestType)}>
+            {(Object.keys(HYPOTHESIS_TEST_LABELS) as HypothesisTestType[]).map((t) => (
+              <option key={t} value={t}>
+                {HYPOTHESIS_TEST_LABELS[t]}
+              </option>
+            ))}
+          </select>
+        </label>{" "}
+        <label>
+          α:{" "}
+          <input value={testAlpha} onChange={(e) => graph.set(ids.testAlpha, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
+        </label>
+      </div>
+      <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>Uses the data entered in Descriptive statistics above as the (first) sample.</p>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        {testType === "oneSampleT" && (
+          <label>
+            μ₀:{" "}
+            <input value={testMu0} onChange={(e) => graph.set(ids.testMu0, e.target.value)} style={{ font: "inherit", width: "8ch" }} />
+          </label>
+        )}
+        {testType === "twoSampleT" && (
+          <label>
+            Second sample:{" "}
+            <input
+              value={testDataB}
+              onChange={(e) => graph.set(ids.testDataB, e.target.value)}
+              style={{ font: "inherit", width: "30ch" }}
+            />
+          </label>
+        )}
+        {testType === "chiSquareGoF" && (
+          <label>
+            Expected frequencies:{" "}
+            <input
+              value={testExpected}
+              onChange={(e) => graph.set(ids.testExpected, e.target.value)}
+              style={{ font: "inherit", width: "30ch" }}
+            />
+          </label>
+        )}
+      </div>
+      <div style={{ margin: "0.5rem 0" }}>
+        {testResult.ok ? (
+          testResult.testType === "confidenceInterval" ? (
+            <p>
+              {(Number(testAlpha) > 0 ? (1 - Number(testAlpha)) * 100 : 95).toFixed(0)}% CI for the mean: [{testResult.interval[0].toFixed(4)}, {testResult.interval[1].toFixed(4)}]
+            </p>
+          ) : (
+            <p>
+              statistic = {testResult.result.statistic.toFixed(4)}, df = {testResult.result.df.toFixed(2)}, p = {testResult.result.pValue.toFixed(6)}
+              <br />
+              {testResult.verdict}
+            </p>
+          )
+        ) : (
+          <p style={{ color: "crimson" }}>{testResult.message}</p>
         )}
       </div>
       {syncUrl && (
