@@ -226,6 +226,20 @@ export function cellIdsMonteCarlo(cellId: string) {
 
 export type CellIdsMonteCarlo = ReturnType<typeof cellIdsMonteCarlo>;
 
+export function cellIdsMatrix(cellId: string) {
+  return {
+    matrixText: `matrixText:${cellId}`,
+    determinant: `matrixDeterminant:${cellId}`,
+    inverse: `matrixInverse:${cellId}`,
+    rref: `matrixRref:${cellId}`,
+    decompositions: `matrixDecompositions:${cellId}`,
+    polyCoeffs: `matrixPolyCoeffs:${cellId}`,
+    polyRoots: `matrixPolyRoots:${cellId}`,
+  };
+}
+
+export type CellIdsMatrix = ReturnType<typeof cellIdsMatrix>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way
