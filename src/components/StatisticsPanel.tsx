@@ -378,12 +378,12 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
             <li>five-number summary = [{summary.fiveNumberSummary.map((v) => v.toFixed(4)).join(", ")}]</li>
           </ul>
         ) : (
-          <p style={{ color: "crimson" }}>{summary.message}</p>
+          <p style={{ color: "var(--danger)" }}>{summary.message}</p>
         )}
       </div>
 
       <h2>Smoothing</h2>
-      <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>Uses the data entered in Descriptive statistics above, in entry order.</p>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Uses the data entered in Descriptive statistics above, in entry order.</p>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <label>
           Kernel:{" "}
@@ -413,9 +413,9 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
         </label>
       </div>
       {!smoothingResult.ok ? (
-        <p style={{ color: "crimson" }}>{smoothingResult.message}</p>
+        <p style={{ color: "var(--danger)" }}>{smoothingResult.message}</p>
       ) : (
-        <p style={{ fontSize: "0.8rem", color: "#5b6b8c" }}>
+        <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
           Blue dots = raw data, red line = smoothed. The first/last {Math.floor((smoothingResult.data.length - smoothingResult.smoothed.indices.length) / 2)}{" "}
           point(s) at each edge are trimmed (a "same"-mode convolution boundary sample there averages against zero-padding, not real neighboring data).
         </p>
@@ -524,7 +524,7 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
             {query.lowerCdf.toFixed(6)})
           </p>
         ) : (
-          <p style={{ color: "crimson" }}>{query.message}</p>
+          <p style={{ color: "var(--danger)" }}>{query.message}</p>
         )}
       </div>
       <h2>Inference</h2>
@@ -544,7 +544,7 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
           <input value={testAlpha} onChange={(e) => graph.set(ids.testAlpha, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
         </label>
       </div>
-      <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>Uses the data entered in Descriptive statistics above as the (first) sample.</p>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Uses the data entered in Descriptive statistics above as the (first) sample.</p>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
         {testType === "oneSampleT" && (
           <label>
@@ -587,7 +587,7 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
             </p>
           )
         ) : (
-          <p style={{ color: "crimson" }}>{testResult.message}</p>
+          <p style={{ color: "var(--danger)" }}>{testResult.message}</p>
         )}
       </div>
       {syncUrl && (
@@ -595,7 +595,7 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
           <button type="button" onClick={handleSave}>
             Save to gallery
           </button>
-          {saveStatus && <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>{saveStatus}</p>}
+          {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>
       )}
     </div>

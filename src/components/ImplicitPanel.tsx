@@ -111,7 +111,7 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
         </label>
       </div>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
-      {!segments.ok && <p style={{ color: "crimson" }}>{segments.message}</p>}
+      {!segments.ok && <p style={{ color: "var(--danger)" }}>{segments.message}</p>}
     </div>
   );
 }

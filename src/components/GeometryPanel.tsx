@@ -603,7 +603,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
           const p = graph.get<PointRecord>(pointCellId(id));
           const isFree = graph.role(pointCellId(id)) === "free";
           const isPendingSelection = id === pending || pendingAngle.includes(id) || pendingPolygon.includes(id);
-          const color = isPendingSelection ? "#dc2626" : isFree ? "#2563eb" : "#5b6b8c";
+          const color = isPendingSelection ? "#dc2626" : isFree ? "#2563eb" : "var(--muted)";
           drawDot(ctx, p.x, p.y, color);
         } else if (graph.has(lineCellId(id))) {
           const { a, b } = graph.get<LineRecord>(lineCellId(id));
@@ -721,7 +721,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       />
-      <p style={{ fontSize: "0.85rem", color: "#5b6b8c" }}>{hint}</p>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{hint}</p>
       <div style={{ margin: "0.5rem 0" }}>
         <AlgebraView graph={graph} />
       </div>
@@ -730,7 +730,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
           <button type="button" onClick={handleSave}>
             Save to gallery
           </button>
-          {saveStatus && <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>{saveStatus}</p>}
+          {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>
       )}
     </div>
@@ -807,7 +807,7 @@ function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointR
   const mid = theta1 + diff / 2;
   const labelX = vx + (ARC_RADIUS + 14) * Math.cos(mid);
   const labelY = vy + (ARC_RADIUS + 14) * Math.sin(mid);
-  ctx.fillStyle = "#5b6b8c";
+  ctx.fillStyle = "var(--muted)";
   ctx.font = "12px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -839,7 +839,7 @@ function drawPolygon(ctx: CanvasRenderingContext2D, points: PointRecord[], area:
   ctx.closePath();
   ctx.stroke();
   const centroid = polygonCentroid(points);
-  ctx.fillStyle = selfIntersecting ? DEGENERATE_COLOR : "#5b6b8c";
+  ctx.fillStyle = selfIntersecting ? DEGENERATE_COLOR : "var(--muted)";
   ctx.font = "12px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";

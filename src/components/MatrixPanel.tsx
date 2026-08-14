@@ -181,11 +181,11 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
       <div style={{ margin: "0.5rem 0", display: "flex", gap: "2rem", flexWrap: "wrap" }}>
         <div>
           <p style={{ fontWeight: 600, margin: "0.25rem 0" }}>Determinant</p>
-          {determinant.ok ? <p>{determinant.value.toFixed(6)}</p> : <p style={{ color: "crimson" }}>{determinant.message}</p>}
+          {determinant.ok ? <p>{determinant.value.toFixed(6)}</p> : <p style={{ color: "var(--danger)" }}>{determinant.message}</p>}
         </div>
         <div>
           <p style={{ fontWeight: 600, margin: "0.25rem 0" }}>Inverse</p>
-          {inverse.ok ? <MatrixTable m={inverse.value} /> : <p style={{ color: "crimson" }}>{inverse.message}</p>}
+          {inverse.ok ? <MatrixTable m={inverse.value} /> : <p style={{ color: "var(--danger)" }}>{inverse.message}</p>}
         </div>
       </div>
 
@@ -209,7 +209,7 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
           <MatrixTable m={rref.value.result} />
         </div>
       ) : (
-        <p style={{ color: "crimson" }}>{rref.message}</p>
+        <p style={{ color: "var(--danger)" }}>{rref.message}</p>
       )}
 
       <h3>Decompositions</h3>
@@ -236,7 +236,7 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
             <p>
               rank = {decompositions.value.rank}, κ = {decompositions.value.conditionNumber.toFixed(4)}
             </p>
-            {decompositions.value.choleskyError && <p style={{ color: "#5b6b8c", fontSize: "0.85rem" }}>Cholesky: {decompositions.value.choleskyError}</p>}
+            {decompositions.value.choleskyError && <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>Cholesky: {decompositions.value.choleskyError}</p>}
           </div>
           {decompositions.value.nullSpace.some((row) => row.some((v) => v !== 0)) && (
             <div>
@@ -246,11 +246,11 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
           )}
         </div>
       ) : (
-        <p style={{ color: "crimson" }}>{decompositions.message}</p>
+        <p style={{ color: "var(--danger)" }}>{decompositions.message}</p>
       )}
 
       <h2>Polynomial roots</h2>
-      <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
         Coefficients [a₀, a₁, ..., aₙ₋₁] of the monic polynomial xⁿ + aₙ₋₁xⁿ⁻¹ + ... + a₁x + a₀ (via a companion matrix's eigenvalues).
       </p>
       <div style={{ margin: "0.25rem 0" }}>
@@ -269,7 +269,7 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
             ))}
           </ul>
         ) : (
-          <p style={{ color: "crimson" }}>{polyRoots.message}</p>
+          <p style={{ color: "var(--danger)" }}>{polyRoots.message}</p>
         )}
       </div>
     </div>

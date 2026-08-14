@@ -325,14 +325,14 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
         </div>
       )}
       {(!trajectory.ok || !vectorField.ok) && (
-        <p style={{ color: "crimson" }}>{!trajectory.ok ? trajectory.message : !vectorField.ok ? vectorField.message : ""}</p>
+        <p style={{ color: "var(--danger)" }}>{!trajectory.ok ? trajectory.message : !vectorField.ok ? vectorField.message : ""}</p>
       )}
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
             Save to gallery
           </button>
-          {saveStatus && <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>{saveStatus}</p>}
+          {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>
       )}
     </div>

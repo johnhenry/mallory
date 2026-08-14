@@ -99,7 +99,7 @@ export function VideoExportControls({
       <button type="button" onClick={handleExport} disabled={exporting}>
         {exporting ? "Exporting…" : "Export video"}
       </button>
-      {error && <span style={{ color: "crimson", fontSize: "0.85rem" }}>{error}</span>}
+      {error && <span style={{ color: "var(--danger)", fontSize: "0.85rem" }}>{error}</span>}
     </div>
   );
 }

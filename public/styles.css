@@ -65,6 +65,7 @@ table {
   --accent-soft: #eaf1ff;
   --border: #e2e8f0;
   --border-soft: #edf1f6;
+  --danger: #dc2626;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -77,6 +78,7 @@ table {
     --accent-soft: #16233d;
     --border: #223049;
     --border-soft: #1a2537;
+    --danger: #f87171;
   }
 }
 :root[data-theme="dark"] {
@@ -89,6 +91,7 @@ table {
   --accent-soft: #16233d;
   --border: #223049;
   --border-soft: #1a2537;
+  --danger: #f87171;
 }
 :root[data-theme="light"] {
   --ground: #fafbfd;
@@ -100,6 +103,7 @@ table {
   --accent-soft: #eaf1ff;
   --border: #e2e8f0;
   --border-soft: #edf1f6;
+  --danger: #dc2626;
 }
 
 /* The shell needs the full viewport width; the plain-page rule above (max-width: 640px,

@@ -232,7 +232,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
       )}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       {(!solution.ok || !slopeField.ok) && (
-        <p style={{ color: "crimson" }}>{!solution.ok ? solution.message : !slopeField.ok ? slopeField.message : ""}</p>
+        <p style={{ color: "var(--danger)" }}>{!solution.ok ? solution.message : !slopeField.ok ? slopeField.message : ""}</p>
       )}
       {/* Server-side ecmanim export: the slope field as a vector field plus
           the RK4 solution progressively traced out from the initial
@@ -258,7 +258,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
             Save to gallery
           </button>
           {saveStatus && (
-            <p style={{ fontSize: "0.85rem", color: "#5b6b8c", margin: "0.25rem 0" }}>{saveStatus}</p>
+            <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>
           )}
         </div>
       )}

@@ -173,9 +173,9 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
           />
         </label>
       </div>
-      {!waveformResult.ok && <p style={{ color: "crimson" }}>{waveformResult.message}</p>}
+      {!waveformResult.ok && <p style={{ color: "var(--danger)" }}>{waveformResult.message}</p>}
       {waveformResult.ok && (
-        <p style={{ fontSize: "0.8rem", color: "#5b6b8c" }}>
+        <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
           {waveformResult.value.y.length} samples ({(waveformResult.value.y.length / waveformResult.value.sampleRate).toFixed(3)}s -- rounded up to a
           power of two).
         </p>
@@ -188,7 +188,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       </div>
 
       <h3>Amplitude spectrum</h3>
-      {!spectrumResult.ok && <p style={{ color: "crimson" }}>{spectrumResult.message}</p>}
+      {!spectrumResult.ok && <p style={{ color: "var(--danger)" }}>{spectrumResult.message}</p>}
       <canvas ref={spectrumCanvasRef} width={SPECTRUM_WIDTH} height={SPECTRUM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="signal-spectrum" />

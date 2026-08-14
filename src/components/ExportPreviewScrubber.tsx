@@ -37,7 +37,7 @@ export function ExportPreviewScrubber({ maxTime, fetchFrame }: ExportPreviewScru
   return (
     <div style={{ margin: "0.5rem 0" }}>
       <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontSize: "0.85rem", color: "#5b6b8c" }}>Export preview</span>
+        <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Export preview</span>
         <input
           type="range"
           min={0}
@@ -48,7 +48,7 @@ export function ExportPreviewScrubber({ maxTime, fetchFrame }: ExportPreviewScru
           onPointerUp={() => void fetchAt(time)}
           onKeyUp={() => void fetchAt(time)}
         />
-        <span style={{ fontSize: "0.85rem", color: "#5b6b8c" }}>
+        <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
           {time.toFixed(2)}s{loading ? " — rendering…" : src ? "" : " — release to preview"}
         </span>
       </label>
@@ -61,7 +61,7 @@ export function ExportPreviewScrubber({ maxTime, fetchFrame }: ExportPreviewScru
           style={{ border: "1px solid var(--border)", display: "block", marginTop: "0.25rem", opacity: loading ? 0.5 : 1 }}
         />
       )}
-      {error && <span style={{ color: "crimson", fontSize: "0.85rem" }}>{error}</span>}
+      {error && <span style={{ color: "var(--danger)", fontSize: "0.85rem" }}>{error}</span>}
     </div>
   );
 }

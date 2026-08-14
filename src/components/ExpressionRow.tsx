@@ -286,7 +286,7 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
             <input value={exprInput} onChange={(e) => updateExpr(e.target.value)} style={{ font: "inherit", width: "18ch" }} />
           </label>
         )}
-        <label style={{ fontSize: "0.78rem", color: "#5b6b8c" }}>
+        <label style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
           <input
             type="checkbox"
             checked={useMathKeyboard}
@@ -299,13 +299,13 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
           math keyboard
         </label>
         <label
-          style={{ fontSize: "0.78rem", color: "#5b6b8c" }}
+          style={{ fontSize: "0.78rem", color: "var(--muted)" }}
           title={`When on, "${AXIS_VARIABLE}" is the only allowed variable -- anything else is an error instead of a new slider`}
         >
           <input type="checkbox" checked={strict} onChange={(e) => graph.set(ids.strict, e.target.checked)} />{" "}
           strict ({AXIS_VARIABLE} only)
         </label>
-        <label style={{ fontSize: "0.78rem", color: "#5b6b8c" }} title="Overlay this row's derivative (dashed, same color)">
+        <label style={{ fontSize: "0.78rem", color: "var(--muted)" }} title="Overlay this row's derivative (dashed, same color)">
           <input
             type="checkbox"
             checked={showDerivative}
@@ -315,7 +315,7 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
         </label>
         {freeVars.map((name) =>
           graph.hasValue(notebookValueCellId(name)) ? (
-            <span key={name} style={{ fontSize: "0.78rem", color: "#5b6b8c" }} title={`Sourced from the "${name}" value block`}>
+            <span key={name} style={{ fontSize: "0.78rem", color: "var(--muted)" }} title={`Sourced from the "${name}" value block`}>
               {name} ← value block
             </span>
           ) : (
@@ -328,7 +328,7 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
           </button>
         )}
       </div>
-      {error && <p style={{ fontSize: "0.8rem", color: "crimson", margin: "0.2rem 0 0" }}>{error}</p>}
+      {error && <p style={{ fontSize: "0.8rem", color: "var(--danger)", margin: "0.2rem 0 0" }}>{error}</p>}
     </div>
   );
 }

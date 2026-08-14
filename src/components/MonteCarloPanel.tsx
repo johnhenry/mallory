@@ -236,7 +236,7 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
       {dartResult.ok ? (
         <p>π estimate = {dartResult.result.piEstimate.toFixed(5)} (actual π ≈ 3.14159)</p>
       ) : (
-        <p style={{ color: "crimson" }}>{dartResult.message}</p>
+        <p style={{ color: "var(--danger)" }}>{dartResult.message}</p>
       )}
 
       <h2>Distribution sampling</h2>
@@ -310,7 +310,7 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
           variance = {histResult.result.sampleVariance.toFixed(4)} (theoretical {histResult.result.theoreticalVariance.toFixed(4)})
         </p>
       ) : (
-        <p style={{ color: "crimson" }}>{histResult.message}</p>
+        <p style={{ color: "var(--danger)" }}>{histResult.message}</p>
       )}
     </div>
   );
