@@ -345,6 +345,19 @@ export function cellIdsSignal(cellId: string) {
 
 export type CellIdsSignal = ReturnType<typeof cellIdsSignal>;
 
+export function cellIdsImageFrequency(cellId: string) {
+  return {
+    pattern: `imageFreqPattern:${cellId}`,
+    size: `imageFreqSize:${cellId}`,
+    maskType: `imageFreqMaskType:${cellId}`,
+    radius: `imageFreqRadius:${cellId}`,
+    radius2: `imageFreqRadius2:${cellId}`,
+    result: `imageFreqResult:${cellId}`,
+  };
+}
+
+export type CellIdsImageFrequency = ReturnType<typeof cellIdsImageFrequency>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way

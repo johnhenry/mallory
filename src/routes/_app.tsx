@@ -50,6 +50,11 @@ const NAV_ITEMS: Array<{ to: string; label: string; icon: string }> = [
     icon: '<path d="M1.5 8h2.5l1.5-4.5 2.5 9 1.8-6.5 1.4 2h2.8" stroke-linecap="round" stroke-linejoin="round"/>',
   },
   {
+    to: "/image",
+    label: "Image",
+    icon: '<rect x="1.8" y="2.5" width="12.4" height="11" rx="1.2"/><circle cx="6" cy="6" r="1.3" fill="currentColor" stroke="none"/><path d="M2.5 12 6.5 8l2.5 2.5 2-2 2.5 2.5" stroke-linecap="round" stroke-linejoin="round"/>',
+  },
+  {
     to: "/practice",
     label: "Practice",
     icon: '<path d="M8 1.5 9.6 4.9l3.7.5-2.7 2.6.6 3.7L8 10.1l-3.2 1.6.6-3.7-2.7-2.6 3.7-.5L8 1.5Z" stroke-linejoin="round"/><path d="M6 13.5h4" stroke-linecap="round"/>',
