@@ -10,7 +10,8 @@ import {
   type MultiGraphAnnotation,
   type MultiGraphState,
 } from "../lib/multi-graph-state.ts";
-import { drawExpressionLayer, drawOpenCircles, drawPath, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawExpressionLayer, drawOpenCircles, drawPath, drawPoint, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { findNearestPointOnRows, type PointReadout } from "../lib/point-readout.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { findIntersections } from "../lib/sample-function.ts";
@@ -32,6 +33,13 @@ const ANNOTATIONS_CELL = "annotations";
 // from each row's expr/params rather than its already-adaptively-sampled
 // Path2D (see findIntersections' own doc comment for why).
 const INTERSECTIONS_CELL = "intersections";
+
+// The last point read via "Read point" mode -- ephemeral UI state (not part
+// of multi-graph-state.ts's persisted schema), holding the nearest sampled
+// point among all visible rows to the click, or null once cleared/nothing
+// was close enough. See point-readout.ts's own doc comment for the
+// screen-space-nearest-match reasoning.
+const POINT_READOUT_CELL = "pointReadout";
 
 // Cycled by index (mod length) as rows are added -- not meant to be a large
 // or exhaustive palette, just enough that a handful of curves stay visually
@@ -108,6 +116,7 @@ function useMultiGraph(): CellGraph {
     });
     graph.set(EXPRESSION_LIST_CELL, initialIds, { auxiliary: true });
     graph.set(ANNOTATIONS_CELL, state.annotations ?? [], { auxiliary: true });
+    graph.set(POINT_READOUT_CELL, null, { auxiliary: true });
 
     graph.define(
       INTERSECTIONS_CELL,
@@ -149,8 +158,11 @@ export function GraphCanvasMulti() {
   const graph = useMultiGraph();
   const rowIds = useCell<string[]>(graph, EXPRESSION_LIST_CELL);
   const annotations = useCell<MultiGraphAnnotation[]>(graph, ANNOTATIONS_CELL);
+  const pointReadout = useCell<PointReadout | null>(graph, POINT_READOUT_CELL);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [annotating, setAnnotating] = useState(false);
+  const [readingPoint, setReadingPoint] = useState(false);
+  const [readoutMissed, setReadoutMissed] = useState(false);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   // A single gesture is either dragging one annotation or panning the shared
   // viewport -- never both, so one ref (not two) tracks whichever is active.
@@ -228,6 +240,24 @@ export function GraphCanvasMulti() {
   }
 
   function handleCanvasPointerDown(e: PointerEvent<HTMLCanvasElement>) {
+    if (readingPoint) {
+      const viewport = graph.get<Viewport>(VIEWPORT_CELL);
+      const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+      const candidates = graph
+        .get<string[]>(EXPRESSION_LIST_CELL)
+        .map((rowId) => ({ rowId, ids: cellIdsMultiRow(rowId) }))
+        .filter(({ ids }) => graph.hasValue(ids.path) && graph.get<boolean>(ids.visible))
+        .map(({ rowId, ids }) => ({
+          rowId,
+          path: graph.get<Path2D>(ids.path),
+          color: graph.get<number>(ids.color),
+        }));
+      const result = findNearestPointOnRows(candidates, sx, sy, viewport, WIDTH, HEIGHT);
+      graph.set(POINT_READOUT_CELL, result, { auxiliary: true });
+      setReadoutMissed(result === null);
+      setReadingPoint(false);
+      return;
+    }
     const { x, y } = canvasToDataCoords(e);
     if (annotating) {
       const label = window.prompt("Label this point:", `Note ${annotations.length + 1}`);
@@ -404,6 +434,10 @@ export function GraphCanvasMulti() {
         ctx.fillText(a.label, sx + 8, sy - 8);
         ctx.restore();
       }
+      const readout = graph.get<PointReadout | null>(POINT_READOUT_CELL);
+      if (readout) {
+        drawPoint(ctx, readout, viewport, WIDTH, HEIGHT, 6, `#${readout.color.toString(16).padStart(6, "0")}`);
+      }
     }
     redraw();
     return graph.subscribeAll(redraw);
@@ -432,6 +466,16 @@ export function GraphCanvasMulti() {
         >
           {annotating ? "Click the canvas to place a note…" : "+ Annotate"}
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            setReadoutMissed(false);
+            setReadingPoint((r) => !r);
+          }}
+          style={readingPoint ? { background: "#0891b2", color: "white" } : undefined}
+        >
+          {readingPoint ? "Click a curve to read its value…" : "Read point"}
+        </button>
         <button type="button" onClick={handleSave}>
           Save to gallery
         </button>
@@ -450,7 +494,7 @@ export function GraphCanvasMulti() {
           height={HEIGHT}
           style={{
             border: "1px solid var(--border)",
-            cursor: annotating ? "crosshair" : selectedAnnotationId ? "move" : "grab",
+            cursor: annotating || readingPoint ? "crosshair" : selectedAnnotationId ? "move" : "grab",
             touchAction: "none",
           }}
           onPointerDown={handleCanvasPointerDown}
@@ -459,6 +503,15 @@ export function GraphCanvasMulti() {
           onWheel={handleCanvasWheel}
         />
       </div>
+      {pointReadout && (
+        <p style={{ margin: "0.25rem 0" }}>
+          <span style={{ color: `#${pointReadout.color.toString(16).padStart(6, "0")}` }}>●</span>{" "}
+          {graph.get<string>(cellIdsMultiRow(pointReadout.rowId).expr)}: f({pointReadout.x.toFixed(4)}) = {pointReadout.y.toFixed(4)}
+        </p>
+      )}
+      {readoutMissed && !pointReadout && (
+        <p style={{ margin: "0.25rem 0", color: "var(--muted)", fontSize: "0.85rem" }}>No curve close enough to that point.</p>
+      )}
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="multi-expression" />
       </div>
