@@ -2,6 +2,7 @@ import { createFileRoute, Link, Outlet, useNavigate } from "@tanstack/react-rout
 import { useEffect, useState } from "react";
 import { isAgentModeEnabled, setAgentModeEnabled } from "../lib/webmcp-agent-mode.ts";
 import { announceWebMcpReady, useModelContextTool } from "../hooks/use-model-context-tool.ts";
+import { useSymbolicTools } from "../hooks/use-symbolic-tools.ts";
 
 export const Route = createFileRoute("/_app")({
   component: AppShell,
@@ -134,6 +135,11 @@ function AppShell() {
       return { ok: true, path };
     },
   });
+
+  // General CAS toolbox (issue #40's "tool-name parity" item) -- always
+  // registered alongside app_navigate above, for the same "harmless no-op
+  // without document.modelContext" reason.
+  useSymbolicTools();
 
   return (
     <div className="app-shell">
