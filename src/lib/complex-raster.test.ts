@@ -9,10 +9,12 @@ test("domainColor: angle 0 at magnitude 1 (the mid-gray lightness contour) is pu
   assert.deepEqual(domainColor(new ComplexNumber(1, 0)), [255, 0, 0]);
 });
 
-test("domainColor: angle pi/2 (positive imaginary axis) has a different hue than angle 0", () => {
-  const atZero = domainColor(new ComplexNumber(1, 0));
-  const atHalfPi = domainColor(new ComplexNumber(0, 1));
-  assert.notDeepEqual(atZero, atHalfPi);
+test("domainColor: angle pi/2 (positive imaginary axis) at magnitude 1 has hue=90 (chartreuse)", () => {
+  assert.deepEqual(domainColor(new ComplexNumber(0, 1)), [128, 255, 0]);
+});
+
+test("domainColor: angle pi (negative real axis) at magnitude 1 is pure cyan (hue=180)", () => {
+  assert.deepEqual(domainColor(new ComplexNumber(-1, 0)), [0, 255, 255]);
 });
 
 test("domainColor: magnitude 0 is black", () => {
