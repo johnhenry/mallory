@@ -11,37 +11,78 @@ export interface ComplexStateV1 {
   rootsN: string;
 }
 
-export type ComplexState = ComplexStateV1;
+export type ConformalGridType = "rectangular" | "polar";
+
+export interface ComplexStateV2 {
+  v: 2;
+  exprText: string;
+  probeRe: string;
+  probeIm: string;
+  showRootsOfUnity: boolean;
+  rootsN: string;
+  showConformalGrid: boolean;
+  conformalGridType: ConformalGridType;
+  conformalGridSpacing: string;
+}
+
+export type ComplexState = ComplexStateV2;
 
 export const DEFAULT_COMPLEX_STATE: ComplexState = {
-  v: 1,
+  v: 2,
   exprText: "z^2 + 1",
   probeRe: "1",
   probeIm: "1",
   showRootsOfUnity: true,
   rootsN: "5",
+  showConformalGrid: false,
+  conformalGridType: "rectangular",
+  conformalGridSpacing: "0.5",
 };
 
 export function encodeComplexState(state: ComplexState): string {
   return base64UrlEncode(JSON.stringify(state));
 }
 
-/** Returns null on any malformed/unrecognized fragment rather than throwing. */
+/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades a v1 payload to v2 with the conformal-grid fields defaulted off. */
 export function decodeComplexState(fragment: string): ComplexState | null {
   try {
     const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
-    return isComplexStateV1(parsed) ? parsed : null;
+    if (isComplexStateV2(parsed)) return parsed;
+    if (isComplexStateV1(parsed)) return upgradeV1ToV2(parsed);
+    return null;
   } catch {
     return null;
   }
 }
 
+function upgradeV1ToV2(v1: ComplexStateV1): ComplexStateV2 {
+  return {
+    ...v1,
+    v: 2,
+    showConformalGrid: DEFAULT_COMPLEX_STATE.showConformalGrid,
+    conformalGridType: DEFAULT_COMPLEX_STATE.conformalGridType,
+    conformalGridSpacing: DEFAULT_COMPLEX_STATE.conformalGridSpacing,
+  };
+}
+
+function hasV1Fields(v: Record<string, unknown>): boolean {
+  if (typeof v.showRootsOfUnity !== "boolean") return false;
+  const fields = ["exprText", "probeRe", "probeIm", "rootsN"] as const;
+  return fields.every((f) => typeof v[f] === "string");
+}
+
 export function isComplexStateV1(value: unknown): value is ComplexStateV1 {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  if (v.v !== 1 || typeof v.showRootsOfUnity !== "boolean") return false;
-  const fields = ["exprText", "probeRe", "probeIm", "rootsN"] as const;
-  return fields.every((f) => typeof v[f] === "string");
+  return v.v === 1 && hasV1Fields(v);
+}
+
+export function isComplexStateV2(value: unknown): value is ComplexStateV2 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.v !== 2 || !hasV1Fields(v)) return false;
+  if (typeof v.showConformalGrid !== "boolean" || typeof v.conformalGridSpacing !== "string") return false;
+  return v.conformalGridType === "rectangular" || v.conformalGridType === "polar";
 }
 
 function base64UrlEncode(input: string): string {

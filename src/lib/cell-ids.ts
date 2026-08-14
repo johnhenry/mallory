@@ -288,6 +288,10 @@ export function cellIdsComplex(cellId: string) {
     showRootsOfUnity: `complexShowRootsOfUnity:${cellId}`,
     rootsN: `complexRootsN:${cellId}`,
     rootsResult: `complexRootsResult:${cellId}`,
+    showConformalGrid: `complexShowConformalGrid:${cellId}`,
+    conformalGridType: `complexConformalGridType:${cellId}`,
+    conformalGridSpacing: `complexConformalGridSpacing:${cellId}`,
+    conformalGridResult: `complexConformalGridResult:${cellId}`,
   };
 }
 
