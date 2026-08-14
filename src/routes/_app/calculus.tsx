@@ -3,6 +3,7 @@ import { CategoryTabs } from "~/components/CategoryTabs.tsx";
 import { Ode2Panel } from "~/components/Ode2Panel.tsx";
 import { OdePanel } from "~/components/OdePanel.tsx";
 import { OdeSystemPanel } from "~/components/OdeSystemPanel.tsx";
+import { TaylorPanel } from "~/components/TaylorPanel.tsx";
 
 interface CalculusSearch {
   tab?: string;
@@ -20,8 +21,8 @@ function CalculusPage() {
     <div>
       <div className="page-head">
         <p className="page-eyebrow">Calculus</p>
-        <h1>Differential equations.</h1>
-        <p className="lede">One equation, or a coupled system.</p>
+        <h1>Differential equations, series, and limits.</h1>
+        <p className="lede">One equation, a coupled system, or a Taylor approximation.</p>
       </div>
       <CategoryTabs
         prefix="calculus"
@@ -30,6 +31,7 @@ function CalculusPage() {
           { label: "Single ODE", key: "ode", render: () => <OdePanel /> },
           { label: "2nd-Order ODE", key: "ode2", render: () => <Ode2Panel /> },
           { label: "ODE System", key: "ode-system", render: () => <OdeSystemPanel /> },
+          { label: "Taylor & Limits", key: "taylor", render: () => <TaylorPanel /> },
         ]}
       />
     </div>
