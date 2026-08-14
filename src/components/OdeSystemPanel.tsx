@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsOdeSystem, type CellIdsOdeSystem } from "../lib/cell-ids.ts";
 import { drawPath, drawPoint, drawVectorField, type Viewport } from "../lib/render-path.ts";
+import { toScreenX, toScreenY } from "../lib/viewport.ts";
 import {
   odeSystemTrajectoryToPhasePath,
   sampleOdeSystem2D,
@@ -11,6 +12,7 @@ import {
   type OdeSystemSpec,
   type VectorFieldPoint,
 } from "../lib/sample-ode.ts";
+import { classifyFixedPoint, findFixedPoints, FIXED_POINT_LABEL, type ClassifiedFixedPoint } from "../lib/phase-portrait.ts";
 import { DEFAULT_ODE_SYSTEM_STATE, decodeOdeSystemState, encodeOdeSystemState, type OdeSystemState } from "../lib/ode-system-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -18,6 +20,16 @@ import { useCell } from "../lib/use-cell.ts";
 
 type TrajectoryResult = { ok: true; path: Path2D; final: { t: number; x: number; y: number } } | { ok: false; message: string };
 type VectorFieldResult = { ok: true; points: VectorFieldPoint[] } | { ok: false; message: string };
+type FixedPointsResult = { ok: true; points: ClassifiedFixedPoint[] } | { ok: false; message: string };
+
+const FIXED_POINT_COLOR: Record<ClassifiedFixedPoint["kind"], string> = {
+  saddle: "#f59e0b",
+  "stable-node": "#2563eb",
+  "unstable-node": "#dc2626",
+  "stable-spiral": "#0891b2",
+  "unstable-spiral": "#c026d3",
+  center: "#16a34a",
+};
 
 const WIDTH = 500;
 const HEIGHT = 500;
@@ -110,6 +122,23 @@ function useOdeSystemGraph(cellId: string, externalGraph?: CellGraph): CellGraph
           return { ok: false, message: e instanceof Error ? e.message : String(e) };
         }
       });
+
+      graph.define(ids.fixedPoints, (): FixedPointsResult => {
+        try {
+          const xMin = Number(graph.get<string>(ids.xMin));
+          const xMax = Number(graph.get<string>(ids.xMax));
+          const yMin = Number(graph.get<string>(ids.yMin));
+          const yMax = Number(graph.get<string>(ids.yMax));
+          const t0 = Number(graph.get<string>(ids.t0));
+          if ([xMin, xMax, yMin, yMax, t0].some(Number.isNaN)) throw new Error("Every field must be a number.");
+          if (xMin >= xMax || yMin >= yMax) throw new Error("min must be less than max for both x and y.");
+          const raw = findFixedPoints(spec(), { min: xMin, max: xMax }, { min: yMin, max: yMax }, t0);
+          const points = raw.map((p) => classifyFixedPoint(spec(), p, t0));
+          return { ok: true, points };
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        }
+      });
     }
     ref.current = graph;
   }
@@ -152,6 +181,7 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
   const yMax = useCell<string>(graph, ids.yMax);
   const trajectory = useCell<TrajectoryResult>(graph, ids.trajectory);
   const vectorField = useCell<VectorFieldResult>(graph, ids.vectorField);
+  const fixedPoints = useCell<FixedPointsResult>(graph, ids.fixedPoints);
 
   const [exprXInput, setExprXInput] = useState(exprX);
   const [exprYInput, setExprYInput] = useState(exprY);
@@ -215,8 +245,26 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
       drawPath(ctx, trajectory.path, viewport, WIDTH, HEIGHT);
       drawPoint(ctx, { x: Number(x0), y: Number(y0) }, viewport, WIDTH, HEIGHT, 5, "#dc2626");
     }
+    if (fixedPoints.ok) {
+      ctx.save();
+      ctx.font = "11px sans-serif";
+      for (const fp of fixedPoints.points) {
+        const sx = toScreenX(fp.x, viewport, WIDTH);
+        const sy = toScreenY(fp.y, viewport, HEIGHT);
+        ctx.fillStyle = FIXED_POINT_COLOR[fp.kind];
+        ctx.beginPath();
+        ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#1f2937";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.fillStyle = "#1f2937";
+        ctx.fillText(FIXED_POINT_LABEL[fp.kind], sx + 9, sy - 9);
+      }
+      ctx.restore();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trajectory, vectorField, xMin, xMax, yMin, yMax, x0, y0]);
+  }, [trajectory, vectorField, fixedPoints, xMin, xMax, yMin, yMax, x0, y0]);
 
   return (
     <div>
@@ -261,6 +309,18 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
         <p>
           at t = {trajectory.final.t.toFixed(4)}: x = {trajectory.final.x.toFixed(4)}, y = {trajectory.final.y.toFixed(4)}
         </p>
+      )}
+      {fixedPoints.ok && fixedPoints.points.length > 0 && (
+        <div style={{ margin: "0.5rem 0" }}>
+          <p style={{ margin: "0.25rem 0", fontWeight: 600 }}>Fixed points:</p>
+          <ul style={{ margin: 0 }}>
+            {fixedPoints.points.map((fp, i) => (
+              <li key={i}>
+                ({fp.x.toFixed(4)}, {fp.y.toFixed(4)}) — {FIXED_POINT_LABEL[fp.kind]} (λ = {fp.eigenvalues[0].toString()}, {fp.eigenvalues[1].toString()})
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {(!trajectory.ok || !vectorField.ok) && (
         <p style={{ color: "crimson" }}>{!trajectory.ok ? trajectory.message : !vectorField.ok ? vectorField.message : ""}</p>
