@@ -211,6 +211,19 @@ export function cellIdsTaylor(cellId: string) {
 
 export type CellIdsTaylor = ReturnType<typeof cellIdsTaylor>;
 
+export function cellIdsSeries(cellId: string) {
+  return {
+    exprText: `seriesExprText:${cellId}`,
+    variable: `seriesVariable:${cellId}`,
+    fromN: `seriesFromN:${cellId}`,
+    toN: `seriesToN:${cellId}`,
+    plotCount: `seriesPlotCount:${cellId}`,
+    result: `seriesResult:${cellId}`,
+  };
+}
+
+export type CellIdsSeries = ReturnType<typeof cellIdsSeries>;
+
 export function cellIdsMonteCarlo(cellId: string) {
   return {
     seed: `mcSeed:${cellId}`,
