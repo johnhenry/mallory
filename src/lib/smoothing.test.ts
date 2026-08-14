@@ -26,6 +26,14 @@ test("gaussianKernel: peaks at the center", () => {
   assert.ok(k[2]! > k[1]! && k[1]! > k[0]!);
 });
 
+test("gaussianKernel: sigma = width/6 -- exact ratio between adjacent and outer samples", () => {
+  const k = gaussianKernel(7); // sigma = 7/6, half = 3
+  // ratio is invariant under normalization, so this pins down sigma directly
+  // (a normalized-sum-to-1 check alone can't distinguish different sigmas).
+  assert.ok(Math.abs(k[4]! / k[3]! - 0.6925693242051978) < 1e-9, `ratio: ${k[4]! / k[3]!}`);
+  assert.ok(Math.abs(k[6]! / k[3]! - 0.036658041953378045) < 1e-9, `ratio: ${k[6]! / k[3]!}`);
+});
+
 test("buildKernel: dispatches to the right kernel by name", () => {
   assert.deepEqual(Array.from(buildKernel("moving-average", 3)), Array.from(movingAverageKernel(3)));
   assert.deepEqual(Array.from(buildKernel("gaussian", 5)), Array.from(gaussianKernel(5)));
