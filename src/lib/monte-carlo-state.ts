@@ -21,10 +21,30 @@ export interface MonteCarloStateV1 {
   sampleCount: string;
 }
 
-export type MonteCarloState = MonteCarloStateV1;
+export interface MonteCarloStateV2 {
+  v: 2;
+  seed: string;
+  dartCount: string;
+  distType: MonteCarloDistType;
+  distMean: string;
+  distSd: string;
+  distA: string;
+  distB: string;
+  distRate: string;
+  distN: string;
+  distP: string;
+  distLambda: string;
+  sampleCount: string;
+  integrandText: string;
+  integrandA: string;
+  integrandB: string;
+  integrandSampleCount: string;
+}
+
+export type MonteCarloState = MonteCarloStateV2;
 
 export const DEFAULT_MONTE_CARLO_STATE: MonteCarloState = {
-  v: 1,
+  v: 2,
   seed: "42",
   dartCount: "5000",
   distType: "normal",
@@ -37,41 +57,59 @@ export const DEFAULT_MONTE_CARLO_STATE: MonteCarloState = {
   distP: "0.5",
   distLambda: "4",
   sampleCount: "3000",
+  integrandText: "sin(x)",
+  integrandA: "0",
+  integrandB: "3.14159",
+  integrandSampleCount: "5000",
 };
 
 export function encodeMonteCarloState(state: MonteCarloState): string {
   return base64UrlEncode(JSON.stringify(state));
 }
 
-/** Returns null on any malformed/unrecognized fragment rather than throwing. */
+/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades a v1 payload to v2 with the integration fields defaulted. */
 export function decodeMonteCarloState(fragment: string): MonteCarloState | null {
   try {
     const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
-    return isMonteCarloStateV1(parsed) ? parsed : null;
+    if (isMonteCarloStateV2(parsed)) return parsed;
+    if (isMonteCarloStateV1(parsed)) return upgradeV1ToV2(parsed);
+    return null;
   } catch {
     return null;
   }
 }
 
+function upgradeV1ToV2(v1: MonteCarloStateV1): MonteCarloStateV2 {
+  return {
+    ...v1,
+    v: 2,
+    integrandText: DEFAULT_MONTE_CARLO_STATE.integrandText,
+    integrandA: DEFAULT_MONTE_CARLO_STATE.integrandA,
+    integrandB: DEFAULT_MONTE_CARLO_STATE.integrandB,
+    integrandSampleCount: DEFAULT_MONTE_CARLO_STATE.integrandSampleCount,
+  };
+}
+
 const DIST_TYPES: MonteCarloDistType[] = ["normal", "uniform", "exponential", "binomial", "poisson"];
+
+const V1_FIELDS = ["seed", "dartCount", "distMean", "distSd", "distA", "distB", "distRate", "distN", "distP", "distLambda", "sampleCount"] as const;
+
+function hasV1Fields(v: Record<string, unknown>): boolean {
+  if (!DIST_TYPES.includes(v.distType as MonteCarloDistType)) return false;
+  return V1_FIELDS.every((f) => typeof v[f] === "string");
+}
 
 export function isMonteCarloStateV1(value: unknown): value is MonteCarloStateV1 {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  if (v.v !== 1 || !DIST_TYPES.includes(v.distType as MonteCarloDistType)) return false;
-  const fields = [
-    "seed",
-    "dartCount",
-    "distMean",
-    "distSd",
-    "distA",
-    "distB",
-    "distRate",
-    "distN",
-    "distP",
-    "distLambda",
-    "sampleCount",
-  ] as const;
+  return v.v === 1 && hasV1Fields(v);
+}
+
+export function isMonteCarloStateV2(value: unknown): value is MonteCarloStateV2 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.v !== 2 || !hasV1Fields(v)) return false;
+  const fields = ["integrandText", "integrandA", "integrandB", "integrandSampleCount"] as const;
   return fields.every((f) => typeof v[f] === "string");
 }
 

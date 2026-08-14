@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Rng } from "mallory-tensor-core";
-import { binValues, estimateDartPi, sampleDistributionHistogram } from "./monte-carlo.ts";
+import { binValues, estimateDartPi, estimateMonteCarloIntegral, sampleDistributionHistogram } from "./monte-carlo.ts";
 
 test("binValues: hand-computed placement for [0..9] into 5 bins of width 1.8", () => {
   // min=0, max=9, width=1.8. Bin edges: [0,1.8) [1.8,3.6) [3.6,5.4) [5.4,7.2) [7.2,9].
@@ -95,4 +95,69 @@ test("sampleDistributionHistogram: binomial's density curve uses pmf (discrete),
     assert.ok(cmd.y >= 0 && cmd.y <= 1);
   }
   assert.equal(result.theoreticalMean, 5); // n*p = 10*0.5
+});
+
+test("estimateMonteCarloIntegral: a constant function has zero variance, so every checkpoint is exact (no sampling error possible)", () => {
+  const result = estimateMonteCarloIntegral("1", "x", 0, 5, 1000, new Rng(1));
+  assert.equal(result.trueValue, 5);
+  assert.equal(result.estimate, 5);
+  assert.equal(result.absoluteError, 0);
+  for (const point of result.convergence) {
+    assert.equal(point.estimate, 5);
+    assert.equal(point.errorBand, 0);
+  }
+});
+
+test("estimateMonteCarloIntegral: matches Symbolic.integrateDefinite's exact value for a known integral (2x on [0,1] -> 1)", () => {
+  const result = estimateMonteCarloIntegral("2*x", "x", 0, 1, 200000, new Rng(42));
+  assert.equal(result.trueValue, 1);
+  // A large-n Monte Carlo run should land close to the true value -- generous
+  // tolerance since this is a genuine statistical estimate, not exact
+  // arithmetic (confirmed directly: 200k samples at this seed lands within
+  // ~0.001 of 1).
+  assert.ok(Math.abs(result.estimate - 1) < 0.01, `estimate ${result.estimate} too far from true value 1`);
+});
+
+test("estimateMonteCarloIntegral: the first checkpoint's error band matches a hand-computed Welford variance + 95% CI (z=1.96)", () => {
+  // f(x)=x on [0,1] with n=2 -- the two Rng(42) samples ARE the y-values
+  // directly (identity function, span=1), so the running mean/variance/CI
+  // half-width can be computed by hand from the same seeded sequence and
+  // compared bit-for-bit (not just "smaller than the previous checkpoint").
+  const result = estimateMonteCarloIntegral("x", "x", 0, 1, 2, new Rng(42));
+  const x1 = 0.30447083548642695;
+  const x2 = 0.896538217086345;
+  const mean = (x1 + x2) / 2;
+  const variance = (x1 - mean) ** 2 + (x2 - mean) ** 2; // Welford's m2, sample variance = m2/(n-1) with n=2
+  const standardError = Math.sqrt(variance / 2);
+  const expectedErrorBand = 1.96 * standardError;
+  // n=2 with the default checkpoint spacing yields checkpoints at n=1 AND
+  // n=2 (every count, since floor(2/100)=0 clamps to 1) -- the n=1 point has
+  // zero variance by definition (a single sample), so the full-sample
+  // checkpoint to check against the hand computation is the last one.
+  const full = result.convergence[result.convergence.length - 1];
+  assert.ok(full);
+  assert.equal(full.n, 2);
+  assert.ok(Math.abs(full.estimate - mean) < 1e-12);
+  assert.ok(Math.abs(full.errorBand - expectedErrorBand) < 1e-9, `expected ${expectedErrorBand}, got ${full.errorBand}`);
+});
+
+test("estimateMonteCarloIntegral: the error band shrinks as n grows (1/sqrt(n) convergence)", () => {
+  const result = estimateMonteCarloIntegral("sin(x) + 2", "x", 0, Math.PI, 50000, new Rng(7));
+  const first = result.convergence[0];
+  const last = result.convergence[result.convergence.length - 1];
+  assert.ok(first);
+  assert.ok(last);
+  assert.ok(last.errorBand < first.errorBand, `expected the error band to shrink: first=${first.errorBand}, last=${last.errorBand}`);
+});
+
+test("estimateMonteCarloIntegral: convergence checkpoints are non-decreasing in n and span the full run", () => {
+  const result = estimateMonteCarloIntegral("x", "x", 0, 2, 10000, new Rng(3));
+  const ns = result.convergence.map((c) => c.n);
+  for (let i = 1; i < ns.length; i++) assert.ok((ns[i] as number) > (ns[i - 1] as number));
+  assert.equal(ns[ns.length - 1], 10000);
+});
+
+test("estimateMonteCarloIntegral: rejects a non-positive sample count and an inverted bound range", () => {
+  assert.throws(() => estimateMonteCarloIntegral("x", "x", 0, 1, 0, new Rng(1)), /positive integer/);
+  assert.throws(() => estimateMonteCarloIntegral("x", "x", 5, 2, 100, new Rng(1)), /Upper bound must be greater/);
 });
