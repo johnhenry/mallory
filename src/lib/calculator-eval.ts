@@ -10,12 +10,13 @@
  * numbers, else Z/nZ via `integersModuloStructure`) are the same two knobs
  * GraphCanvas exposes, just without a curve attached to them.
  */
-import { Rational, Symbolic } from "mallory-math";
+import { Interval, Rational, Symbolic } from "mallory-math";
 import { integersModuloStructure } from "./finite-structure.ts";
+import { evaluateInterval } from "./interval-eval.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import { evaluateUnitExpr } from "./unit-expr.ts";
 
-export type CalculatorMode = "float" | "exact" | "units";
+export type CalculatorMode = "float" | "exact" | "units" | "interval";
 
 export interface CalculatorEntry {
   input: string;
@@ -77,6 +78,20 @@ export function evaluateCalculatorExpr(
       // symbol it ends up in, is what gets stored on assignment.
       const result = evaluateUnitExpr(source, variables);
       return { display: result.toString(), isError: false, value: result.value };
+    }
+    if (mode === "interval") {
+      // Every named variable is a previously-computed plain float, so it's
+      // treated as a degenerate point interval here -- there's no input
+      // syntax yet for a genuinely non-degenerate interval literal (e.g.
+      // "[1, 2]"), a real grammar change out of scope for this v1. Bounds
+      // still widen meaningfully through the evaluation itself (sqrt, trig,
+      // division, ...), which is the point of interval mode: rigorous
+      // bounds on the RESULT, not necessarily on the inputs.
+      const expr = Symbolic.parse(preprocessImplicitMultiplication(source));
+      const env: Record<string, Interval> = {};
+      for (const [name, v] of Object.entries(variables)) env[name] = Interval.point(v);
+      const result = evaluateInterval(expr, env);
+      return { display: result.toString(), isError: false, value: result.midpoint };
     }
     if (mode === "exact") {
       const expr = Symbolic.parse(preprocessImplicitMultiplication(source));
