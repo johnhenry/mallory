@@ -11,6 +11,7 @@ import {
   type MultiGraphState,
 } from "../lib/multi-graph-state.ts";
 import { drawExpressionLayer, drawOpenCircles, drawPath, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { findIntersections } from "../lib/sample-function.ts";
 import { getThemeColors } from "../lib/theme-colors.ts";
@@ -457,6 +458,9 @@ export function GraphCanvasMulti() {
           onPointerUp={handleCanvasPointerUp}
           onWheel={handleCanvasWheel}
         />
+      </div>
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="multi-expression" />
       </div>
       {annotations.length > 0 && (
         <div style={{ margin: "0.5rem 0" }}>

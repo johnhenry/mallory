@@ -22,6 +22,7 @@ import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
 import { CopyableTex } from "./CopyableTex.tsx";
 import { KeyframeSliderControl } from "./KeyframeSliderControl.tsx";
+import { PngExportButton } from "./PngExportButton.tsx";
 import { TexSpan } from "./TexSpan.tsx";
 import { TransportControls } from "./TransportControls.tsx";
 import { useCell } from "../lib/use-cell.ts";
@@ -782,6 +783,9 @@ export function GraphCanvas({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
         />
+      </div>
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="graphing" />
       </div>
       {modulus === null && point && (
         <div>
