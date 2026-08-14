@@ -59,6 +59,21 @@ export function cellIds3D(cellId: string) {
 
 export type CellIds3D = ReturnType<typeof cellIds3D>;
 
+export function cellIdsParametricSurface(cellId: string) {
+  return {
+    exprX: `paramSurfExprX:${cellId}`,
+    exprY: `paramSurfExprY:${cellId}`,
+    exprZ: `paramSurfExprZ:${cellId}`,
+    uMin: `paramSurfUMin:${cellId}`,
+    uMax: `paramSurfUMax:${cellId}`,
+    vMin: `paramSurfVMin:${cellId}`,
+    vMax: `paramSurfVMax:${cellId}`,
+    mesh: `paramSurfMesh:${cellId}`,
+  };
+}
+
+export type CellIdsParametricSurface = ReturnType<typeof cellIdsParametricSurface>;
+
 /**
  * Cell-id namespacing for a system-of-equations solver panel
  * (SystemSolverPanel.tsx) -- a different input shape entirely from
