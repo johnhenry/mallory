@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsSignal, type CellIdsSignal } from "../lib/cell-ids.ts";
 import { DEFAULT_SIGNAL_STATE, decodeSignalState, encodeSignalState, type SignalState } from "../lib/signal-state.ts";
+import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { amplitudeSpectrum, sampleWaveform, type AmplitudeSpectrum, type Waveform } from "../lib/signal-waveform.ts";
 import { drawPolyline } from "../lib/render-path.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -91,6 +92,19 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const waveformResult = useCell<Result<Waveform>>(graph, ids.waveformResult);
   const spectrumResult = useCell<Result<AmplitudeSpectrum>>(graph, ids.spectrumResult);
 
+  const [exprInput, setExprInput] = useState(exprText);
+  // Keeps the input box in sync when exprText changes for a reason other
+  // than typing in this box -- e.g. URL-hash hydration -- mirrors
+  // GraphCanvas/TaylorPanel's identically-reasoned effect.
+  useEffect(() => {
+    setExprInput(exprText);
+  }, [exprText]);
+
+  function updateExprText(value: string) {
+    setExprInput(value);
+    graph.set(ids.exprText, resolveNaturalLanguageQuery(value, "t") ?? value);
+  }
+
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeSignalState(getCurrentSignalState(graph, ids))}`);
@@ -133,7 +147,8 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       <h2>Compose f(t)</h2>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <label>
-          f(t) = <input value={exprText} onChange={(e) => graph.set(ids.exprText, e.target.value)} style={{ font: "inherit", width: "28ch" }} />
+          f(t) ={" "}
+          <input value={exprInput} onChange={(e) => updateExprText(e.target.value)} style={{ font: "inherit", width: "28ch" }} />
         </label>
         <label>
           sample rate (Hz):{" "}
