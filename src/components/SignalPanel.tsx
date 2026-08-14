@@ -3,7 +3,15 @@ import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsSignal, type CellIdsSignal } from "../lib/cell-ids.ts";
 import { DEFAULT_SIGNAL_STATE, decodeSignalState, encodeSignalState, type SignalState } from "../lib/signal-state.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
-import { amplitudeSpectrum, sampleWaveform, type AmplitudeSpectrum, type Waveform } from "../lib/signal-waveform.ts";
+import {
+  amplitudeSpectrum,
+  computeSpectrogram,
+  drawSpectrogram,
+  sampleWaveform,
+  type AmplitudeSpectrum,
+  type Spectrogram,
+  type Waveform,
+} from "../lib/signal-waveform.ts";
 import { drawPolyline } from "../lib/render-path.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -16,19 +24,25 @@ const WAVEFORM_WIDTH = 640;
 const WAVEFORM_HEIGHT = 220;
 const SPECTRUM_WIDTH = 640;
 const SPECTRUM_HEIGHT = 220;
+const SPECTROGRAM_WIDTH = 640;
+const SPECTROGRAM_HEIGHT = 260;
 
 function seedSignalState(graph: CellGraph, ids: CellIdsSignal, state: SignalState): void {
   graph.set(ids.exprText, state.exprText);
   graph.set(ids.sampleRate, state.sampleRate);
   graph.set(ids.duration, state.duration);
+  graph.set(ids.nperseg, state.nperseg);
+  graph.set(ids.noverlap, state.noverlap);
 }
 
 function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalState {
   return {
-    v: 1,
+    v: 2,
     exprText: graph.get<string>(ids.exprText),
     sampleRate: graph.get<string>(ids.sampleRate),
     duration: graph.get<string>(ids.duration),
+    nperseg: graph.get<string>(ids.nperseg),
+    noverlap: graph.get<string>(ids.noverlap),
   };
 }
 
@@ -68,17 +82,30 @@ function useSignalGraph(cellId: string): CellGraph {
       }
     });
 
+    graph.define(ids.spectrogramResult, (): Result<Spectrogram> => {
+      const waveform = graph.get<Result<Waveform>>(ids.waveformResult);
+      if (!waveform.ok) return waveform;
+      try {
+        const nperseg = Number(graph.get<string>(ids.nperseg));
+        const noverlap = Number(graph.get<string>(ids.noverlap));
+        if (Number.isNaN(nperseg) || Number.isNaN(noverlap)) throw new Error("nperseg and noverlap must both be numbers.");
+        return { ok: true, value: computeSpectrogram(waveform.value, nperseg, noverlap) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
     ref.current = graph;
   }
   return ref.current;
 }
 
 /**
- * v1 of the signal panel (part of #31): compose f(t), see its waveform, and
- * see its one-sided amplitude spectrum via `mallory-fft`'s `rfft` -- the
- * CAS-correctness-heavy core of the ticket's pipeline. Spectrogram, filter
- * design/Bode plot, PSD, cross-correlation, and Phase 2 live audio are
- * deferred (see the trimmed issue body).
+ * Signal panel (part of #31): compose f(t), see its waveform, its one-sided
+ * amplitude spectrum via `mallory-fft`'s `rfft`, and its time-varying
+ * spectrogram via `mallory-signal`'s windowed `stft` -- pipeline stage 3.
+ * Filter design/Bode plot, PSD, cross-correlation, and Phase 2 live audio
+ * are deferred (see the trimmed issue body).
  */
 export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const graph = useSignalGraph(cellId);
@@ -86,12 +113,16 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const ids = cellIdsSignal(cellId);
   const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const spectrogramCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const exprText = useCell<string>(graph, ids.exprText);
   const sampleRate = useCell<string>(graph, ids.sampleRate);
   const duration = useCell<string>(graph, ids.duration);
   const waveformResult = useCell<Result<Waveform>>(graph, ids.waveformResult);
   const spectrumResult = useCell<Result<AmplitudeSpectrum>>(graph, ids.spectrumResult);
+  const nperseg = useCell<string>(graph, ids.nperseg);
+  const noverlap = useCell<string>(graph, ids.noverlap);
+  const spectrogramResult = useCell<Result<Spectrogram>>(graph, ids.spectrogramResult);
 
   const [exprInput, setExprInput] = useState(exprText);
   // Keeps the input box in sync when exprText changes for a reason other
@@ -143,6 +174,16 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     drawPolyline(ctx, points, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, "#dc2626");
   }, [spectrumResult]);
 
+  useEffect(() => {
+    const canvas = spectrogramCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, SPECTROGRAM_WIDTH, SPECTROGRAM_HEIGHT);
+    if (!spectrogramResult.ok) return;
+    drawSpectrogram(ctx, spectrogramResult.value, SPECTROGRAM_WIDTH, SPECTROGRAM_HEIGHT);
+  }, [spectrogramResult]);
+
   return (
     <div>
       <h2>Compose f(t)</h2>
@@ -192,6 +233,40 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       <canvas ref={spectrumCanvasRef} width={SPECTRUM_WIDTH} height={SPECTRUM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="signal-spectrum" />
+      </div>
+
+      <h3>Spectrogram</h3>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label>
+          window size (nperseg):{" "}
+          <input
+            type="number"
+            min={2}
+            value={nperseg}
+            onChange={(e) => graph.set(ids.nperseg, e.target.value)}
+            style={{ font: "inherit", width: "6ch" }}
+          />
+        </label>
+        <label>
+          overlap (noverlap):{" "}
+          <input
+            type="number"
+            min={0}
+            value={noverlap}
+            onChange={(e) => graph.set(ids.noverlap, e.target.value)}
+            style={{ font: "inherit", width: "6ch" }}
+          />
+        </label>
+      </div>
+      {!spectrogramResult.ok && <p style={{ color: "var(--danger)" }}>{spectrogramResult.message}</p>}
+      <canvas
+        ref={spectrogramCanvasRef}
+        width={SPECTROGRAM_WIDTH}
+        height={SPECTROGRAM_HEIGHT}
+        style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
+      />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => spectrogramCanvasRef.current} label="signal-spectrogram" />
       </div>
     </div>
   );

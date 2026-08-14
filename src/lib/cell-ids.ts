@@ -337,6 +337,9 @@ export function cellIdsSignal(cellId: string) {
     duration: `signalDuration:${cellId}`,
     waveformResult: `signalWaveformResult:${cellId}`,
     spectrumResult: `signalSpectrumResult:${cellId}`,
+    nperseg: `signalNperseg:${cellId}`,
+    noverlap: `signalNoverlap:${cellId}`,
+    spectrogramResult: `signalSpectrogramResult:${cellId}`,
   };
 }
 
