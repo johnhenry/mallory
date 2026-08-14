@@ -296,3 +296,35 @@ export function drawOpenCircles(
   }
   ctx.restore();
 }
+
+/**
+ * Draw a set of `{x0, x1, count}` bins as adjacent filled rectangles from
+ * the viewport's y=0 baseline up to each bin's count -- a plain frequency
+ * histogram, one bar per bin, in data-space x but count-space y (the
+ * viewport's `yMin`/`yMax` are expected to already span `[0, maxCount]` or
+ * similar; this function does no y-scaling of its own beyond what
+ * `toScreenY` does for any other data-space y value).
+ */
+export function drawHistogram(
+  ctx: CanvasRenderingContext2D,
+  bins: ReadonlyArray<{ x0: number; x1: number; count: number }>,
+  viewport: Viewport,
+  width: number,
+  height: number,
+  color = "#93c5fd",
+  strokeColor = "#2563eb",
+): void {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1;
+  const zeroY = toScreenY(0, viewport, height);
+  for (const bin of bins) {
+    const sx0 = toScreenX(bin.x0, viewport, width);
+    const sx1 = toScreenX(bin.x1, viewport, width);
+    const sy = toScreenY(bin.count, viewport, height);
+    ctx.fillRect(sx0, sy, sx1 - sx0, zeroY - sy);
+    ctx.strokeRect(sx0, sy, sx1 - sx0, zeroY - sy);
+  }
+  ctx.restore();
+}

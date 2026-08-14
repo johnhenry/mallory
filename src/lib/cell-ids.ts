@@ -205,6 +205,27 @@ export function cellIdsTaylor(cellId: string) {
 
 export type CellIdsTaylor = ReturnType<typeof cellIdsTaylor>;
 
+export function cellIdsMonteCarlo(cellId: string) {
+  return {
+    seed: `mcSeed:${cellId}`,
+    dartCount: `mcDartCount:${cellId}`,
+    dartResult: `mcDartResult:${cellId}`,
+    distType: `mcDistType:${cellId}`,
+    distMean: `mcDistMean:${cellId}`,
+    distSd: `mcDistSd:${cellId}`,
+    distA: `mcDistA:${cellId}`,
+    distB: `mcDistB:${cellId}`,
+    distRate: `mcDistRate:${cellId}`,
+    distN: `mcDistN:${cellId}`,
+    distP: `mcDistP:${cellId}`,
+    distLambda: `mcDistLambda:${cellId}`,
+    sampleCount: `mcSampleCount:${cellId}`,
+    histResult: `mcHistResult:${cellId}`,
+  };
+}
+
+export type CellIdsMonteCarlo = ReturnType<typeof cellIdsMonteCarlo>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way
