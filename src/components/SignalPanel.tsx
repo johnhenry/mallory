@@ -5,6 +5,7 @@ import { DEFAULT_SIGNAL_STATE, decodeSignalState, encodeSignalState, type Signal
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { amplitudeSpectrum, sampleWaveform, type AmplitudeSpectrum, type Waveform } from "../lib/signal-waveform.ts";
 import { drawPolyline } from "../lib/render-path.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import type { Viewport } from "../lib/viewport.ts";
@@ -182,10 +183,16 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
 
       <h3>Waveform</h3>
       <canvas ref={waveformCanvasRef} width={WAVEFORM_WIDTH} height={WAVEFORM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => waveformCanvasRef.current} label="signal-waveform" />
+      </div>
 
       <h3>Amplitude spectrum</h3>
       {!spectrumResult.ok && <p style={{ color: "crimson" }}>{spectrumResult.message}</p>}
       <canvas ref={spectrumCanvasRef} width={SPECTRUM_WIDTH} height={SPECTRUM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="signal-spectrum" />
+      </div>
     </div>
   );
 }

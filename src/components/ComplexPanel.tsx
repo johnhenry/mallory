@@ -7,6 +7,7 @@ import { evaluateComplex } from "../lib/complex-eval.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { renderDomainColoring } from "../lib/complex-raster.ts";
 import { nthRootsOfUnity } from "../lib/roots-of-unity.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 import { drawScatter } from "../lib/render-path.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -192,6 +193,9 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
       {showRootsOfUnity && !rootsResult.ok && <p style={{ color: "crimson" }}>{rootsResult.message}</p>}
 
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="complex-plane" />
+      </div>
 
       <h3>Probe a point</h3>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
