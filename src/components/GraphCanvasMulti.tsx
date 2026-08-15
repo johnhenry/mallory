@@ -25,11 +25,13 @@ import {
 import { findNearestPointOnRows, type PointReadout } from "../lib/point-readout.ts";
 import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { findIntersections } from "../lib/sample-function.ts";
 import { getThemeColors } from "../lib/theme-colors.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY } from "../lib/viewport.ts";
 import { ExpressionRow } from "./ExpressionRow.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 import { useCell } from "../lib/use-cell.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 
@@ -110,6 +112,30 @@ function getCurrentMultiGraphState(graph: CellGraph): MultiGraphState {
     annotations: graph.get<MultiGraphAnnotation[]>(ANNOTATIONS_CELL),
     mode: graph.get<"float" | "exact">(MODE_CELL),
   };
+}
+
+/**
+ * Extends svg-export.ts's `pathsToSvgDocument` (issue #45 item 1, shipped
+ * for GraphCanvas's single curve in #120) to every visible row's curve
+ * here -- same "only the stroked `Path2D` line itself" scope, so a
+ * finite-structure row (a scatter of points, no `Path2D`) is skipped
+ * rather than erroring, matching how `drawExpressionLayer`'s own
+ * scatter-or-curve branch treats the two cases as mutually exclusive.
+ * Returns null when there's nothing exportable (no rows, or every visible
+ * row is currently in finite-structure/scatter mode).
+ */
+export function getMultiGraphSvg(graph: CellGraph, rowIds: string[]): string | null {
+  const paths: Path2D[] = [];
+  for (const id of rowIds) {
+    const ids = cellIdsMultiRow(id);
+    if (!graph.hasValue(ids.path) || !graph.hasValue(ids.visible)) continue;
+    if (!graph.get<boolean>(ids.visible)) continue;
+    const scatter = graph.hasValue(ids.scatter) ? graph.get<{ x: number; y: number }[] | null>(ids.scatter) : null;
+    if (scatter) continue;
+    paths.push(graph.get<Path2D>(ids.path));
+  }
+  if (paths.length === 0) return null;
+  return pathsToSvgDocument(paths, graph.get<Viewport>(VIEWPORT_CELL), WIDTH, HEIGHT);
 }
 
 function seedRow(
@@ -773,7 +799,8 @@ export function GraphCanvasMulti() {
         <p style={{ margin: "0.25rem 0", color: "var(--muted)", fontSize: "0.85rem" }}>No curve close enough to that point.</p>
       )}
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="multi-expression" />
+        <PngExportButton getCanvas={() => canvasRef.current} label="multi-expression" />{" "}
+        <SvgExportButton getSvg={() => getMultiGraphSvg(graph, rowIds)} label="multi-expression" />
       </div>
       {annotations.length > 0 && (
         <div style={{ margin: "0.5rem 0" }}>
