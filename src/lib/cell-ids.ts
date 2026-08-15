@@ -548,6 +548,11 @@ export function cellIdsImplicit(cellId: string) {
     contourResult: `implicitContourResult:${cellId}`,
     showGradient: `implicitShowGradient:${cellId}`,
     gradientResult: `implicitGradientResult:${cellId}`,
+    // Interval-subdivision robust mode (issue #21, item 1) -- a guaranteed-
+    // coverage enclosure overlay, drawn alongside (not replacing) the
+    // marching-squares curve above.
+    showIntervalBoxes: `implicitShowIntervalBoxes:${cellId}`,
+    intervalBoxesResult: `implicitIntervalBoxesResult:${cellId}`,
   };
 }
 
