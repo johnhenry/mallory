@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
+import { encodeComplexState, type ComplexState } from "~/lib/complex-state.ts";
 import { encodeGeometryState, type GeometryState } from "~/lib/geometry-state.ts";
 import { encodeLinked3DState, type Linked3DState } from "~/lib/linked3d-state.ts";
 import { encodeMultiGraphState, type MultiGraphState } from "~/lib/multi-graph-state.ts";
@@ -23,6 +24,7 @@ const REOPEN_HREF: Record<SavedGraphKind, (state: SavedGraphState) => string> = 
   regression: (state) => `/data?tab=regression#${encodeRegressionState(state as RegressionState)}`,
   statistics: (state) => `/data?tab=statistics#${encodeStatisticsState(state as StatisticsState)}`,
   systems: (state) => `/data?tab=systems#${encodeSystemState(state as SystemState)}`,
+  complex: (state) => `/graphing?tab=complex#${encodeComplexState(state as ComplexState)}`,
 };
 
 export const Route = createFileRoute("/_app/gallery")({
