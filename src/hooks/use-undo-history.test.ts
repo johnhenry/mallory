@@ -17,6 +17,7 @@ interface HarnessProps {
   getState: () => number;
   applyState: (s: number) => void;
   initialExtraTrigger?: unknown;
+  enabled?: boolean;
 }
 
 /**
@@ -34,10 +35,10 @@ function makeHarness() {
     history: null,
     setExtraTrigger: null,
   };
-  function Harness({ graph, getState, applyState, initialExtraTrigger }: HarnessProps) {
+  function Harness({ graph, getState, applyState, initialExtraTrigger, enabled }: HarnessProps) {
     const [extraTrigger, setExtraTrigger] = useState<unknown>(initialExtraTrigger);
     box.setExtraTrigger = setExtraTrigger;
-    box.history = useUndoHistory(graph, getState, applyState, 10, extraTrigger);
+    box.history = useUndoHistory(graph, getState, applyState, 10, extraTrigger, enabled);
     return null;
   }
   return { box, Harness };
@@ -135,5 +136,56 @@ test("useUndoHistory: undo then redo round-trips back to the latest recorded sta
   assert.equal(graph.get<number>("n"), 100);
   await update(() => box.history!.redo());
   assert.equal(graph.get<number>("n"), 200);
+  await unmount();
+});
+
+test("useUndoHistory: enabled=false skips recording graph mutations entirely (a notebook-embedded panel deferring to the document's own history, issue #43's RegressionPanel adoption)", async () => {
+  const graph = new CellGraph();
+  graph.set("n", 1);
+  const { box, Harness } = makeHarness();
+
+  const { update, unmount } = await mount(
+    createElement(Harness, {
+      graph,
+      getState: () => graph.get<number>("n"),
+      applyState: (v: number) => graph.set("n", v),
+      enabled: false,
+    }),
+  );
+  await update(() => graph.set("n", 2));
+  await update(() => wait(30));
+
+  assert.equal(box.history!.canUndo, false, "a disabled history never records the mutation");
+  await update(() => box.history!.undo());
+  assert.equal(graph.get<number>("n"), 2, "undo is a no-op when nothing was ever recorded");
+  await unmount();
+});
+
+test("useUndoHistory: enabled=false also skips extraTrigger-driven recording (the extraTrigger effect isn't itself gated on `enabled` -- only scheduleRecordRef's own internal check is)", async () => {
+  const graph = new CellGraph();
+  graph.set("n", 10);
+  // getState must actually change when extraTrigger changes (not just the
+  // graph, which stays untouched here) -- otherwise UndoHistory.record's own
+  // structural-equality dedup would no-op the record regardless of whether
+  // the `enabled` guard exists, and this test couldn't tell the two apart.
+  // Same externalCounter-folded-into-getState shape as the plain (enabled
+  // defaulting true) extraTrigger test above.
+  let externalCounter = 0;
+  const { box, Harness } = makeHarness();
+
+  const { update, unmount } = await mount(
+    createElement(Harness, {
+      graph,
+      getState: () => graph.get<number>("n") * 1000 + externalCounter,
+      applyState: (v: number) => graph.set("n", Math.floor(v / 1000)),
+      initialExtraTrigger: "v1",
+      enabled: false,
+    }),
+  );
+  externalCounter = 1;
+  await update(() => box.setExtraTrigger!("v2"));
+  await update(() => wait(30));
+
+  assert.equal(box.history!.canUndo, false, "a disabled history ignores extraTrigger changes too, even when the resulting state genuinely differs");
   await unmount();
 });

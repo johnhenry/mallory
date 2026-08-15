@@ -37,6 +37,17 @@ export interface UndoControls {
  * EXCEPT when focus is in a text input/textarea/contentEditable, where the
  * browser's own text-level undo must win (intercepting there would break
  * normal typing undo inside expression fields).
+ *
+ * `enabled` (default true) lets a caller that's sometimes notebook-embedded
+ * (shares an `externalGraph` instead of owning one, e.g. RegressionPanel)
+ * skip its OWN `graph.subscribeAll` snapshot recording and document-level
+ * Ctrl+Z binding when embedded -- NotebookPanel already runs its own
+ * `useUndoHistory` over the same shared graph (issue #43's Notebook
+ * adoption, #118), so a second independent history on top would either
+ * double-fire on Ctrl+Z or silently diverge from the document's own
+ * undo stack. When `enabled` is false the hook still runs (same hook order
+ * every render) but never records past its initial snapshot, so the
+ * returned controls report `canUndo`/`canRedo` as permanently false.
  */
 export function useUndoHistory<T>(
   graph: CellGraph,
@@ -44,6 +55,7 @@ export function useUndoHistory<T>(
   applyState: (state: T) => void,
   debounceMs = 250,
   extraTrigger?: unknown,
+  enabled = true,
 ): UndoControls {
   const historyRef = useRef<UndoHistory<T> | null>(null);
   if (!historyRef.current) historyRef.current = new UndoHistory(getState());
@@ -59,7 +71,7 @@ export function useUndoHistory<T>(
 
   const scheduleRecordRef = useRef<() => void>(() => {});
   scheduleRecordRef.current = () => {
-    if (applyingRef.current) return;
+    if (!enabled || applyingRef.current) return;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
@@ -69,12 +81,13 @@ export function useUndoHistory<T>(
   };
 
   useEffect(() => {
+    if (!enabled) return;
     const unsubscribe = graph.subscribeAll(() => scheduleRecordRef.current());
     return () => {
       unsubscribe();
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [graph, debounceMs]);
+  }, [graph, debounceMs, enabled]);
 
   // Skips the first run (mount): `getState()` at mount time is already
   // what seeded `historyRef`'s initial `present`, so scheduling a redundant
@@ -122,6 +135,7 @@ export function useUndoHistory<T>(
   };
 
   useEffect(() => {
+    if (!enabled) return;
     function onKeyDown(e: KeyboardEvent) {
       if (!(e.ctrlKey || e.metaKey)) return;
       const target = e.target as HTMLElement | null;
@@ -137,7 +151,7 @@ export function useUndoHistory<T>(
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [enabled]);
 
   return {
     undo: () => undoRef.current(),

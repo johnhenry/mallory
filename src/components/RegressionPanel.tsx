@@ -7,6 +7,7 @@ import { cellIdsRegression, type CellIdsRegression } from "../lib/cell-ids.ts";
 import { collectFreeVars } from "../lib/free-vars.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { DEFAULT_REGRESSION_STATE, decodeRegressionState, encodeRegressionState, type RegressionState } from "../lib/regression-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { drawPath, drawScatter, type Viewport } from "../lib/render-path.ts";
@@ -172,6 +173,20 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
   useCellGraphTools(`data_regression_${cellId}`, graph);
   const ids = cellIdsRegression(cellId);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Standalone only (issue #43): a notebook-embedded instance shares its
+  // graph with NotebookPanel, which already runs its own useUndoHistory over
+  // the whole document -- a second independent history here would double-
+  // fire on Ctrl+Z. `enabled: syncUrl` mirrors the "Save to gallery" button's
+  // own standalone-only gating just below.
+  const history = useUndoHistory(
+    graph,
+    () => getCurrentRegressionState(graph, ids),
+    (state) => seedRegressionState(graph, ids, state),
+    250,
+    undefined,
+    syncUrl,
+  );
 
   const rows = useCell<RegressionRow[]>(graph, ids.rows);
   const fitType = useCell<FitType>(graph, ids.fitType);
@@ -392,6 +407,12 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
             Save to gallery
+          </button>{" "}
+          <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
+            ↩ Undo
+          </button>{" "}
+          <button type="button" onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z / Cmd+Y)">
+            ↪ Redo
           </button>
           {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>
