@@ -28,6 +28,7 @@ import { DEFAULT_ODE_SYSTEM_STATE, type OdeSystemState } from "../lib/ode-system
 import { DEFAULT_REGRESSION_STATE, type RegressionState } from "../lib/regression-state.ts";
 import { DEFAULT_STATISTICS_STATE, type StatisticsState } from "../lib/statistics-state.ts";
 import { DEFAULT_SYSTEM_STATE, type SystemState } from "../lib/system-state.ts";
+import { notebookToLatex, notebookToMarkdown, type NotebookGraphImages } from "../lib/notebook-export.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { getCurrentGeometryState } from "./GeometryPanel.tsx";
 import { getCurrentOdeState } from "./OdePanel.tsx";
@@ -169,6 +170,16 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
   };
 }
 
+/** Triggers a browser download of `content` as a plain-text file -- same Blob+anchor pattern GraphCanvas's own video export uses, minus the base64 decode step since this is already a text string. */
+function downloadTextFile(content: string, filename: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type: "text/plain" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /**
  * v1 reactive notebook surface: an ordered, editable list of blocks (text,
  * graph, or a named value), built directly on CellGraph -- the biggest
@@ -203,6 +214,7 @@ export function NotebookPanel() {
   const graphRef = useRef<CellGraph | null>(null);
   if (!graphRef.current) graphRef.current = new CellGraph();
   const graph = graphRef.current;
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const [blocks, setBlocks] = useState<Block[]>(() => {
     const decoded = typeof window !== "undefined" ? decodeNotebookState(window.location.hash.slice(1)) : null;
@@ -228,6 +240,39 @@ export function NotebookPanel() {
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  // Scoped by data-block-type="graph" (set on each block's wrapper below)
+  // rather than a plain unscoped canvas query -- several other block types
+  // (surface3d, ode, ...) also render a <canvas>, so an unscoped query
+  // would pick up the wrong element the moment a document mixes graph
+  // blocks with any of those. Correlated by POSITION among graph blocks
+  // (not by matching `block.id` against the DOM's data-block-id) since
+  // block ids aren't guaranteed stable identifiers to join against here --
+  // the nth graph-type entry in `blocks` and the nth `[data-block-type="graph"]
+  // canvas in document order both come from rendering the same list in the
+  // same order, so pairing by position is robust regardless.
+  function captureGraphBlockImages(): NotebookGraphImages {
+    const images: NotebookGraphImages = new Map();
+    const canvases = containerRef.current?.querySelectorAll<HTMLCanvasElement>('[data-block-type="graph"] canvas');
+    let canvasIndex = 0;
+    blocks.forEach((block, i) => {
+      if (block.type !== "graph") return;
+      const canvas = canvases?.[canvasIndex];
+      canvasIndex++;
+      if (canvas) images.set(i, canvas.toDataURL("image/png"));
+    });
+    return images;
+  }
+
+  function handleExportMarkdown() {
+    const md = notebookToMarkdown(getCurrentNotebookState(graph, blocks), captureGraphBlockImages());
+    downloadTextFile(md, "mallory-graph-notebook.md");
+  }
+
+  function handleExportLatex() {
+    const tex = notebookToLatex(getCurrentNotebookState(graph, blocks));
+    downloadTextFile(tex, "mallory-graph-notebook.tex");
   }
 
   // Mirrors GraphCanvasMulti's own writeUrl/subscribeAll pattern, plus a
@@ -599,9 +644,14 @@ export function NotebookPanel() {
   });
 
   return (
-    <div>
+    <div ref={containerRef}>
       {blocks.map((block, i) => (
-        <div key={block.id} style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start", margin: "0.75rem 0" }}>
+        <div
+          key={block.id}
+          data-block-id={block.id}
+          data-block-type={block.type}
+          style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start", margin: "0.75rem 0" }}
+        >
           <div style={{ display: "flex", flexDirection: "column" }}>
             <button
               type="button"
@@ -717,6 +767,12 @@ export function NotebookPanel() {
         </button>
         <button type="button" onClick={handleSave}>
           Save to gallery
+        </button>
+        <button type="button" onClick={handleExportMarkdown} title="Export this document as a self-contained Markdown file with embedded graph images">
+          Export .md
+        </button>
+        <button type="button" onClick={handleExportLatex} title="Export this document as a LaTeX fragment (equations typeset, no raster images)">
+          Export .tex
         </button>
       </div>
       {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{saveStatus}</p>}
