@@ -20,6 +20,7 @@ import { sampleStructureExpr, type ScatterPoint } from "../lib/sample-structure.
 import { evaluateDerivativeAtPoint } from "../lib/point-derivative.ts";
 import { findCurveExtrema, type CurveExtrema } from "../lib/curve-extrema.ts";
 import { HIGHLIGHT_PRELUDE_SECONDS, timelineDuration, type Keyframe } from "../lib/timeline.ts";
+import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
@@ -611,7 +612,12 @@ export function GraphCanvas({
     const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
     const handleSx = toScreenX(point.x, viewport, WIDTH);
     const handleSy = toScreenY(point.y, viewport, HEIGHT);
-    if (Math.hypot(sx - handleSx, sy - handleSy) > HANDLE_HIT_RADIUS) return;
+    // A touch tap is a much less precise target than a mouse click --
+    // issue #53's "roll out" item, same isCoarsePointer() widening
+    // GraphCanvasMulti's annotation-drag/"Read point" hit-testing already
+    // uses.
+    const handleHitRadius = isCoarsePointer() ? HANDLE_HIT_RADIUS * COARSE_POINTER_HIT_RADIUS_MULTIPLIER : HANDLE_HIT_RADIUS;
+    if (Math.hypot(sx - handleSx, sy - handleSy) > handleHitRadius) return;
     draggingRef.current = true;
     e.currentTarget.setPointerCapture(e.pointerId);
   }
