@@ -135,21 +135,53 @@ export function sampleExpr(
 export interface AdaptiveOptions {
   /** How many times a single base-grid segment may be bisected. */
   maxDepth?: number;
-  /** A segment is bisected further when its midpoint sample deviates from straight-line interpolation by more than this, in y-units. */
+  /**
+   * A segment is bisected further when its midpoint sample deviates from
+   * straight-line interpolation by more than this, in absolute y-units.
+   * Explicit here always wins; omitted and no `visibleYRange` falls back to
+   * `FALLBACK_ABSOLUTE_TOLERANCE`. The usual case (`visibleYRange` given,
+   * no override) instead scales with the viewport via
+   * {@link resolveAdaptiveTolerance} -- see its own doc comment.
+   */
   tolerance?: number;
+}
+
+/** Absolute-y-unit fallback when `tolerance` is unset AND there's no `visibleYRange` to scale against (`sampleExprAdaptiveImpl`'s pre-#52 constant, kept for that one case). */
+const FALLBACK_ABSOLUTE_TOLERANCE = 1e-3;
+
+/**
+ * The visible y-span's `RELATIVE_TOLERANCE_FRACTION` -- refine until a
+ * segment's deviation from straight-line interpolation is under this
+ * fraction of the CURRENT viewport's y-range, e.g. zoomed in to a span of 1
+ * unit refines down to a 1e-4 y-unit deviation; zoomed out to a span of
+ * 1000 only refines down to a 0.1 y-unit deviation. A fixed absolute
+ * tolerance (this function's behavior before issue #52's "refinement
+ * budget" follow-up) doesn't have this property: zoomed in on a subtly
+ * curved region, the same curve could read as visually straight-line-
+ * segmented (not enough refinement per what's now a much larger fraction
+ * of the visible area) -- or, zoomed out, waste refinement depth resolving
+ * curvature too fine to render as more than a single pixel of deviation
+ * anyway.
+ */
+const RELATIVE_TOLERANCE_FRACTION = 1e-4;
+
+/** Resolves `AdaptiveOptions.tolerance` per its own doc comment: explicit override > `visibleYRange`-relative > absolute fallback. Pure and directly unit-testable, independent of the sampling logic around it. */
+export function resolveAdaptiveTolerance(explicitTolerance: number | undefined, visibleYRange?: { min: number; max: number }): number {
+  if (explicitTolerance !== undefined) return explicitTolerance;
+  if (visibleYRange) return (visibleYRange.max - visibleYRange.min) * RELATIVE_TOLERANCE_FRACTION;
+  return FALLBACK_ABSOLUTE_TOLERANCE;
 }
 
 /**
  * Like `sampleExpr`, but refines the fixed uniform grid where the curve is
  * locally non-linear: for each pair of adjacent base-grid points, evaluate
  * the midpoint and compare it to straight-line interpolation between the
- * two -- if they disagree by more than `tolerance`, recurse into both
- * halves (up to `maxDepth`). A segment that's already locally straight adds
- * no extra points, so a gentle curve costs the same as `sampleExpr`, while a
- * sharp bend or narrow spike that a uniform grid could straddle gets
- * resolved. Non-goal: `tolerance` is an absolute y-unit threshold, not
- * scaled to the viewport's y-range, so the same default may under- or
- * over-refine for functions with very different output scales.
+ * two -- if they disagree by more than `tolerance` (see
+ * {@link resolveAdaptiveTolerance}, viewport-relative by default), recurse
+ * into both halves (up to `maxDepth`). A segment that's already locally
+ * straight adds no extra points, so a gentle curve costs the same as
+ * `sampleExpr`, while a sharp bend or narrow spike that a uniform grid
+ * could straddle gets resolved.
  *
  * `visibleYRange`: see `sampleExpr`'s own doc comment -- same off-visible-
  * plot run-breaking, also applied inside `refine` so bisection doesn't
@@ -165,7 +197,8 @@ function sampleExprAdaptiveImpl(
   options: AdaptiveOptions = {},
   visibleYRange?: { min: number; max: number },
 ): Path2D {
-  const { maxDepth = 4, tolerance = 1e-3 } = options;
+  const { maxDepth = 4 } = options;
+  const tolerance = resolveAdaptiveTolerance(options.tolerance, visibleYRange);
   const compiled = Symbolic.compile(typeof expr === "string" ? preprocessImplicitMultiplication(expr) : expr);
   const env: Record<string, number> = { ...params, [variable]: 0 };
   function evalAt(x: number): number {

@@ -6,6 +6,7 @@ import {
   findDiscontinuities,
   findIntersections,
   findRootCrossings,
+  resolveAdaptiveTolerance,
   sampleExpr,
   sampleExprAdaptive,
   sampleRegionMask,
@@ -71,6 +72,36 @@ test("sampleExprAdaptive still produces gaps at singularities (does not force a 
   const moveTos = path.commands.filter((c) => c.op === "moveTo");
   assert.equal(moveTos.length, 3);
   assert.ok(path.commands.every((c) => Number.isFinite(c.x) && Number.isFinite(c.y)));
+});
+
+// resolveAdaptiveTolerance / viewport-relative refinement (issue #52's
+// "refinement budget" follow-up).
+test("resolveAdaptiveTolerance: an explicit tolerance always wins, visibleYRange or not", () => {
+  assert.equal(resolveAdaptiveTolerance(0.5, { min: -10, max: 10 }), 0.5);
+  assert.equal(resolveAdaptiveTolerance(0.5, undefined), 0.5);
+});
+
+test("resolveAdaptiveTolerance: no explicit tolerance, no visibleYRange -- falls back to the pre-#52 fixed 1e-3", () => {
+  assert.equal(resolveAdaptiveTolerance(undefined, undefined), 1e-3);
+});
+
+test("resolveAdaptiveTolerance: no explicit tolerance, visibleYRange given -- 1e-4 of the y-span, hand-computed", () => {
+  // span 20 (yMin -10, yMax 10) * 1e-4 = 2e-3
+  assert.equal(resolveAdaptiveTolerance(undefined, { min: -10, max: 10 }), 2e-3);
+  // span 2 (zoomed in 10x) * 1e-4 = 2e-4 -- a tighter (smaller) tolerance, i.e. more refinement
+  assert.equal(resolveAdaptiveTolerance(undefined, { min: -1, max: 1 }), 2e-4);
+});
+
+test("sampleExprAdaptive: zoomed-in (smaller visibleYRange) refines a curvy expression MORE densely than zoomed-out, at the same domain/base-resolution", () => {
+  // sin(20*x) oscillates enough over [-1,1] that neither zoom level is
+  // "already straight" -- both refine, but the zoomed-in (tighter,
+  // viewport-relative) tolerance should recurse deeper.
+  const zoomedOut = sampleExprAdaptive("sin(20*x)", { min: -1, max: 1 }, 5, "x", {}, 0x2563eb, { maxDepth: 8 }, { min: -1000, max: 1000 });
+  const zoomedIn = sampleExprAdaptive("sin(20*x)", { min: -1, max: 1 }, 5, "x", {}, 0x2563eb, { maxDepth: 8 }, { min: -1, max: 1 });
+  assert.ok(
+    zoomedIn.commands.length > zoomedOut.commands.length,
+    `zoomed-in should refine more densely: zoomedIn=${zoomedIn.commands.length} zoomedOut=${zoomedOut.commands.length}`,
+  );
 });
 
 test("sampleExpr gaps a curve near a huge-but-finite asymptote sample when visibleYRange is given", () => {
