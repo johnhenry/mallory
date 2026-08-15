@@ -12,7 +12,7 @@ import { DEFAULT_GRAPH_STATE, decodeGraphState, encodeGraphState, type GraphStat
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { drawFilledArea, drawPath, drawPoint, drawRegionMask, drawScatter, type Viewport } from "../lib/render-path.ts";
-import { sampleExpr, sampleRegionMask } from "../lib/sample-function.ts";
+import { sampleExpr, sampleExprAdaptive, sampleRegionMask } from "../lib/sample-function.ts";
 import { sampleStructureExpr, type ScatterPoint } from "../lib/sample-structure.ts";
 import { evaluateDerivativeAtPoint } from "../lib/point-derivative.ts";
 import { findCurveExtrema, type CurveExtrema } from "../lib/curve-extrema.ts";
@@ -122,13 +122,18 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
         () => {
           try {
             const params = graph.get<Record<string, number>>(ids.params);
-            lastGoodPath = sampleExpr(
+            // sampleExprAdaptive (issue #52's flagged finding), not the
+            // plain sampleExpr this used before -- matches ExpressionRow's
+            // multi-expression rows, which already got the curvature-driven
+            // refinement (and its memoization) via #80.
+            lastGoodPath = sampleExprAdaptive(
               graph.get<string>(ids.expr),
               { min: viewport.xMin, max: viewport.xMax },
               RESOLUTION,
               AXIS_VARIABLE,
               params,
               undefined,
+              {},
               { min: viewport.yMin, max: viewport.yMax },
             );
           } catch {
