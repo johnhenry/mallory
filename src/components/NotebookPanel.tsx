@@ -1,4 +1,5 @@
 import { useServerFn } from "@tanstack/react-start";
+import type { Path2D } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import {
@@ -12,7 +13,10 @@ import {
   cellIdsRegression,
   cellIdsStatistics,
   cellIdsSystem,
+  cellIdsCurveTransform,
+  notebookCurveCellId,
   notebookValueCellId,
+  type CurveTransformOp,
 } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
@@ -42,6 +46,7 @@ import { getCurrentStatisticsState } from "./StatisticsPanel.tsx";
 import { getCurrentSystemState } from "./SystemSolverPanel.tsx";
 import { type TensorOpType } from "../lib/tensor-block.ts";
 import { NotebookComplexBlock } from "./NotebookComplexBlock.tsx";
+import { NotebookCurveTransformBlock } from "./NotebookCurveTransformBlock.tsx";
 import { NotebookGeometryBlock } from "./NotebookGeometryBlock.tsx";
 import { NotebookTensorBlock } from "./NotebookTensorBlock.tsx";
 import { NotebookGraph3DBlock } from "./NotebookGraph3DBlock.tsx";
@@ -66,7 +71,8 @@ type Block =
   | { id: string; type: "systems"; initialState: SystemState }
   | { id: string; type: "geometry"; initialOps: GeometryOp[] }
   | { id: string; type: "tensor"; source: string; op: TensorOpType; opArg: number }
-  | { id: string; type: "complex"; initialState: ComplexState };
+  | { id: string; type: "complex"; initialState: ComplexState }
+  | { id: string; type: "curve-transform"; initialCurveName: string; initialOp: CurveTransformOp };
 
 /**
  * Seeds a "graph" block's rows/viewport into `graph` (mirrors
@@ -85,6 +91,8 @@ function seedGraphBlock(graph: CellGraph, blockId: string, block: NotebookGraphB
     graph.set(ids.color, row.color);
     graph.set(ids.visible, row.visible);
     for (const [name, value] of Object.entries(row.params)) graph.set(ids.param(name), value);
+    graph.set(ids.curveName, row.name ?? "", { auxiliary: true });
+    if (row.name) graph.define(notebookCurveCellId(row.name), () => graph.get<Path2D>(ids.path), { auxiliary: true });
   });
   graph.set(blockIds.expressionList, rowIds, { auxiliary: true });
 }
@@ -122,6 +130,7 @@ function hydrateBlocks(graph: CellGraph, state: NotebookState): Block[] {
     if (b.type === "systems") return { id, type: "systems", initialState: b.state };
     if (b.type === "tensor") return { id, type: "tensor", source: b.source, op: b.op, opArg: b.opArg ?? 1 };
     if (b.type === "complex") return { id, type: "complex", initialState: b.state };
+    if (b.type === "curve-transform") return { id, type: "curve-transform", initialCurveName: b.curveName, initialOp: b.op };
     return { id, type: "geometry", initialOps: b.state.ops };
   });
 }
@@ -141,10 +150,12 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
           const freeVars = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
           const params: Record<string, number> = {};
           for (const name of freeVars) params[name] = graph.get<number>(ids.param(name));
+          const curveName = graph.hasValue(ids.curveName) ? graph.get<string>(ids.curveName) : "";
           return {
             source: graph.get<string>(ids.expr),
             color: graph.get<number>(ids.color),
             visible: graph.get<boolean>(ids.visible),
+            ...(curveName ? { name: curveName } : {}),
             params,
           };
         });
@@ -173,6 +184,12 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
       if (block.type === "systems") return { type: "systems", state: getCurrentSystemState(graph, cellIdsSystem(block.id)) };
       if (block.type === "tensor") return { type: "tensor", source: block.source, op: block.op, opArg: block.opArg };
       if (block.type === "complex") return { type: "complex", state: getCurrentComplexState(graph, cellIdsComplex(block.id)) };
+      if (block.type === "curve-transform") {
+        const ids = cellIdsCurveTransform(block.id);
+        const curveName = graph.hasValue(ids.curveName) ? graph.get<string>(ids.curveName) : block.initialCurveName;
+        const op = graph.hasValue(ids.op) ? graph.get<CurveTransformOp>(ids.op) : block.initialOp;
+        return { type: "curve-transform", curveName, op };
+      }
       return { type: "geometry", state: getCurrentGeometryState(graph, cellIdsGeometry(block.id)) };
     }),
   };
@@ -377,6 +394,10 @@ export function NotebookPanel() {
     setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "complex", initialState: DEFAULT_COMPLEX_STATE }]);
   }
 
+  function addCurveTransformBlock() {
+    setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "curve-transform", initialCurveName: "", initialOp: "derivative" }]);
+  }
+
   function updateTensorSource(id: string, source: string) {
     setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, source } : b)));
   }
@@ -428,6 +449,12 @@ export function NotebookPanel() {
           // not a fixed id, so they can't come from Object.values below).
           const freeVars = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
           for (const name of freeVars) graph.delete(ids.param(name));
+          // Same orphan-tolerant cleanup as every other per-row cell in this
+          // loop (no "still used elsewhere" cross-check, matching this
+          // function's own established convention -- see e.g. the geometry
+          // block case below).
+          const curveName = graph.hasValue(ids.curveName) ? graph.get<string>(ids.curveName) : "";
+          if (curveName) graph.delete(notebookCurveCellId(curveName));
           for (const cellId of Object.values(ids)) {
             if (typeof cellId === "string") graph.delete(cellId);
           }
@@ -470,6 +497,8 @@ export function NotebookPanel() {
       for (const cellId of Object.values(ids)) {
         if (typeof cellId === "string") graph.delete(cellId);
       }
+    } else if (removed?.type === "curve-transform") {
+      for (const cellId of Object.values(cellIdsCurveTransform(id))) graph.delete(cellId);
     }
     setBlocks((prev) => prev.filter((b) => b.id !== id));
   }
@@ -796,6 +825,13 @@ export function NotebookPanel() {
               />
             ) : block.type === "complex" ? (
               <NotebookComplexBlock graph={graph} blockId={block.id} initialState={block.initialState} />
+            ) : block.type === "curve-transform" ? (
+              <NotebookCurveTransformBlock
+                graph={graph}
+                blockId={block.id}
+                initialCurveName={block.initialCurveName}
+                initialOp={block.initialOp}
+              />
             ) : (
               <NotebookGeometryBlock graph={graph} blockId={block.id} initialOps={block.initialOps} />
             )}
@@ -841,6 +877,9 @@ export function NotebookPanel() {
         </button>
         <button type="button" onClick={addValueBlock}>
           + Value block
+        </button>
+        <button type="button" onClick={addCurveTransformBlock} title="Numeric derivative/integral of a graph row published under a name">
+          + Curve transform block
         </button>
         <button type="button" onClick={forkView} title="Open this exact document in a new tab to explore an alternate path">
           Fork this view

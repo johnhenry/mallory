@@ -502,6 +502,8 @@ export function cellIdsMultiRow(cellId: string) {
     structure: `multiStructure:${cellId}`,
     /** All (x,y) pairs of this row's expression evaluated over its `structure` (Z/nZ), or null while `structure` is null. When populated, GraphCanvasMulti draws ONLY this scatter for the row -- no continuous path, no region/area shading, matching GraphCanvas's own "scatter replaces everything else" branching, since none of those overlays have meaning over a finite structure. */
     scatter: `multiScatter:${cellId}`,
+    /** User-given name (issue #35 item 2) under which this row publishes its `path` cell for cross-block reference -- see `notebookCurveCellId`. Empty string means "not published." Only meaningful on the notebook surface; a plain GraphCanvasMulti row leaves this cell unread. */
+    curveName: `multiCurveName:${cellId}`,
     param: (name: string) => `multiParam:${cellId}:${name}`,
   };
 }
@@ -542,6 +544,34 @@ export type CellIdsNotebookBlock = ReturnType<typeof cellIdsNotebookBlock>;
 export function notebookValueCellId(name: string): string {
   return `notebookValue:${name}`;
 }
+
+/**
+ * A notebook graph row's published curve (issue #35 item 2), keyed by its
+ * user-given name -- the whole-curve counterpart to `notebookValueCellId`
+ * above, same registry-free convention: a curve-transform block reads this
+ * cell directly via `graph.get(notebookCurveCellId(name))` (registering the
+ * dependency even before the name exists) then branches on `hasValue`,
+ * exactly like `ExpressionRow`'s free-variable lookup does for scalars. The
+ * publishing row `graph.define()`s this cell as a passthrough to its own
+ * `path` cell (see `cellIdsMultiRow`'s `curveName`) rather than `set()`ing a
+ * snapshot, so it stays live across viewport-driven resampling.
+ */
+export function notebookCurveCellId(name: string): string {
+  return `notebookCurve:${name}`;
+}
+
+export type CurveTransformOp = "derivative" | "integral";
+
+/** Cell-id namespacing for a "curve transform" notebook block (issue #35 item 2). */
+export function cellIdsCurveTransform(blockId: string) {
+  return {
+    curveName: `curveTransformName:${blockId}`,
+    op: `curveTransformOp:${blockId}`,
+    result: `curveTransformResult:${blockId}`,
+  };
+}
+
+export type CellIdsCurveTransform = ReturnType<typeof cellIdsCurveTransform>;
 
 /**
  * Cell-id namespacing for the implicit-curve panel (ImplicitPanel.tsx) -- a
