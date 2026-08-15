@@ -335,6 +335,9 @@ export function cellIdsComplex(cellId: string) {
     conformalGridType: `complexConformalGridType:${cellId}`,
     conformalGridSpacing: `complexConformalGridSpacing:${cellId}`,
     conformalGridResult: `complexConformalGridResult:${cellId}`,
+    freeVars: `complexFreeVars:${cellId}`,
+    params: `complexParams:${cellId}`,
+    param: (name: string) => `complexParam:${cellId}:${name}`,
   };
 }
 

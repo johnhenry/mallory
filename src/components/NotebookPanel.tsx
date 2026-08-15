@@ -464,7 +464,12 @@ export function NotebookPanel() {
       graph.delete(listIds.objectList);
       graph.delete(listIds.opsLog);
     } else if (removed?.type === "complex") {
-      for (const cellId of Object.values(cellIdsComplex(id))) graph.delete(cellId);
+      const ids = cellIdsComplex(id);
+      const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
+      for (const name of names) graph.delete(ids.param(name));
+      for (const cellId of Object.values(ids)) {
+        if (typeof cellId === "string") graph.delete(cellId);
+      }
     }
     setBlocks((prev) => prev.filter((b) => b.id !== id));
   }

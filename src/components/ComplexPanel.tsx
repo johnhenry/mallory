@@ -10,7 +10,8 @@ import {
   type ComplexState,
   type ConformalGridType,
 } from "../lib/complex-state.ts";
-import { evaluateComplex } from "../lib/complex-eval.ts";
+import { evaluateComplex, type ComplexEnv } from "../lib/complex-eval.ts";
+import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { renderDomainColoring } from "../lib/complex-raster.ts";
 import { nthRootsOfUnity } from "../lib/roots-of-unity.ts";
@@ -51,6 +52,13 @@ export function getCurrentComplexState(graph: CellGraph, ids: CellIdsComplex): C
     conformalGridType: graph.get<ConformalGridType>(ids.conformalGridType),
     conformalGridSpacing: graph.get<string>(ids.conformalGridSpacing),
   };
+}
+
+/** Merges a real-valued free-variable slider snapshot into a ComplexEnv alongside the bound `z`. */
+export function complexParamEnv(params: Record<string, number>, z: ComplexNumber): ComplexEnv {
+  const env: ComplexEnv = { z };
+  for (const [name, value] of Object.entries(params)) env[name] = ComplexNumber.fromNumber(value);
+  return env;
 }
 
 interface ProbeReading {
@@ -96,6 +104,33 @@ function useComplexGraph(cellId: string, externalGraph?: CellGraph): CellGraph {
         }
       });
 
+      // Free-variable sliders (e.g. `f(z) = z^2 + c`) -- reuses the same
+      // collectFreeVars/defaultSliderRange machinery as GraphCanvas/
+      // ExpressionRow, just keyed off "z" instead of the real-axis variable.
+      // `params` is auxiliary (not schema/gallery state): it depends on
+      // per-name slider cells seeded lazily by an effect in the component
+      // below, mirroring GraphCanvas's `ids.params`.
+      graph.define(
+        ids.freeVars,
+        (): string[] => {
+          const parsed = graph.get<Result<Expr>>(ids.parseResult);
+          if (!parsed.ok) return [];
+          return collectFreeVars(parsed.value, "z");
+        },
+        { auxiliary: true },
+      );
+
+      graph.define(
+        ids.params,
+        (): Record<string, number> => {
+          const names = graph.get<string[]>(ids.freeVars);
+          const params: Record<string, number> = {};
+          for (const name of names) params[name] = graph.get<number>(ids.param(name));
+          return params;
+        },
+        { auxiliary: true },
+      );
+
       graph.define(ids.probeResult, (): Result<ProbeReading> => {
         try {
           const parsed = graph.get<Result<Expr>>(ids.parseResult);
@@ -103,7 +138,8 @@ function useComplexGraph(cellId: string, externalGraph?: CellGraph): CellGraph {
           const re = Number(graph.get<string>(ids.probeRe));
           const im = Number(graph.get<string>(ids.probeIm));
           if (Number.isNaN(re) || Number.isNaN(im)) throw new Error("Probe re/im must both be numbers.");
-          const w = evaluateComplex(parsed.value, { z: new ComplexNumber(re, im) });
+          const env = complexParamEnv(graph.get<Record<string, number>>(ids.params), new ComplexNumber(re, im));
+          const w = evaluateComplex(parsed.value, env);
           return { ok: true, value: { re: w.value, im: w.iValue, magnitude: w.magnitude(), angle: w.angle() } };
         } catch (e) {
           return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -129,7 +165,8 @@ function useComplexGraph(cellId: string, externalGraph?: CellGraph): CellGraph {
           const gridType = graph.get<ConformalGridType>(ids.conformalGridType);
           const zGrid = gridType === "polar" ? polarGridLines(VIEWPORT.xMax, spacing, 12) : rectangularGridLines(VIEWPORT, spacing);
           const zLines = zGrid.map((line) => line.map((z) => ({ x: z.value, y: z.iValue })));
-          const wLines = mapGridLines(zGrid, (z) => evaluateComplex(expr, { z }));
+          const params = graph.get<Record<string, number>>(ids.params);
+          const wLines = mapGridLines(zGrid, (z) => evaluateComplex(expr, complexParamEnv(params, z)));
           const wViewport = autoFitViewport(wLines, VIEWPORT);
           return { ok: true, value: { zLines, wLines, wViewport } };
         } catch (e) {
@@ -177,6 +214,20 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
   const conformalGridType = useCell<ConformalGridType>(graph, ids.conformalGridType);
   const conformalGridSpacing = useCell<string>(graph, ids.conformalGridSpacing);
   const conformalGridResult = useCell<Result<ConformalGridReading>>(graph, ids.conformalGridResult);
+  const freeVars = useCell<string[]>(graph, ids.freeVars);
+  const params = useCell<Record<string, number>>(graph, ids.params);
+
+  // Seeds a slider cell for each newly-discovered free variable -- mirrors
+  // GraphCanvas's identically-reasoned effect (must run after render, not
+  // inline in `params`'s compute, or it trips React's "update during render"
+  // guard).
+  useEffect(() => {
+    for (const name of freeVars) {
+      const id = ids.param(name);
+      if (!graph.hasValue(id)) graph.set(id, defaultSliderRange(name).default);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, freeVars]);
 
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const saveGraphFn = useServerFn(saveGraph);
@@ -224,7 +275,7 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
     if (!parseResult.ok) return;
     const expr = parseResult.value;
-    renderDomainColoring(ctx, WIDTH, HEIGHT, VIEWPORT, (z) => evaluateComplex(expr, { z }));
+    renderDomainColoring(ctx, WIDTH, HEIGHT, VIEWPORT, (z) => evaluateComplex(expr, complexParamEnv(params, z)));
     if (showRootsOfUnity && rootsResult.ok) {
       const points = rootsResult.value.map((r) => ({ x: r.value, y: r.iValue }));
       drawScatter(ctx, points, VIEWPORT, WIDTH, HEIGHT, 6, "#111827");
@@ -232,7 +283,7 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     if (showConformalGrid && conformalGridResult.ok) {
       for (const line of conformalGridResult.value.zLines) drawPolyline(ctx, line, VIEWPORT, WIDTH, HEIGHT, "rgba(255,255,255,0.6)");
     }
-  }, [parseResult, showRootsOfUnity, rootsResult, showConformalGrid, conformalGridResult]);
+  }, [parseResult, showRootsOfUnity, rootsResult, showConformalGrid, conformalGridResult, params]);
 
   useEffect(() => {
     const canvas = wCanvasRef.current;
@@ -258,6 +309,13 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
         </label>
       </div>
       {!parseResult.ok && <p style={{ color: "var(--danger)" }}>{parseResult.message}</p>}
+      {freeVars.length > 0 && (
+        <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+          {freeVars.map((name) => (
+            <ComplexParamSlider key={name} graph={graph} paramId={ids.param(name)} name={name} />
+          ))}
+        </div>
+      )}
 
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <label>
@@ -360,5 +418,24 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
         </div>
       )}
     </div>
+  );
+}
+
+function ComplexParamSlider({ graph, paramId, name }: { graph: CellGraph; paramId: string; name: string }) {
+  const range = defaultSliderRange(name);
+  const value = useCell<number>(graph, paramId) ?? range.default;
+  return (
+    <label style={{ fontSize: "0.85rem" }}>
+      {name} ={" "}
+      <input
+        type="range"
+        min={range.min}
+        max={range.max}
+        step={range.step}
+        value={value}
+        onChange={(e) => graph.set(paramId, Number(e.target.value))}
+      />{" "}
+      {value.toFixed(2)}
+    </label>
   );
 }
