@@ -12,6 +12,7 @@ import {
 } from "../lib/multi-graph-state.ts";
 import { drawExpressionLayer, drawOpenCircles, drawPath, drawPoint, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { findNearestPointOnRows, type PointReadout } from "../lib/point-readout.ts";
+import { isCoarsePointer } from "../lib/pointer-media.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { findIntersections } from "../lib/sample-function.ts";
@@ -24,6 +25,11 @@ import { useUndoHistory } from "../hooks/use-undo-history.ts";
 const WIDTH = 600;
 const HEIGHT = 600;
 const ANNOTATION_HIT_RADIUS_PX = 10;
+// A touch tap is a much less precise target than a mouse click -- issue
+// #53. Both hit-test call sites below multiply by this factor on a coarse
+// pointer (isCoarsePointer(), read once per hit test since it's a live
+// media-query match, not something to cache/go stale).
+const COARSE_POINTER_HIT_RADIUS_MULTIPLIER = 2.5;
 
 // Not namespaced by any row id -- one shared annotation list per view,
 // mirroring EXPRESSION_LIST_CELL's own "one shared, unnamespaced list" shape.
@@ -216,11 +222,21 @@ export function GraphCanvasMulti() {
   const [readingPoint, setReadingPoint] = useState(false);
   const [readoutMissed, setReadoutMissed] = useState(false);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
-  // A single gesture is either dragging one annotation or panning the shared
-  // viewport -- never both, so one ref (not two) tracks whichever is active.
+  // A single gesture is either dragging one annotation, panning the shared
+  // viewport with one pointer, or pinch-zooming with two -- never more than
+  // one at once, so one ref (not several) tracks whichever is active.
   const dragRef = useRef<
-    { kind: "annotation"; id: string } | { kind: "pan"; anchorX: number; anchorY: number; spanX: number; spanY: number } | null
+    | { kind: "annotation"; id: string }
+    | { kind: "pan"; anchorX: number; anchorY: number; spanX: number; spanY: number }
+    | { kind: "pinch"; anchorX: number; anchorY: number; spanX: number; spanY: number; startDistancePx: number }
+    | null
   >(null);
+  // Every currently-down pointer's canvas-space position, keyed by pointerId
+  // -- issue #53's pinch-to-zoom: a single PointerEvent only reports the ONE
+  // pointer that moved, but computing the pinch distance/midpoint needs BOTH
+  // touches' current positions, so each pointermove updates this map and
+  // reads its sibling finger's last-known position back out of it.
+  const activePointersRef = useRef<Map<number, { sx: number; sy: number }>>(new Map());
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const saveGraphFn = useServerFn(saveGraph);
 
@@ -275,10 +291,11 @@ export function GraphCanvasMulti() {
     };
   }
 
-  /** Nearest annotation within a fixed pixel hit radius, or null if none is close enough. */
+  /** Nearest annotation within a fixed pixel hit radius (widened on a coarse/touch pointer), or null if none is close enough. */
   function hitTestAnnotation(x: number, y: number): MultiGraphAnnotation | null {
     const viewport = graph.get<Viewport>(VIEWPORT_CELL);
-    const hitDataRadius = (ANNOTATION_HIT_RADIUS_PX / WIDTH) * (viewport.xMax - viewport.xMin);
+    const hitRadiusPx = isCoarsePointer() ? ANNOTATION_HIT_RADIUS_PX * COARSE_POINTER_HIT_RADIUS_MULTIPLIER : ANNOTATION_HIT_RADIUS_PX;
+    const hitDataRadius = (hitRadiusPx / WIDTH) * (viewport.xMax - viewport.xMin);
     let closest: MultiGraphAnnotation | null = null;
     let bestDist = hitDataRadius;
     for (const a of annotations) {
@@ -302,6 +319,33 @@ export function GraphCanvasMulti() {
       zoomCommitTimerRef.current = null;
     }
     commitLiveViewport();
+
+    const downPoint = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    activePointersRef.current.set(e.pointerId, downPoint);
+
+    if (activePointersRef.current.size >= 2) {
+      // Pinch-to-zoom (issue #53): a second finger touching down while one
+      // is already active starts (or re-anchors, if a third finger lands
+      // too) a pinch, overriding whatever single-pointer gesture (pan/
+      // annotation-drag/read-point) was in progress -- picks the two most
+      // recently added touches so a stray third finger doesn't wedge the
+      // gesture on two stale positions.
+      const [p1, p2] = [...activePointersRef.current.values()].slice(-2) as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
+      dragRef.current = {
+        kind: "pinch",
+        anchorX: toDataX(midSx, viewport, WIDTH),
+        anchorY: toDataY(midSy, viewport, HEIGHT),
+        spanX: viewport.xMax - viewport.xMin,
+        spanY: viewport.yMax - viewport.yMin,
+        startDistancePx: Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy),
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
     if (readingPoint) {
       const viewport = graph.get<Viewport>(VIEWPORT_CELL);
       const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
@@ -314,7 +358,8 @@ export function GraphCanvasMulti() {
           path: graph.get<Path2D>(ids.path),
           color: graph.get<number>(ids.color),
         }));
-      const result = findNearestPointOnRows(candidates, sx, sy, viewport, WIDTH, HEIGHT);
+      const readoutHitRadius = isCoarsePointer() ? 20 * COARSE_POINTER_HIT_RADIUS_MULTIPLIER : 20;
+      const result = findNearestPointOnRows(candidates, sx, sy, viewport, WIDTH, HEIGHT, readoutHitRadius);
       graph.set(POINT_READOUT_CELL, result, { auxiliary: true });
       setReadoutMissed(result === null);
       setReadingPoint(false);
@@ -354,12 +399,40 @@ export function GraphCanvasMulti() {
   function handleCanvasPointerMove(e: PointerEvent<HTMLCanvasElement>) {
     const drag = dragRef.current;
     if (!drag) return;
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT));
+    }
     if (drag.kind === "annotation") {
       const { x, y } = canvasToDataCoords(e);
       graph.set(
         ANNOTATIONS_CELL,
         annotations.map((a) => (a.id === drag.id ? { ...a, x, y } : a)),
       );
+      return;
+    }
+    if (drag.kind === "pinch") {
+      // Only the ONE pointer that generated this event is in `e` -- both
+      // touches' up-to-date positions come back out of activePointersRef,
+      // updated by every pointermove above (including the sibling finger's
+      // own events).
+      const points = [...activePointersRef.current.values()].slice(-2);
+      if (points.length < 2) return; // a finger lifted without a matching pointerup somehow -- ignore this tick
+      const [p1, p2] = points as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const currentDistancePx = Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy);
+      if (currentDistancePx < 1) return; // fingers overlapping -- avoid a near-zero-divide factor spike
+      // Fingers moving apart (currentDistancePx grows) -> factor < 1 -> the
+      // span shrinks -> zoom IN, matching the pinch-out convention every
+      // touch UI uses. Same formula as handleCanvasWheel, anchored at the
+      // pinch's own midpoint fixed at gesture start (drag.anchorX/Y) rather
+      // than re-read every tick, matching how panning anchors too.
+      const factor = drag.startDistancePx / currentDistancePx;
+      const spanX = drag.spanX * factor;
+      const spanY = drag.spanY * factor;
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      const xMin = drag.anchorX - (midSx / WIDTH) * spanX;
+      const yMin = drag.anchorY - ((HEIGHT - midSy) / HEIGHT) * spanY;
+      graph.set(LIVE_VIEWPORT_CELL, { xMin, xMax: xMin + spanX, yMin, yMax: yMin + spanY });
       return;
     }
     const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
@@ -372,8 +445,9 @@ export function GraphCanvasMulti() {
     graph.set(LIVE_VIEWPORT_CELL, { xMin, xMax: xMin + drag.spanX, yMin, yMax: yMin + drag.spanY });
   }
 
-  function handleCanvasPointerUp() {
-    if (dragRef.current?.kind === "pan") commitLiveViewport();
+  function handleCanvasPointerUp(e: PointerEvent<HTMLCanvasElement>) {
+    activePointersRef.current.delete(e.pointerId);
+    if (dragRef.current?.kind === "pan" || dragRef.current?.kind === "pinch") commitLiveViewport();
     dragRef.current = null;
   }
 
@@ -612,6 +686,7 @@ export function GraphCanvasMulti() {
           onPointerDown={handleCanvasPointerDown}
           onPointerMove={handleCanvasPointerMove}
           onPointerUp={handleCanvasPointerUp}
+          onPointerCancel={handleCanvasPointerUp}
           onWheel={handleCanvasWheel}
         />
       </div>
