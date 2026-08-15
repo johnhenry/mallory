@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
-import { cellIdsGradientDescent, type CellIdsGradientDescent } from "../lib/cell-ids.ts";
+import { cellIdsGradientDescent, TIME_CELL, type CellIdsGradientDescent } from "../lib/cell-ids.ts";
 import { computeContourLevels, type ContourLevel } from "../lib/contour-plot.ts";
 import {
   DEFAULT_GRADIENT_DESCENT_STATE,
@@ -10,14 +10,16 @@ import {
 } from "../lib/gradient-descent-state.ts";
 import { runGradientDescent, type DescentResult, type OptimizerType } from "../lib/gradient-descent.ts";
 import { drawImplicitCurve, drawPoint, drawPolyline } from "../lib/render-path.ts";
+import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewport.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { TransportControls } from "./TransportControls.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
-interface OptimizerRun {
+export interface OptimizerRun {
   optimizer: OptimizerType;
   result: DescentResult;
 }
@@ -26,6 +28,20 @@ const WIDTH = 520;
 const HEIGHT = 520;
 const VIEWPORT: Viewport = { xMin: -5, xMax: 5, yMin: -5, yMax: 5 };
 const DOMAIN = { min: -5, max: 5 };
+// Per-step transport animation (issue #33's remaining scope): 1 descent
+// step = this many seconds of the shared TIME_CELL clock, so the default
+// 80-step run plays back over 8s -- watchable, not instant, not a slog.
+export const STEP_SECONDS = 0.1;
+
+/** The longest racing path's step count (paths can differ in length -- a diverged run stops early). Empty/no-runs gives 0, not -Infinity. */
+export function maxDescentSteps(runs: readonly OptimizerRun[]): number {
+  return Math.max(0, ...runs.map((run) => run.result.path.length - 1));
+}
+
+/** The index into a (possibly shorter, already-stopped) run's own path the shared clock currently points at -- clamped so a fast/short-diverged run just holds its last point once the clock outruns it, rather than reading past the array end. */
+export function visiblePathIndex(time: number, pathLength: number): number {
+  return Math.min(Math.floor(time / STEP_SECONDS), pathLength - 1);
+}
 
 const OPTIMIZER_COLORS: Record<OptimizerType, string> = {
   sgd: "#2563eb",
@@ -77,6 +93,7 @@ function useGradientDescentGraph(cellId: string): CellGraph {
     const ids = cellIdsGradientDescent(cellId);
     const decoded = typeof window !== "undefined" ? decodeGradientDescentState(window.location.hash.slice(1)) : null;
     seedState(graph, ids, decoded ?? DEFAULT_GRADIENT_DESCENT_STATE);
+    if (!graph.has(TIME_CELL)) graph.set(TIME_CELL, 0, { auxiliary: true });
 
     graph.define(ids.contoursResult, (): Result<ContourLevel[]> => {
       try {
@@ -133,10 +150,13 @@ function useGradientDescentGraph(cellId: string): CellGraph {
  * rather than animating a polyline on the Three.js surface -- the contour
  * picture is where optimizer-behavior differences (SGD's zigzag across an
  * anisotropic valley vs Adam's per-coordinate scaling) actually read
- * clearly. The 3D-surface path overlay and per-step transport animation
- * remain deferred scope on the issue. An optional `optim.StepLR` schedule
- * (stepSize/gamma) is available, applied uniformly to every racing
- * optimizer -- off by default.
+ * clearly. The 3D-surface path overlay remains deferred scope on the
+ * issue. An optional `optim.StepLR` schedule (stepSize/gamma) is
+ * available, applied uniformly to every racing optimizer -- off by
+ * default. Each racing path plays back per-step on the shared TIME_CELL
+ * clock (STEP_SECONDS per step) via the same TransportControls/
+ * useTimelinePlayback machinery GraphCanvas/Graph3DCanvas already use,
+ * rather than rendering the whole path at once.
  */
 export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = {}) {
   const graph = useGradientDescentGraph(cellId);
@@ -157,11 +177,28 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   const gamma = useCell<string>(graph, ids.gamma);
   const contoursResult = useCell<Result<ContourLevel[]>>(graph, ids.contoursResult);
   const descentResults = useCell<Result<OptimizerRun[]>>(graph, ids.descentResults);
+  const time = useCell<number>(graph, TIME_CELL);
 
   const [exprInput, setExprInput] = useState(exprText);
   useEffect(() => {
     setExprInput(exprText);
   }, [exprText]);
+
+  const [playing, setPlaying] = useState(false);
+  const [loop, setLoop] = useState(true);
+  const [speed, setSpeed] = useState(1);
+  const maxSteps = descentResults.ok ? maxDescentSteps(descentResults.value) : 0;
+  const duration = maxSteps * STEP_SECONDS;
+  useTimelinePlayback(graph, playing, loop, speed, duration, setPlaying);
+  // A fresh descent (new expression/start/lr/steps/optimizer set) restarts
+  // the animation from the beginning rather than leaving the scrub head
+  // wherever it was -- otherwise a shorter new run could leave `time` past
+  // its own `duration`, silently showing the full path with no way to
+  // "rewind" via the slider (its own max already shrank to match).
+  useEffect(() => {
+    graph.set(TIME_CELL, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [descentResults]);
 
   useEffect(() => {
     function writeUrl() {
@@ -183,7 +220,10 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
     }
     if (descentResults.ok) {
       for (const run of descentResults.value) {
-        drawPolyline(ctx, run.result.path, VIEWPORT, WIDTH, HEIGHT, OPTIMIZER_COLORS[run.optimizer]);
+        const lastIndex = visiblePathIndex(time, run.result.path.length);
+        drawPolyline(ctx, run.result.path.slice(0, lastIndex + 1), VIEWPORT, WIDTH, HEIGHT, OPTIMIZER_COLORS[run.optimizer]);
+        const current = run.result.path[lastIndex];
+        if (current) drawPoint(ctx, current, VIEWPORT, WIDTH, HEIGHT, 4, OPTIMIZER_COLORS[run.optimizer]);
       }
     }
     const sx = Number(startX);
@@ -191,7 +231,7 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
     if (Number.isFinite(sx) && Number.isFinite(sy)) {
       drawPoint(ctx, { x: sx, y: sy }, VIEWPORT, WIDTH, HEIGHT, 6, "#111827");
     }
-  }, [contoursResult, descentResults, startX, startY]);
+  }, [contoursResult, descentResults, startX, startY, time]);
 
   function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current;
@@ -279,6 +319,17 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="gradient-descent" />
       </div>
+      <TransportControls
+        graph={graph}
+        time={time}
+        duration={duration}
+        playing={playing}
+        setPlaying={setPlaying}
+        loop={loop}
+        setLoop={setLoop}
+        speed={speed}
+        setSpeed={setSpeed}
+      />
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Click the plot to move the start point.</p>
       {descentResults.ok && (
         <ul style={{ margin: "0.25rem 0" }}>
