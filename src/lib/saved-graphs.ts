@@ -34,6 +34,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { createServerFn } from "@tanstack/react-start";
 import type { ComplexState } from "./complex-state.ts";
+import { GALLERY_SEEDS, type GallerySeed } from "./gallery-seeds.ts";
 import type { GeometryState } from "./geometry-state.ts";
 import type { Linked3DState } from "./linked3d-state.ts";
 import type { MultiGraphState } from "./multi-graph-state.ts";
@@ -73,6 +74,8 @@ export interface SavedGraphSummary {
   title: string;
   createdAt: number;
   kind: SavedGraphKind;
+  /** True for a curated gallery-seeds.ts entry (issue #39) -- never written to the DB, so delete is a guaranteed no-op on one; the gallery UI uses this to hide the delete button rather than offer an action that silently does nothing. */
+  readOnly?: boolean;
 }
 
 interface SavedGraphRecord extends SavedGraphSummary {
@@ -189,14 +192,22 @@ export const saveGraph = createServerFn({ method: "POST" })
     return { id };
   });
 
+/** Merges the DB's own summaries with `gallery-seeds.ts`'s curated entries (marked `readOnly`), sorted newest-first together -- extracted as a pure function so the merge/sort/readOnly-tagging is unit-testable without touching SQLite. */
+export function mergeGallerySummaries(dbSummaries: SavedGraphSummary[], seeds: GallerySeed[] = GALLERY_SEEDS): SavedGraphSummary[] {
+  const seedSummaries: SavedGraphSummary[] = seeds.map((s) => ({ id: s.id, title: s.title, kind: s.kind, createdAt: s.createdAt, readOnly: true }));
+  return [...dbSummaries, ...seedSummaries].sort((a, b) => b.createdAt - a.createdAt);
+}
+
 export const listSavedGraphs = createServerFn({ method: "GET" }).handler(async (): Promise<SavedGraphSummary[]> => {
   const db = await getGalleryDb();
-  return listSavedGraphRecords(db);
+  return mergeGallerySummaries(listSavedGraphRecords(db));
 });
 
 export const getSavedGraph = createServerFn({ method: "GET" })
   .validator((data: { id: string }) => data)
   .handler(async ({ data }): Promise<SavedGraphState> => {
+    const seed = GALLERY_SEEDS.find((s) => s.id === data.id);
+    if (seed) return seed.state;
     const db = await getGalleryDb();
     const state = getSavedGraphRecordState(db, data.id);
     if (state === undefined) throw new Error("Unknown or deleted saved graph.");
@@ -206,6 +217,11 @@ export const getSavedGraph = createServerFn({ method: "GET" })
 export const deleteSavedGraph = createServerFn({ method: "POST" })
   .validator((data: { id: string }) => data)
   .handler(async ({ data }): Promise<void> => {
+    // A seed id is never written to the DB, so this would already be a
+    // harmless no-op below -- returning early just documents the intent
+    // (read-only gallery seeds can't be deleted) rather than relying on
+    // that as an implicit side effect.
+    if (GALLERY_SEEDS.some((s) => s.id === data.id)) return;
     const db = await getGalleryDb();
     deleteSavedGraphRecord(db, data.id);
   });
