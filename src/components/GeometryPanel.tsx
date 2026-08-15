@@ -6,6 +6,7 @@ import { CellGraph } from "../lib/cell-graph.ts";
 import { interiorAngleRadians, isSelfIntersecting, polygonCentroid, shoelaceArea } from "../lib/geometry.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
+import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
 import { cellIdsGeometry, type CellIdsGeometry } from "../lib/cell-ids.ts";
 import {
@@ -127,6 +128,40 @@ export function replayGeometryOps(graph: CellGraph, listIds: CellIdsGeometry, op
         break;
     }
   }
+}
+
+/**
+ * Deletes every object cell (and its dependent companion, if any) tracked in
+ * `objectList`, then resets `objectList`/`opsLog` to empty -- the "undo the
+ * whole construction back to nothing" counterpart `replayGeometryOps` needs,
+ * since that function's `add*` calls assume a blank graph (redefining an
+ * id that's still live would be a real `graph.define`/`graph.set` conflict,
+ * not a harmless overwrite the way a flat free-cell panel's re-`set` is).
+ * `CellGraph.delete` no-ops on an id that was never set, so calling every
+ * cell-id helper for every object (most of which don't apply to that
+ * object's tool type) is safe rather than needing a per-type dispatch.
+ */
+function clearGeometryState(graph: CellGraph, listIds: CellIdsGeometry): void {
+  for (const id of graph.get<string[]>(listIds.objectList)) {
+    graph.delete(pointCellId(id));
+    graph.delete(lineCellId(id));
+    graph.delete(circleCellId(id));
+    graph.delete(lengthCellId(id));
+    graph.delete(radiusCellId(id));
+    graph.delete(angleRecordCellId(id));
+    graph.delete(angleValueCellId(id));
+    graph.delete(polygonCellId(id));
+    graph.delete(areaCellId(id));
+    graph.delete(polygonSelfIntersectingCellId(id));
+  }
+  graph.set(listIds.objectList, [] as string[], { auxiliary: true });
+  graph.set(listIds.opsLog, [] as GeometryOp[], { auxiliary: true });
+}
+
+/** `useUndoHistory`'s `applyState`: reset to blank, then replay the target snapshot's ops in order (issue #43's geometry adoption). */
+export function applyGeometryState(graph: CellGraph, listIds: CellIdsGeometry, state: GeometryState): void {
+  clearGeometryState(graph, listIds);
+  replayGeometryOps(graph, listIds, state.ops);
 }
 
 /**
@@ -342,6 +377,28 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   const dragRef = useRef<{ id: string; moved: boolean } | null>(null);
 
   useCellGraphTools(toolPrefix, graph);
+
+  // Standalone only (issue #43, same enabled:syncUrl pattern as the other
+  // panel adoptions): a notebook-embedded instance shares its graph with
+  // NotebookPanel's own useUndoHistory, so a second independent history
+  // here would double-fire on Ctrl+Z. applyState also resets any
+  // in-progress multi-click selection (pending/pendingAngle/pendingPolygon)
+  // -- those hold point ids that may not exist in the restored snapshot,
+  // so completing an in-progress construction across an undo/redo would
+  // reference a stale or now-nonexistent point.
+  const history = useUndoHistory(
+    graph,
+    () => getCurrentGeometryState(graph, listIds),
+    (state) => {
+      applyGeometryState(graph, listIds, state);
+      setPending(null);
+      setPendingAngle([]);
+      setPendingPolygon([]);
+    },
+    250,
+    undefined,
+    syncUrl,
+  );
 
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const saveGraphFn = useServerFn(saveGraph);
@@ -733,6 +790,12 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
             Save to gallery
+          </button>{" "}
+          <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
+            ↩ Undo
+          </button>{" "}
+          <button type="button" onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z / Cmd+Y)">
+            ↪ Redo
           </button>
           {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>
