@@ -1,9 +1,116 @@
 import type { Path2D as MalloryPath } from "mallory-math";
 import type { ImplicitBox } from "./interval-implicit.ts";
 import type { ImplicitSegment } from "./sample-implicit.ts";
+import { getThemeColors } from "./theme-colors.ts";
 import { toScreenX, toScreenY, type Viewport } from "./viewport.ts";
 
 export type { Viewport } from "./viewport.ts";
+
+/**
+ * Nice round tick values spanning [min, max], D3-style "nice numbers":
+ * pick a step from {1, 2, 5} x 10^k closest to (range / targetCount), then
+ * emit every step-multiple inside the range. Ticks are generated as integer
+ * multiples of `step` via an index loop (not accumulated by repeated
+ * addition), and rounded to `step`'s own decimal precision, so labels read
+ * "0.5" rather than "0.49999999999999994" from float accumulation drift.
+ */
+export function computeNiceTicks(min: number, max: number, targetCount = 6): number[] {
+  if (!(max > min) || targetCount < 1) return [];
+  const roughStep = (max - min) / targetCount;
+  const exponent = Math.floor(Math.log10(roughStep));
+  const magnitude = 10 ** exponent;
+  const residual = roughStep / magnitude;
+  const niceResidual = residual > 5 ? 10 : residual > 2 ? 5 : residual > 1 ? 2 : 1;
+  const step = niceResidual * magnitude;
+  const decimals = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  const startIndex = Math.ceil(min / step - 1e-9);
+  const endIndex = Math.floor(max / step + 1e-9);
+  const ticks: number[] = [];
+  for (let i = startIndex; i <= endIndex; i++) {
+    ticks.push(Number((i * step).toFixed(decimals)));
+  }
+  return ticks;
+}
+
+/**
+ * Draw x/y axis lines + numeric tick marks (issue #150 — nearly every panel
+ * had no coordinate reference at all). Reads theme colors itself (matching
+ * `drawCayleyTable`'s self-contained convention) so call sites stay a single
+ * line: `theme.muted` for the axis lines/tick marks, `theme.ink` for labels.
+ *
+ * Axis lines sit at the true data-value-0 position when it's within the
+ * viewport; when panning/zooming has moved the viewport entirely to one
+ * side of zero, that axis (and its ticks) hugs the nearest screen edge
+ * instead of vanishing off-canvas -- standard graphing-calculator behavior,
+ * so ticks stay legible while panning. Tick labels flip to the inward side
+ * whenever the default side would otherwise clip off-canvas (x-axis labels
+ * flip from below to above when hugging the bottom edge; y-axis labels flip
+ * from left to right when hugging the left edge).
+ *
+ * The origin's "0" label is only ever drawn once (on the y-axis) even
+ * though 0 can appear in both tick sets, to avoid two overlapping "0"s at
+ * the origin when both axes are in view.
+ */
+export function drawAxes(
+  ctx: CanvasRenderingContext2D,
+  viewport: Viewport,
+  width: number,
+  height: number,
+  options: { targetTickCount?: number } = {},
+): void {
+  const { xMin, xMax, yMin, yMax } = viewport;
+  if (!(xMax > xMin) || !(yMax > yMin)) return;
+  const theme = getThemeColors();
+  const targetTickCount = options.targetTickCount ?? 6;
+  const tickHalf = 4;
+
+  const xAxisAtBottom = yMin > 0; // whole viewport is above y=0 -> axis line hugs the bottom edge
+  const xAxisAtTop = yMax < 0; // whole viewport is below y=0 -> axis line hugs the top edge
+  const xAxisSy = xAxisAtBottom ? height : xAxisAtTop ? 0 : toScreenY(0, viewport, height);
+
+  const yAxisAtRight = xMax < 0; // whole viewport is left of x=0 -> axis line hugs the right edge
+  const yAxisAtLeft = xMin > 0; // whole viewport is right of x=0 -> axis line hugs the left edge
+  const yAxisSx = yAxisAtRight ? width : yAxisAtLeft ? 0 : toScreenX(0, viewport, width);
+
+  ctx.save();
+  ctx.strokeStyle = theme.muted;
+  ctx.fillStyle = theme.ink;
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.lineWidth = 1;
+
+  ctx.beginPath();
+  ctx.moveTo(0, xAxisSy);
+  ctx.lineTo(width, xAxisSy);
+  ctx.moveTo(yAxisSx, 0);
+  ctx.lineTo(yAxisSx, height);
+  ctx.stroke();
+
+  const xLabelBelow = !xAxisAtBottom;
+  ctx.textAlign = "center";
+  ctx.textBaseline = xLabelBelow ? "top" : "bottom";
+  for (const v of computeNiceTicks(xMin, xMax, targetTickCount)) {
+    const sx = toScreenX(v, viewport, width);
+    ctx.beginPath();
+    ctx.moveTo(sx, xAxisSy - tickHalf);
+    ctx.lineTo(sx, xAxisSy + tickHalf);
+    ctx.stroke();
+    if (v !== 0) ctx.fillText(String(v), sx, xAxisSy + (xLabelBelow ? tickHalf + 2 : -(tickHalf + 2)));
+  }
+
+  const yLabelLeft = !yAxisAtLeft;
+  ctx.textAlign = yLabelLeft ? "right" : "left";
+  ctx.textBaseline = "middle";
+  for (const v of computeNiceTicks(yMin, yMax, targetTickCount)) {
+    const sy = toScreenY(v, viewport, height);
+    ctx.beginPath();
+    ctx.moveTo(yAxisSx - tickHalf, sy);
+    ctx.lineTo(yAxisSx + tickHalf, sy);
+    ctx.stroke();
+    ctx.fillText(String(v), yAxisSx + (yLabelLeft ? -(tickHalf + 4) : tickHalf + 4), sy);
+  }
+
+  ctx.restore();
+}
 
 /**
  * Draw a marching-squares implicit-curve trace: disconnected line segments,

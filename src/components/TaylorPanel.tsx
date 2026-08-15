@@ -2,7 +2,7 @@ import type { Path2D } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsTaylor, type CellIdsTaylor } from "../lib/cell-ids.ts";
-import { drawPath, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { computeLimit, computeTaylorApproximation, type LimitDirection } from "../lib/taylor-approx.ts";
 import { DEFAULT_TAYLOR_STATE, decodeTaylorState, encodeTaylorState, type TaylorState } from "../lib/taylor-state.ts";
@@ -128,6 +128,7 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (approx.ok) {
       drawPath(ctx, approx.fPath, viewport, WIDTH, HEIGHT);
       drawPath(ctx, approx.taylorPath, viewport, WIDTH, HEIGHT);

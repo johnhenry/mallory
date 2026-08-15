@@ -12,6 +12,7 @@ import {
   type MultiGraphState,
 } from "../lib/multi-graph-state.ts";
 import {
+  drawAxes,
   drawExpressionLayer,
   drawFilledArea,
   drawOpenCircles,
@@ -615,6 +616,7 @@ export function GraphCanvasMulti() {
       if (!ctx) return;
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
       const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
+      drawAxes(ctx, viewport, WIDTH, HEIGHT);
       const theme = getThemeColors();
       for (const id of graph.get<string[]>(EXPRESSION_LIST_CELL)) {
         const ids = cellIdsMultiRow(id);

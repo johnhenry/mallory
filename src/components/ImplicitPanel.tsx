@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsImplicit } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
-import { drawImplicitBoxes, drawImplicitCurve, drawVectorField, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawImplicitBoxes, drawImplicitCurve, drawVectorField, type Viewport } from "../lib/render-path.ts";
 import { sampleImplicitCurve, type ImplicitSegment } from "../lib/sample-implicit.ts";
 import { sampleImplicitCurveIntervalBoxes, type ImplicitBox } from "../lib/interval-implicit.ts";
 import { computeContourLevels, type ContourLevel } from "../lib/contour-plot.ts";
@@ -191,6 +191,7 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (showIntervalBoxes && intervalBoxesResult.ok) {
       drawImplicitBoxes(ctx, intervalBoxesResult.boxes, viewport, WIDTH, HEIGHT);
     }

@@ -9,7 +9,7 @@ import {
   type GradientDescentState,
 } from "../lib/gradient-descent-state.ts";
 import { runGradientDescent, type DescentResult, type OptimizerType } from "../lib/gradient-descent.ts";
-import { drawImplicitCurve, drawPoint, drawPolyline } from "../lib/render-path.ts";
+import { drawAxes, drawImplicitCurve, drawPoint, drawPolyline } from "../lib/render-path.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewport.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -214,6 +214,7 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, VIEWPORT, WIDTH, HEIGHT);
     if (contoursResult.ok) {
       for (const level of contoursResult.value) {
         drawImplicitCurve(ctx, level.segments, VIEWPORT, WIDTH, HEIGHT, "rgba(148, 163, 184, 0.6)");

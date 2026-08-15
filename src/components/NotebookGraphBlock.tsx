@@ -2,7 +2,7 @@ import type { Path2D } from "mallory-math";
 import { useEffect, useRef } from "react";
 import type { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, cellIdsNotebookBlock } from "../lib/cell-ids.ts";
-import { drawExpressionLayer, drawPath, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawExpressionLayer, drawPath, type Viewport } from "../lib/render-path.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { ExpressionRow } from "./ExpressionRow.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -70,6 +70,7 @@ export function NotebookGraphBlock({
       if (!ctx) return;
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
       const viewport = graph.get<Viewport>(blockIds.viewport);
+      drawAxes(ctx, viewport, WIDTH, HEIGHT);
       for (const id of graph.get<string[]>(blockIds.expressionList)) {
         const ids = cellIdsMultiRow(id);
         try {

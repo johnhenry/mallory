@@ -20,7 +20,7 @@ import { autoFitViewport, mapGridLines, polarGridLines, rectangularGridLines, ty
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { polylinesToSvgDocument } from "../lib/svg-export.ts";
-import { drawPolyline, drawScatter } from "../lib/render-path.ts";
+import { drawAxes, drawPolyline, drawScatter } from "../lib/render-path.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -318,6 +318,7 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     if (!parseResult.ok) return;
     const expr = parseResult.value;
     renderDomainColoring(ctx, WIDTH, HEIGHT, VIEWPORT, (z) => evaluateComplex(expr, complexParamEnv(params, z)));
+    drawAxes(ctx, VIEWPORT, WIDTH, HEIGHT);
     if (showRootsOfUnity && rootsResult.ok) {
       const points = rootsResult.value.map((r) => ({ x: r.value, y: r.iValue }));
       drawScatter(ctx, points, VIEWPORT, WIDTH, HEIGHT, 6, "#111827");
@@ -343,6 +344,7 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
     if (!showConformalGrid || !conformalGridResult.ok) return;
     const { wLines, wViewport } = conformalGridResult.value;
+    drawAxes(ctx, wViewport, WIDTH, HEIGHT);
     for (const line of wLines) drawPolyline(ctx, line, wViewport, WIDTH, HEIGHT, "#2563eb");
   }, [showConformalGrid, conformalGridResult]);
 

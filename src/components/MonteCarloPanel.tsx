@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Rng } from "mallory-tensor-core";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMonteCarlo, type CellIdsMonteCarlo } from "../lib/cell-ids.ts";
-import { drawHistogram, drawPath, drawPolyline, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawHistogram, drawPath, drawPolyline, drawScatter, type Viewport } from "../lib/render-path.ts";
 import {
   estimateDartPi,
   estimateMonteCarloIntegral,
@@ -223,6 +223,7 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
     if (dartResult.ok) {
       const viewport: Viewport = { xMin: -1, xMax: 1, yMin: -1, yMax: 1 };
+      drawAxes(ctx, viewport, WIDTH, HEIGHT);
       const inside = dartResult.result.points.filter((p) => p.inside);
       const outside = dartResult.result.points.filter((p) => !p.inside);
       drawScatter(ctx, inside, viewport, WIDTH, HEIGHT, 1.5, "#16a34a");
@@ -237,6 +238,7 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
     if (dartResult.ok && dartResult.result.convergence.length > 0) {
       const maxN = dartResult.result.n;
       const viewport: Viewport = { xMin: 0, xMax: maxN, yMin: 2.5, yMax: 4 };
+      drawAxes(ctx, viewport, WIDTH, 120);
       const pts = dartResult.result.convergence.map((c) => ({ x: c.n, y: c.estimate }));
       drawScatter(ctx, pts, viewport, WIDTH, 120, 1.5, "#2563eb");
       // pi reference line
@@ -265,6 +267,7 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
       const minX = bins[0]?.x0 ?? 0;
       const maxX = bins[bins.length - 1]?.x1 ?? 1;
       const countViewport: Viewport = { xMin: minX, xMax: maxX, yMin: 0, yMax: maxCount };
+      drawAxes(ctx, countViewport, WIDTH, HEIGHT);
       drawHistogram(ctx, bins, countViewport, WIDTH, HEIGHT);
       // Density curve is drawn against a *proportion* scale (count/n / binWidth would
       // be true density), so it's overlaid on a separate rescaled pass rather than
@@ -292,6 +295,7 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
     const yMax = Math.max(trueValue, ...bandHi);
     const pad = Math.max((yMax - yMin) * 0.1, 1e-6);
     const viewport: Viewport = { xMin: 0, xMax: n, yMin: yMin - pad, yMax: yMax + pad };
+    drawAxes(ctx, viewport, WIDTH, height);
 
     ctx.save();
     ctx.fillStyle = "rgba(37, 99, 235, 0.15)";

@@ -14,7 +14,7 @@ import {
   type TracedRref,
 } from "../lib/matrix-ops.ts";
 import { DEFAULT_MATRIX_STATE, decodeMatrixState, encodeMatrixState, type MatrixState } from "../lib/matrix-state.ts";
-import { drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -149,16 +149,7 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
       const points = polyRoots.value.map((r) => ({ x: r.value, y: r.iValue }));
       const maxAbs = Math.max(1, ...points.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y))));
       const viewport: Viewport = { xMin: -maxAbs * 1.2, xMax: maxAbs * 1.2, yMin: -maxAbs * 1.2, yMax: maxAbs * 1.2 };
-      // axes
-      ctx.save();
-      ctx.strokeStyle = "#e5e7eb";
-      ctx.beginPath();
-      ctx.moveTo(ROOT_CANVAS_SIZE / 2, 0);
-      ctx.lineTo(ROOT_CANVAS_SIZE / 2, ROOT_CANVAS_SIZE);
-      ctx.moveTo(0, ROOT_CANVAS_SIZE / 2);
-      ctx.lineTo(ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE / 2);
-      ctx.stroke();
-      ctx.restore();
+      drawAxes(ctx, viewport, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE);
       drawScatter(ctx, points, viewport, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE, 4, "#dc2626");
     }
   }, [polyRoots]);

@@ -5,7 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { cellIdsOde, type CellIdsOde } from "../lib/cell-ids.ts";
 import { startOdeExportJob } from "../lib/export-ode-video.ts";
 import { VideoExportControls } from "./VideoExportControls.tsx";
-import { drawPath, drawSlopeField, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawPath, drawSlopeField, type Viewport } from "../lib/render-path.ts";
 import { attemptOdeClosedForm, type OdeClosedFormAttempt, sampleOdeSolution, sampleSlopeField, type SlopeFieldPoint } from "../lib/sample-ode.ts";
 import { DEFAULT_ODE_STATE, decodeOdeState, encodeOdeState, type OdeState } from "../lib/ode-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
@@ -207,6 +207,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (slopeField.ok) drawSlopeField(ctx, slopeField.points, viewport, WIDTH, HEIGHT);
     if (solution.ok) drawPath(ctx, solution.path, viewport, WIDTH, HEIGHT);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -13,7 +13,7 @@ import {
 } from "../lib/statistics-state.ts";
 import { HYPOTHESIS_TEST_LABELS, runHypothesisTest, type HypothesisTestResult, type HypothesisTestType } from "../lib/hypothesis-test.ts";
 import { buildKernel, residualSeries, smoothSeries, type KernelType, type SmoothedSeries } from "../lib/smoothing.ts";
-import { drawPolyline, drawScatter } from "../lib/render-path.ts";
+import { drawAxes, drawPolyline, drawScatter } from "../lib/render-path.ts";
 import type { Viewport } from "../lib/viewport.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -351,6 +351,7 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
     const maxY = Math.max(...allY);
     const pad = Math.max(1e-9, (maxY - minY) * 0.1);
     const viewport: Viewport = { xMin: 0, xMax: rawData.length - 1, yMin: minY - pad, yMax: maxY + pad };
+    drawAxes(ctx, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
     const rawPoints = rawData.map((y, x) => ({ x, y }));
     drawScatter(ctx, rawPoints, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, 2.5, "#93c5fd");
     const smoothedPoints = smoothed.indices.map((idx, i) => ({ x: idx, y: smoothed.values[i]! }));
@@ -367,6 +368,7 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
     const { smoothed, residuals } = smoothingResult;
     const maxAbs = Math.max(1e-9, ...residuals.map((r) => Math.abs(r)));
     const viewport: Viewport = { xMin: 0, xMax: smoothed.indices[smoothed.indices.length - 1] ?? 0, yMin: -maxAbs * 1.1, yMax: maxAbs * 1.1 };
+    drawAxes(ctx, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
     const points = smoothed.indices.map((idx, i) => ({ x: idx, y: residuals[i]! }));
     drawPolyline(ctx, points, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, "#16a34a");
   }, [smoothingResult, smoothingShowResidual]);

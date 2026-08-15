@@ -16,7 +16,7 @@ import {
 } from "../lib/signal-waveform.ts";
 import { crossCorrelate, type CorrelationResult } from "../lib/signal-correlation.ts";
 import { resampleWaveform } from "../lib/signal-resample.ts";
-import { drawPoint, drawPolyline } from "../lib/render-path.ts";
+import { drawAxes, drawPoint, drawPolyline } from "../lib/render-path.ts";
 import { polylineToSvgDocument } from "../lib/svg-export.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
@@ -298,6 +298,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     ctx.clearRect(0, 0, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
     if (!waveformResult.ok) return;
     const { points, viewport } = waveformPlot(waveformResult.value);
+    drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
     drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
   }, [waveformResult]);
 
@@ -309,6 +310,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     ctx.clearRect(0, 0, SPECTRUM_WIDTH, SPECTRUM_HEIGHT);
     if (!spectrumResult.ok) return;
     const { points, viewport } = spectrumPlot(spectrumResult.value);
+    drawAxes(ctx, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT);
     drawPolyline(ctx, points, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, "#dc2626");
     if (showPeaks && peaksResult.ok) {
       for (const peak of peaksResult.value) {
@@ -335,6 +337,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     ctx.clearRect(0, 0, CORRELATION_WIDTH, CORRELATION_HEIGHT);
     if (!showCorrelation || !correlationResult.ok) return;
     const { points, viewport } = correlationPlot(correlationResult.value);
+    drawAxes(ctx, viewport, CORRELATION_WIDTH, CORRELATION_HEIGHT);
     drawPolyline(ctx, points, viewport, CORRELATION_WIDTH, CORRELATION_HEIGHT, "#7c3aed");
     drawPoint(
       ctx,
@@ -355,6 +358,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     ctx.clearRect(0, 0, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
     if (!showResample || !resampleResult.ok) return;
     const { points, viewport } = waveformPlot(resampleResult.value);
+    drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
     drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0891b2");
   }, [showResample, resampleResult]);
 

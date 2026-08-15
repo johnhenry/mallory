@@ -8,7 +8,7 @@ import {
   type FourierState,
 } from "../lib/fourier-state.ts";
 import { sampleFourierPartialSum, type FourierWaveType } from "../lib/fourier-series.ts";
-import { drawPolyline, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawPolyline, type Viewport } from "../lib/render-path.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -99,6 +99,7 @@ export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {})
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, VIEWPORT, WIDTH, HEIGHT);
     if (!samples.ok) return;
     ctx.save();
     ctx.strokeStyle = "var(--muted)";

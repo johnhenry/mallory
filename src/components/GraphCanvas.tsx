@@ -14,7 +14,7 @@ import { evaluateExactAt } from "../lib/exact-eval.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { resolveNavigationCommand } from "../lib/nav-sections.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
-import { drawFilledArea, drawPath, drawPoint, drawRegionMask, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawFilledArea, drawPath, drawPoint, drawRegionMask, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { sampleExpr, sampleExprAdaptive, sampleRegionMask } from "../lib/sample-function.ts";
 import { sampleStructureExpr, type ScatterPoint } from "../lib/sample-structure.ts";
 import { evaluateDerivativeAtPoint } from "../lib/point-derivative.ts";
@@ -592,6 +592,7 @@ export function GraphCanvas({
     const ctx = canvas?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (scatter) {
       drawScatter(ctx, scatter, viewport, WIDTH, HEIGHT);
     } else {
