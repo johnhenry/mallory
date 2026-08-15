@@ -3,7 +3,9 @@ import { test } from "node:test";
 import { inferColumnType, numericColumn, pairedNumericColumns, parseCsv } from "./csv-import.ts";
 
 test("parseCsv: plain grid, LF line endings, trailing newline tolerated", () => {
-  assert.deepEqual(parseCsv("a,b\n1,2\n3,4\n"), { header: ["a", "b"], rows: [["1", "2"], ["3", "4"]] });
+  const parsed = parseCsv("a,b\n1,2\n3,4\n");
+  assert.deepEqual(parsed.header, ["a", "b"]);
+  assert.deepEqual(parsed.rows, [["1", "2"], ["3", "4"]]);
 });
 
 test("parseCsv: quoted fields keep commas; doubled quotes escape; newline survives inside quotes; CRLF endings work", () => {
@@ -44,11 +46,24 @@ test("numericColumn: extracts finite values and reports (never silently drops) s
   assert.throws(() => numericColumn(parsed, 5), /No column at index 5/);
 });
 
-test("inferColumnType: all-numeric (ignoring empties) is number; any non-numeric or all-empty is text", () => {
+test("inferColumnType: real per-column dtype from Frame.fromCSV's own inference (int/float widening, utf8 fallback)", () => {
   const parsed = parseCsv("a,b,c\n1,x,\n2.5,3,");
-  assert.equal(inferColumnType(parsed, 0), "number");
-  assert.equal(inferColumnType(parsed, 1), "text");
-  assert.equal(inferColumnType(parsed, 2), "text"); // no numeric evidence at all
+  // column a mixes an integer- and decimal-looking cell -> widens to float64 (matches schema-infer.ts's own arithmetic-promotion rule).
+  assert.equal(inferColumnType(parsed, 0), "float64");
+  // column b mixes "x" (non-numeric) with "3" -> the whole column widens to utf8, not just the bad cell.
+  assert.equal(inferColumnType(parsed, 1), "utf8");
+  assert.equal(inferColumnType(parsed, 2), "utf8"); // no numeric evidence at all -- utf8 fallback
+});
+
+test("numericColumn: an all-integer column arrives as real bigint from Frame -- Number() converts correctly", () => {
+  const parsed = parseCsv("n\n10\n20\n30\n");
+  assert.equal(typeof parsed.typedRows[0]?.n, "bigint");
+  assert.deepEqual(numericColumn(parsed, 0), { values: [10, 20, 30], skipped: 0 });
+});
+
+test("inferColumnType: an all-integer column infers int64, not float64", () => {
+  const parsed = parseCsv("n\n1\n2\n3\n");
+  assert.equal(inferColumnType(parsed, 0), "int64");
 });
 
 test("pairedNumericColumns: a row skips as a UNIT when either side is non-numeric (regression needs aligned pairs)", () => {
