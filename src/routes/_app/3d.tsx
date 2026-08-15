@@ -3,6 +3,7 @@ import { CategoryTabs } from "~/components/CategoryTabs.tsx";
 import { GradientDescentPanel } from "~/components/GradientDescentPanel.tsx";
 import { Linked3DView } from "~/components/Linked3DView.tsx";
 import { ParametricSurfacePanel } from "~/components/ParametricSurfacePanel.tsx";
+import { SpaceCurvePanel } from "~/components/SpaceCurvePanel.tsx";
 import { VectorField3DPanel } from "~/components/VectorField3DPanel.tsx";
 
 interface ThreeDSearch {
@@ -30,6 +31,7 @@ function ThreeDPage() {
         tabs={[
           { label: "z = f(x, y)", key: "height-field", render: () => <Linked3DView /> },
           { label: "Parametric surface", key: "parametric", render: () => <ParametricSurfacePanel /> },
+          { label: "Space curve", key: "space-curve", render: () => <SpaceCurvePanel /> },
           { label: "Vector field", key: "vector-field", render: () => <VectorField3DPanel /> },
           { label: "Gradient descent", key: "gradient-descent", render: () => <GradientDescentPanel /> },
         ]}
