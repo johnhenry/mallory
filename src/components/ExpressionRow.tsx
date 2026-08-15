@@ -5,12 +5,17 @@ import { cellIdsMultiRow, notebookValueCellId, VIEWPORT_CELL } from "../lib/cell
 import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import type { Viewport } from "../lib/render-path.ts";
-import { findDiscontinuities, findRootCrossings, sampleExprAdaptive } from "../lib/sample-function.ts";
+import { findDiscontinuities, findRootCrossings, sampleExpr, sampleExprAdaptive } from "../lib/sample-function.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { MathInput } from "./MathInput.tsx";
 
 const RESOLUTION = 400;
 const AXIS_VARIABLE = "x";
+
+interface AreaResult {
+  value: number;
+  path: ReturnType<typeof sampleExpr>;
+}
 
 /**
  * Sets up one row's reactive cells: expr -> freeVars -> per-variable slider
@@ -47,6 +52,16 @@ function useRowCells(graph: CellGraph, rowId: string, viewportCellId: string = V
     if (!graph.hasValue(ids.path)) {
       graph.set(ids.strict, false, { auxiliary: true });
       graph.set(ids.showDerivative, false, { auxiliary: true });
+
+      // Area-under-curve (issue #51): bounds are plain fixed numeric
+      // inputs, not the auto-inferred-slider mechanism, same reasoning as
+      // GraphCanvas's own ids.areaLower/areaUpper. Seeded from the current
+      // viewport at row-creation time, not read live, so an in-progress
+      // pan/zoom doesn't silently move a bound the user already set.
+      graph.set(ids.showArea, false, { auxiliary: true });
+      const initialViewport = graph.get<Viewport>(viewportCellId);
+      graph.set(ids.areaLower, initialViewport.xMin, { auxiliary: true });
+      graph.set(ids.areaUpper, (initialViewport.xMin + initialViewport.xMax) / 2, { auxiliary: true });
 
       graph.define(
         ids.freeVars,
@@ -196,6 +211,42 @@ function useRowCells(graph: CellGraph, rowId: string, viewportCellId: string = V
         },
         { auxiliary: true },
       );
+
+      // Area-under-curve value + shaded fill (issue #51), same "off costs
+      // nothing" convention as derivativePath above. Symbolic.integrateDefinite
+      // gives the exact numeric value; sampleExpr (not the adaptive sampler)
+      // re-renders the fill polygon over just [lower, upper] since a filled
+      // region's edge doesn't need curvature-driven refinement the way a
+      // stroked line does -- matches GraphCanvas's own choice for this cell.
+      let lastGoodArea: AreaResult | null = null;
+      graph.define(
+        ids.area,
+        (): AreaResult | null => {
+          if (!graph.get<boolean>(ids.showArea)) return null;
+          try {
+            const lower = graph.get<number>(ids.areaLower);
+            const upper = graph.get<number>(ids.areaUpper);
+            const params = graph.get<Record<string, number>>(ids.params);
+            const viewport = graph.get<Viewport>(viewportCellId);
+            const expr = Symbolic.parse(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
+            const value = Symbolic.integrateDefinite(expr, lower, upper, AXIS_VARIABLE, params);
+            const path = sampleExpr(
+              expr,
+              { min: Math.min(lower, upper), max: Math.max(lower, upper) },
+              RESOLUTION,
+              AXIS_VARIABLE,
+              params,
+              graph.get<number>(ids.color),
+              { min: viewport.yMin, max: viewport.yMax },
+            );
+            lastGoodArea = { value, path };
+          } catch {
+            // Keep the last good shaded region/value on a mid-typing parse error or an out-of-domain bound.
+          }
+          return lastGoodArea;
+        },
+        { auxiliary: true },
+      );
     }
   }
   return ids;
@@ -218,6 +269,10 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
   const freeVars = useCell<string[]>(graph, ids.freeVars);
   const strict = useCell<boolean>(graph, ids.strict);
   const showDerivative = useCell<boolean>(graph, ids.showDerivative);
+  const showArea = useCell<boolean>(graph, ids.showArea);
+  const areaLower = useCell<number>(graph, ids.areaLower);
+  const areaUpper = useCell<number>(graph, ids.areaUpper);
+  const area = useCell<AreaResult | null>(graph, ids.area);
   const error = useCell<string | null>(graph, ids.error);
   const [exprInput, setExprInput] = useState(expr);
   const [useMathKeyboard, setUseMathKeyboard] = useState(false);
@@ -313,6 +368,31 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
           />{" "}
           f'
         </label>
+        <label style={{ fontSize: "0.78rem", color: "var(--muted)" }} title="Shade the area under this curve between two bounds">
+          <input type="checkbox" checked={showArea} onChange={(e) => graph.set(ids.showArea, e.target.checked)} />{" "}
+          ∫
+        </label>
+        {showArea && (
+          <span style={{ fontSize: "0.78rem", color: "var(--muted)", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+            [
+            <input
+              type="number"
+              value={areaLower}
+              step="any"
+              style={{ font: "inherit", width: "5ch" }}
+              onChange={(e) => graph.set(ids.areaLower, Number(e.target.value))}
+            />
+            ,
+            <input
+              type="number"
+              value={areaUpper}
+              step="any"
+              style={{ font: "inherit", width: "5ch" }}
+              onChange={(e) => graph.set(ids.areaUpper, Number(e.target.value))}
+            />
+            ] {area ? `= ${area.value.toFixed(4)}` : ""}
+          </span>
+        )}
         {freeVars.map((name) =>
           graph.hasValue(notebookValueCellId(name)) ? (
             <span key={name} style={{ fontSize: "0.78rem", color: "var(--muted)" }} title={`Sourced from the "${name}" value block`}>

@@ -11,7 +11,7 @@ import {
   type MultiGraphAnnotation,
   type MultiGraphState,
 } from "../lib/multi-graph-state.ts";
-import { drawExpressionLayer, drawOpenCircles, drawPath, drawPoint, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawExpressionLayer, drawFilledArea, drawOpenCircles, drawPath, drawPoint, drawScatter, hexToRgba, type Viewport } from "../lib/render-path.ts";
 import { findNearestPointOnRows, type PointReadout } from "../lib/point-readout.ts";
 import { isCoarsePointer } from "../lib/pointer-media.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -586,6 +586,17 @@ export function GraphCanvasMulti() {
         try {
           const path = graph.get<Path2D>(ids.path);
           const visible = graph.get<boolean>(ids.visible);
+          if (visible) {
+            // Area shading (issue #51) draws BEFORE the curve stroke below,
+            // same layering GraphCanvas's own single-pane version uses, so
+            // the line renders on top of its own fill instead of being
+            // covered by it.
+            const areaResult = graph.get<{ value: number; path: Path2D } | null>(ids.area);
+            if (areaResult) {
+              const color = graph.get<number>(ids.color);
+              drawFilledArea(ctx, areaResult.path, viewport, WIDTH, HEIGHT, hexToRgba(color, 0.25));
+            }
+          }
           drawExpressionLayer(ctx, path, visible, viewport, WIDTH, HEIGHT);
           if (visible) {
             const roots = graph.get<{ x: number; y: number }[]>(ids.roots);
