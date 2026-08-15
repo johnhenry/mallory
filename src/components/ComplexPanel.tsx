@@ -28,7 +28,7 @@ const WIDTH = 480;
 const HEIGHT = 480;
 const VIEWPORT: Viewport = { xMin: -3, xMax: 3, yMin: -3, yMax: 3 };
 
-function seedComplexState(graph: CellGraph, ids: CellIdsComplex, state: ComplexState): void {
+export function seedComplexState(graph: CellGraph, ids: CellIdsComplex, state: ComplexState): void {
   graph.set(ids.exprText, state.exprText);
   graph.set(ids.probeRe, state.probeRe);
   graph.set(ids.probeIm, state.probeIm);
@@ -69,72 +69,86 @@ interface ConformalGridReading {
 }
 
 /**
- * Sets up the complex-plane panel's reactive cells on its own private
- * CellGraph -- a function-of-z domain plus a probe point and a roots-of-
- * unity demo, none of which fit `cellIds`/GraphCanvas's real-axis-only
- * expression shape (see complex-eval.ts's doc comment for why `Symbolic`'s
- * own evaluators can't be reused here either).
+ * Sets up the complex-plane panel's reactive cells -- a function-of-z
+ * domain plus a probe point and a roots-of-unity demo, none of which fit
+ * `cellIds`/GraphCanvas's real-axis-only expression shape (see
+ * complex-eval.ts's doc comment for why `Symbolic`'s own evaluators can't
+ * be reused here either). Shares an `externalGraph` when supplied (e.g. a
+ * notebook block) instead of creating a private one, mirroring OdePanel's
+ * `useOdeGraph`. URL-hash hydration only applies to the standalone,
+ * private-graph case, since an external graph's owner (NotebookPanel) is
+ * responsible for its own seeding.
  */
-function useComplexGraph(cellId: string): CellGraph {
+function useComplexGraph(cellId: string, externalGraph?: CellGraph): CellGraph {
   const ref = useRef<CellGraph | null>(null);
   if (!ref.current) {
-    const graph = new CellGraph();
+    const graph = externalGraph ?? new CellGraph();
     const ids = cellIdsComplex(cellId);
-    const decoded = typeof window !== "undefined" ? decodeComplexState(window.location.hash.slice(1)) : null;
-    seedComplexState(graph, ids, decoded ?? DEFAULT_COMPLEX_STATE);
+    if (!graph.has(ids.exprText)) {
+      const decoded = !externalGraph && typeof window !== "undefined" ? decodeComplexState(window.location.hash.slice(1)) : null;
+      seedComplexState(graph, ids, decoded ?? DEFAULT_COMPLEX_STATE);
 
-    graph.define(ids.parseResult, (): Result<Expr> => {
-      try {
-        return { ok: true, value: Symbolic.parse(graph.get<string>(ids.exprText)) };
-      } catch (e) {
-        return { ok: false, message: e instanceof Error ? e.message : String(e) };
-      }
-    });
+      graph.define(ids.parseResult, (): Result<Expr> => {
+        try {
+          return { ok: true, value: Symbolic.parse(graph.get<string>(ids.exprText)) };
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        }
+      });
 
-    graph.define(ids.probeResult, (): Result<ProbeReading> => {
-      try {
-        const parsed = graph.get<Result<Expr>>(ids.parseResult);
-        if (!parsed.ok) throw new Error(parsed.message);
-        const re = Number(graph.get<string>(ids.probeRe));
-        const im = Number(graph.get<string>(ids.probeIm));
-        if (Number.isNaN(re) || Number.isNaN(im)) throw new Error("Probe re/im must both be numbers.");
-        const w = evaluateComplex(parsed.value, { z: new ComplexNumber(re, im) });
-        return { ok: true, value: { re: w.value, im: w.iValue, magnitude: w.magnitude(), angle: w.angle() } };
-      } catch (e) {
-        return { ok: false, message: e instanceof Error ? e.message : String(e) };
-      }
-    });
+      graph.define(ids.probeResult, (): Result<ProbeReading> => {
+        try {
+          const parsed = graph.get<Result<Expr>>(ids.parseResult);
+          if (!parsed.ok) throw new Error(parsed.message);
+          const re = Number(graph.get<string>(ids.probeRe));
+          const im = Number(graph.get<string>(ids.probeIm));
+          if (Number.isNaN(re) || Number.isNaN(im)) throw new Error("Probe re/im must both be numbers.");
+          const w = evaluateComplex(parsed.value, { z: new ComplexNumber(re, im) });
+          return { ok: true, value: { re: w.value, im: w.iValue, magnitude: w.magnitude(), angle: w.angle() } };
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        }
+      });
 
-    graph.define(ids.rootsResult, (): Result<ComplexNumber[]> => {
-      try {
-        const n = Number(graph.get<string>(ids.rootsN));
-        return { ok: true, value: nthRootsOfUnity(n) };
-      } catch (e) {
-        return { ok: false, message: e instanceof Error ? e.message : String(e) };
-      }
-    });
+      graph.define(ids.rootsResult, (): Result<ComplexNumber[]> => {
+        try {
+          const n = Number(graph.get<string>(ids.rootsN));
+          return { ok: true, value: nthRootsOfUnity(n) };
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        }
+      });
 
-    graph.define(ids.conformalGridResult, (): Result<ConformalGridReading> => {
-      try {
-        const parsed = graph.get<Result<Expr>>(ids.parseResult);
-        if (!parsed.ok) throw new Error(parsed.message);
-        const expr = parsed.value;
-        const spacing = Number(graph.get<string>(ids.conformalGridSpacing));
-        if (Number.isNaN(spacing) || spacing <= 0) throw new Error("Grid spacing must be a positive number.");
-        const gridType = graph.get<ConformalGridType>(ids.conformalGridType);
-        const zGrid = gridType === "polar" ? polarGridLines(VIEWPORT.xMax, spacing, 12) : rectangularGridLines(VIEWPORT, spacing);
-        const zLines = zGrid.map((line) => line.map((z) => ({ x: z.value, y: z.iValue })));
-        const wLines = mapGridLines(zGrid, (z) => evaluateComplex(expr, { z }));
-        const wViewport = autoFitViewport(wLines, VIEWPORT);
-        return { ok: true, value: { zLines, wLines, wViewport } };
-      } catch (e) {
-        return { ok: false, message: e instanceof Error ? e.message : String(e) };
-      }
-    });
+      graph.define(ids.conformalGridResult, (): Result<ConformalGridReading> => {
+        try {
+          const parsed = graph.get<Result<Expr>>(ids.parseResult);
+          if (!parsed.ok) throw new Error(parsed.message);
+          const expr = parsed.value;
+          const spacing = Number(graph.get<string>(ids.conformalGridSpacing));
+          if (Number.isNaN(spacing) || spacing <= 0) throw new Error("Grid spacing must be a positive number.");
+          const gridType = graph.get<ConformalGridType>(ids.conformalGridType);
+          const zGrid = gridType === "polar" ? polarGridLines(VIEWPORT.xMax, spacing, 12) : rectangularGridLines(VIEWPORT, spacing);
+          const zLines = zGrid.map((line) => line.map((z) => ({ x: z.value, y: z.iValue })));
+          const wLines = mapGridLines(zGrid, (z) => evaluateComplex(expr, { z }));
+          const wViewport = autoFitViewport(wLines, VIEWPORT);
+          return { ok: true, value: { zLines, wLines, wViewport } };
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        }
+      });
+    }
 
     ref.current = graph;
   }
   return ref.current;
+}
+
+export interface ComplexPanelProps {
+  cellId?: string;
+  /** Share an existing CellGraph (e.g. from a notebook block) instead of creating a private one. */
+  graph?: CellGraph;
+  /** Hydrate from and write to the URL fragment. Off for a notebook-embedded instance, whose document owns persistence instead. */
+  syncUrl?: boolean;
 }
 
 /**
@@ -144,8 +158,8 @@ function useComplexGraph(cellId: string): CellGraph {
  * under f) shipped as a follow-up, still part of #20. General zero/pole
  * finding for an arbitrary f(z) and MathLive keyboard entry remain deferred.
  */
-export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {}) {
-  const graph = useComplexGraph(cellId);
+export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncUrl = true }: ComplexPanelProps = {}) {
+  const graph = useComplexGraph(cellId, externalGraph);
   useCellGraphTools(`graphing_complex_${cellId}`, graph);
   const ids = cellIdsComplex(cellId);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -193,13 +207,14 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
   }
 
   useEffect(() => {
+    if (!syncUrl) return;
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeComplexState(getCurrentComplexState(graph, ids))}`);
     }
     writeUrl();
     return graph.subscribeAll(writeUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph]);
+  }, [graph, syncUrl]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -336,12 +351,14 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
         <p style={{ color: "var(--danger)" }}>{probeResult.message}</p>
       )}
 
-      <div style={{ margin: "0.5rem 0" }}>
-        <button type="button" onClick={handleSave}>
-          Save to gallery
-        </button>
-      </div>
-      {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{saveStatus}</p>}
+      {syncUrl && (
+        <div style={{ margin: "0.5rem 0" }}>
+          <button type="button" onClick={handleSave}>
+            Save to gallery
+          </button>
+          {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{saveStatus}</p>}
+        </div>
+      )}
     </div>
   );
 }

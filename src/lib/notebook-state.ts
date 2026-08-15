@@ -1,3 +1,4 @@
+import { isComplexStateV2, type ComplexState } from "./complex-state.ts";
 import { isGeometryStateV1, type GeometryState } from "./geometry-state.ts";
 import { TENSOR_OP_LABELS, type TensorOpType } from "./tensor-block.ts";
 import { isOdeStateV1, type OdeState } from "./ode-state.ts";
@@ -65,6 +66,11 @@ export interface NotebookGeometryBlockStateV1 {
   state: GeometryState;
 }
 
+export interface NotebookComplexBlockStateV1 {
+  type: "complex";
+  state: ComplexState;
+}
+
 /** A small literal tensor (the raw grid TEXT, not a parsed array -- mid-typing invalid input must survive a save/reload round trip) plus one structural/elementwise op applied for display. */
 export interface NotebookTensorBlockStateV1 {
   type: "tensor";
@@ -85,6 +91,7 @@ export type NotebookBlockStateV1 =
   | NotebookStatisticsBlockStateV1
   | NotebookSystemsBlockStateV1
   | NotebookGeometryBlockStateV1
+  | NotebookComplexBlockStateV1
   | NotebookTensorBlockStateV1;
 
 export interface NotebookStateV1 {
@@ -159,6 +166,7 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
   if (b.type === "statistics") return isStatisticsStateV1(b.state);
   if (b.type === "systems") return isSystemStateV1(b.state);
   if (b.type === "geometry") return isGeometryStateV1(b.state);
+  if (b.type === "complex") return isComplexStateV2(b.state);
   if (b.type === "tensor") {
     if (typeof b.source !== "string" || typeof b.op !== "string" || !(b.op in TENSOR_OP_LABELS)) return false;
     return b.opArg === undefined || typeof b.opArg === "number";
