@@ -1,15 +1,42 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { decodeComplexState, encodeComplexState } from "./complex-state.ts";
+import { GALLERY_SEEDS } from "./gallery-seeds.ts";
+import { decodeGeometryState, encodeGeometryState } from "./geometry-state.ts";
+import { decodeLinked3DState, encodeLinked3DState } from "./linked3d-state.ts";
+import { decodeMultiGraphState, encodeMultiGraphState } from "./multi-graph-state.ts";
+import { decodeNotebookState, encodeNotebookState } from "./notebook-state.ts";
+import { decodeOdeState, encodeOdeState } from "./ode-state.ts";
+import { decodeOdeSystemState, encodeOdeSystemState } from "./ode-system-state.ts";
+import { decodeRegressionState, encodeRegressionState } from "./regression-state.ts";
 import {
   deleteSavedGraphRecord,
   ensureSavedGraphsSchema,
   getSavedGraphRecordState,
   insertSavedGraphRecord,
   listSavedGraphRecords,
+  mergeGallerySummaries,
   migrateJsonRecordsIntoDb,
   migrateSavedGraphRecord,
 } from "./saved-graphs.ts";
+import { decodeStatisticsState, encodeStatisticsState } from "./statistics-state.ts";
+import { decodeSystemState, encodeSystemState } from "./system-state.ts";
+
+/** One encode/decode pair per SavedGraphKind that appears in GALLERY_SEEDS -- used to round-trip each seed's `state` through its own codec below. */
+// biome-ignore lint/suspicious/noExplicitAny: each encode*/decode* pair has a different, specific state type; this table intentionally erases that for a generic round-trip loop.
+const CODEC_BY_KIND: Record<string, { encode: (s: any) => string; decode: (f: string) => any }> = {
+  multi: { encode: encodeMultiGraphState, decode: decodeMultiGraphState },
+  complex: { encode: encodeComplexState, decode: decodeComplexState },
+  geometry: { encode: encodeGeometryState, decode: decodeGeometryState },
+  "surface-3d": { encode: encodeLinked3DState, decode: decodeLinked3DState },
+  ode: { encode: encodeOdeState, decode: decodeOdeState },
+  "ode-system": { encode: encodeOdeSystemState, decode: decodeOdeSystemState },
+  regression: { encode: encodeRegressionState, decode: decodeRegressionState },
+  statistics: { encode: encodeStatisticsState, decode: decodeStatisticsState },
+  systems: { encode: encodeSystemState, decode: decodeSystemState },
+  notebook: { encode: encodeNotebookState, decode: decodeNotebookState },
+};
 
 /** A fresh in-memory schema-ready DB per test -- no real filesystem touched, mirroring this file's own no-fs-dependency convention for `migrateSavedGraphRecord`'s tests below. */
 function testDb(): DatabaseSync {
@@ -113,4 +140,44 @@ test("migrateJsonRecordsIntoDb is idempotent -- re-running it against the same r
   migrateJsonRecordsIntoDb(db, records);
   migrateJsonRecordsIntoDb(db, records); // simulates a retried migration after an interrupted first attempt
   assert.equal(listSavedGraphRecords(db).length, 1);
+});
+
+test("GALLERY_SEEDS: every seed's state round-trips through its own kind's encode/decode pair unchanged", () => {
+  for (const seed of GALLERY_SEEDS) {
+    const codec = CODEC_BY_KIND[seed.kind];
+    assert.ok(codec, `no codec registered for kind "${seed.kind}" -- add one to CODEC_BY_KIND above`);
+    const decoded = codec.decode(codec.encode(seed.state));
+    assert.notEqual(decoded, null, `${seed.id}: encode/decode round trip returned null`);
+    assert.deepEqual(decoded, seed.state, `${seed.id}: decoded state does not match the original`);
+  }
+});
+
+test("GALLERY_SEEDS: every id is unique", () => {
+  const ids = GALLERY_SEEDS.map((s) => s.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test("mergeGallerySummaries: DB summaries and seed summaries are merged and sorted newest-first together", () => {
+  const dbSummaries = [
+    { id: "db-old", title: "DB Old", createdAt: 500, kind: "multi" as const },
+    { id: "db-new", title: "DB New", createdAt: 1500, kind: "notebook" as const },
+  ];
+  const seeds = [
+    { id: "seed-a", title: "Seed A", kind: "multi" as const, createdAt: 1000, state: { v: 1 as const, rows: [], viewport: { xMin: 0, xMax: 1, yMin: 0, yMax: 1 }, annotations: [], mode: "float" as const } },
+  ];
+  const merged = mergeGallerySummaries(dbSummaries, seeds);
+  assert.deepEqual(merged, [
+    { id: "db-new", title: "DB New", createdAt: 1500, kind: "notebook" },
+    { id: "seed-a", title: "Seed A", createdAt: 1000, kind: "multi", readOnly: true },
+    { id: "db-old", title: "DB Old", createdAt: 500, kind: "multi" },
+  ]);
+});
+
+test("mergeGallerySummaries: every merged seed summary is marked readOnly, DB summaries are not", () => {
+  const merged = mergeGallerySummaries([{ id: "db-1", title: "Mine", createdAt: 1, kind: "multi" as const }], GALLERY_SEEDS);
+  const dbEntry = merged.find((e) => e.id === "db-1");
+  assert.equal(dbEntry?.readOnly, undefined);
+  const seedEntries = merged.filter((e) => e.id !== "db-1");
+  assert.equal(seedEntries.length, GALLERY_SEEDS.length);
+  assert.ok(seedEntries.every((e) => e.readOnly === true));
 });

@@ -136,9 +136,15 @@ function GalleryPage() {
               <button type="button" onClick={() => copyShortLink(entry)} title="Copy a short /s/:id link that redirects here">
                 Copy short link
               </button>{" "}
-              <button type="button" onClick={() => remove(entry.id)}>
-                Delete
-              </button>
+              {entry.readOnly ? (
+                <span style={{ fontSize: "0.75rem", color: "var(--muted)" }} title="A curated gallery seed -- can't be deleted">
+                  Curated
+                </span>
+              ) : (
+                <button type="button" onClick={() => remove(entry.id)}>
+                  Delete
+                </button>
+              )}
             </li>
           ))}
         </ul>
