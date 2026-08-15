@@ -163,6 +163,7 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   useCellGraphTools(`gradient_descent_${cellId}`, graph);
   const ids = cellIdsGradientDescent(cellId);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const draggingRef = useRef(false);
 
   const exprText = useCell<string>(graph, ids.exprText);
   const startX = useCell<string>(graph, ids.startX);
@@ -233,12 +234,34 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
     }
   }, [contoursResult, descentResults, startX, startY, time]);
 
-  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
+  function setStartFromEvent(e: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const { sx, sy } = canvasEventPoint(e, canvas, WIDTH, HEIGHT);
     graph.set(ids.startX, toDataX(sx, VIEWPORT, WIDTH).toFixed(3));
     graph.set(ids.startY, toDataY(sy, VIEWPORT, HEIGHT).toFixed(3));
+  }
+
+  // True drag interaction (issue #33's remaining scope) -- a plain click
+  // still works (pointerdown+pointerup with no move in between sets the
+  // point once, same as the old onClick), but the start point now also
+  // follows the pointer continuously while held down, rather than only
+  // jumping on release.
+  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    draggingRef.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setStartFromEvent(e);
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!draggingRef.current) return;
+    setStartFromEvent(e);
+  }
+
+  function handlePointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    e.currentTarget.releasePointerCapture(e.pointerId);
   }
 
   function updateExpr(value: string) {
@@ -313,8 +336,10 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
         ref={canvasRef}
         width={WIDTH}
         height={HEIGHT}
-        onClick={handleCanvasClick}
-        style={{ border: "1px solid var(--border)", maxWidth: "100%", cursor: "crosshair" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        style={{ border: "1px solid var(--border)", maxWidth: "100%", cursor: "crosshair", touchAction: "none" }}
       />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="gradient-descent" />
@@ -330,7 +355,7 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
         speed={speed}
         setSpeed={setSpeed}
       />
-      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Click the plot to move the start point.</p>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Click or drag on the plot to move the start point.</p>
       {descentResults.ok && (
         <ul style={{ margin: "0.25rem 0" }}>
           {descentResults.value.map((run) => {
