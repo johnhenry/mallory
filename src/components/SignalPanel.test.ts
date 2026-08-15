@@ -1,6 +1,47 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { spectrumPlot, waveformPlot } from "./SignalPanel.tsx";
+import { Symbolic } from "mallory-math";
+import { buildSumOfSinusoidsExpr, spectrumPlot, waveformPlot } from "./SignalPanel.tsx";
+
+test("buildSumOfSinusoidsExpr: a single term formats as A*sin(2*pi*f*t+p)", () => {
+  assert.equal(buildSumOfSinusoidsExpr([{ amplitude: "1", frequency: "5", phase: "0" }]), "1*sin(2*pi*5*t+0)");
+});
+
+test("buildSumOfSinusoidsExpr: multiple terms join with ' + '", () => {
+  const expr = buildSumOfSinusoidsExpr([
+    { amplitude: "1", frequency: "5", phase: "0" },
+    { amplitude: "0.5", frequency: "12", phase: "0.3" },
+  ]);
+  assert.equal(expr, "1*sin(2*pi*5*t+0) + 0.5*sin(2*pi*12*t+0.3)");
+});
+
+test("buildSumOfSinusoidsExpr: a term with any blank field is skipped (mid-edit row doesn't break the whole expression)", () => {
+  const expr = buildSumOfSinusoidsExpr([
+    { amplitude: "1", frequency: "5", phase: "0" },
+    { amplitude: "", frequency: "12", phase: "0" },
+    { amplitude: "2", frequency: "", phase: "0" },
+    { amplitude: "3", frequency: "7", phase: "" },
+  ]);
+  assert.equal(expr, "1*sin(2*pi*5*t+0)");
+});
+
+test('buildSumOfSinusoidsExpr: an empty (or all-blank) term list falls back to the literal "0"', () => {
+  assert.equal(buildSumOfSinusoidsExpr([]), "0");
+  assert.equal(buildSumOfSinusoidsExpr([{ amplitude: "", frequency: "5", phase: "0" }]), "0");
+});
+
+test("buildSumOfSinusoidsExpr: the generated string parses and evaluates correctly against a hand-computed (plain Math.sin) reference", () => {
+  const expr = buildSumOfSinusoidsExpr([
+    { amplitude: "1", frequency: "5", phase: "0" },
+    { amplitude: "0.5", frequency: "12", phase: "0.3" },
+  ]);
+  const compiled = Symbolic.compile(Symbolic.parse(expr), { declaredVariables: ["t"] });
+  for (const t of [0, 0.02, 0.137]) {
+    const expected = 1 * Math.sin(2 * Math.PI * 5 * t + 0) + 0.5 * Math.sin(2 * Math.PI * 12 * t + 0.3);
+    const actual = compiled({ t }) as number;
+    assert.ok(Math.abs(actual - expected) < 1e-9, `t=${t}: expected ${expected}, got ${actual}`);
+  }
+});
 
 test("waveformPlot: viewport spans the sample time range and +/-1.1x the peak absolute amplitude", () => {
   const { points, viewport } = waveformPlot({ t: [0, 0.5, 1], y: [1, -3, 2], sampleRate: 2 });

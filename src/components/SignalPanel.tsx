@@ -1,7 +1,8 @@
+import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsSignal, type CellIdsSignal } from "../lib/cell-ids.ts";
-import { DEFAULT_SIGNAL_STATE, decodeSignalState, encodeSignalState, type SignalState } from "../lib/signal-state.ts";
+import { DEFAULT_SIGNAL_STATE, decodeSignalState, encodeSignalState, type SignalState, type SinusoidTerm } from "../lib/signal-state.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import {
   amplitudeSpectrum,
@@ -29,6 +30,31 @@ type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 interface PlotSeries {
   points: { x: number; y: number }[];
   viewport: Viewport;
+}
+
+/** A builder row with a React/cell key -- see RegressionRow's identical id-vs-state-shape split (SinusoidTerm, in signal-state.ts, carries no id). */
+interface BuilderTerm extends SinusoidTerm {
+  id: string;
+}
+
+/**
+ * Builds a sum-of-sinusoids expression string ("A*sin(2*pi*f*t+p) + ...")
+ * from builder rows (issue #31's "sum-of-sinusoids builder" alternative to
+ * typing raw expression syntax). Verified empirically against the real
+ * installed mallory-math package before wiring this up: `Symbolic.parse`
+ * accepts this exact shape and `Symbolic.compile` evaluates it correctly
+ * (hand-computed in the test file). A row with a blank amplitude/
+ * frequency/phase is skipped rather than emitting invalid syntax -- same
+ * "don't break the whole expression over one in-progress edit" reasoning
+ * as every other panel's parse-error handling. An empty (or all-blank)
+ * term list falls back to the literal "0" (parses fine as a flat
+ * waveform) rather than an empty/invalid string.
+ */
+export function buildSumOfSinusoidsExpr(terms: readonly SinusoidTerm[]): string {
+  const parts = terms
+    .filter((t) => t.amplitude.trim() !== "" && t.frequency.trim() !== "" && t.phase.trim() !== "")
+    .map((t) => `${t.amplitude}*sin(2*pi*${t.frequency}*t+${t.phase})`);
+  return parts.length > 0 ? parts.join(" + ") : "0";
 }
 
 /** Shared by the Canvas2D draw effect and the SVG export getter, so the viewport math can't drift between the two. */
@@ -85,6 +111,12 @@ function seedSignalState(graph: CellGraph, ids: CellIdsSignal, state: SignalStat
   graph.set(ids.showResample, state.showResample ?? DEFAULT_SIGNAL_STATE.showResample);
   graph.set(ids.resampleUp, state.resampleUp ?? DEFAULT_SIGNAL_STATE.resampleUp);
   graph.set(ids.resampleDown, state.resampleDown ?? DEFAULT_SIGNAL_STATE.resampleDown);
+  graph.set(ids.useBuilder, state.useBuilder ?? DEFAULT_SIGNAL_STATE.useBuilder);
+  const builderTerms: BuilderTerm[] = (state.builderTerms ?? DEFAULT_SIGNAL_STATE.builderTerms ?? []).map((t) => ({
+    id: crypto.randomUUID(),
+    ...t,
+  }));
+  graph.set(ids.builderTerms, builderTerms);
 }
 
 function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalState {
@@ -104,6 +136,8 @@ function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalStat
     showResample: graph.get<boolean>(ids.showResample),
     resampleUp: graph.get<string>(ids.resampleUp),
     resampleDown: graph.get<string>(ids.resampleDown),
+    useBuilder: graph.get<boolean>(ids.useBuilder),
+    builderTerms: graph.get<BuilderTerm[]>(ids.builderTerms).map(({ amplitude, frequency, phase }) => ({ amplitude, frequency, phase })),
   };
 }
 
@@ -258,6 +292,8 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const resampleUp = useCell<string>(graph, ids.resampleUp);
   const resampleDown = useCell<string>(graph, ids.resampleDown);
   const resampleResult = useCell<Result<Waveform>>(graph, ids.resampleResult);
+  const useBuilder = useCell<boolean>(graph, ids.useBuilder);
+  const builderTerms = useCell<BuilderTerm[]>(graph, ids.builderTerms);
 
   const [exprInput, setExprInput] = useState(exprText);
   const [exprInputB, setExprInputB] = useState(exprTextB);
@@ -279,6 +315,36 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   function updateExprText(value: string) {
     setExprInput(value);
     graph.set(ids.exprText, resolveNaturalLanguageQuery(value, "t") ?? value);
+  }
+
+  // Sum-of-sinusoids builder (issue #31's remaining scope item): each row
+  // edit both updates the row list AND regenerates exprText immediately --
+  // unlike the plain-text path, there's no natural-language resolution
+  // step, since the generated string is always well-formed.
+  function updateTerm(termId: string, field: keyof SinusoidTerm, value: string) {
+    const nextTerms = builderTerms.map((t) => (t.id === termId ? { ...t, [field]: value } : t));
+    graph.set(ids.builderTerms, nextTerms);
+    graph.set(ids.exprText, buildSumOfSinusoidsExpr(nextTerms));
+  }
+
+  function addTerm() {
+    const nextTerms = [...builderTerms, { id: crypto.randomUUID(), amplitude: "1", frequency: "1", phase: "0" }];
+    graph.set(ids.builderTerms, nextTerms);
+    graph.set(ids.exprText, buildSumOfSinusoidsExpr(nextTerms));
+  }
+
+  function removeTerm(termId: string) {
+    const nextTerms = builderTerms.filter((t) => t.id !== termId);
+    graph.set(ids.builderTerms, nextTerms);
+    graph.set(ids.exprText, buildSumOfSinusoidsExpr(nextTerms));
+  }
+
+  // Toggling ON regenerates exprText from the builder's own (independently
+  // persisted) rows immediately, so the waveform reflects the table shown
+  // rather than whatever the plain-text input last had.
+  function toggleBuilder(next: boolean) {
+    graph.set(ids.useBuilder, next);
+    if (next) graph.set(ids.exprText, buildSumOfSinusoidsExpr(builderTerms));
   }
 
   useEffect(() => {
@@ -366,10 +432,75 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     <div>
       <h2>Compose f(t)</h2>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-        <label>
-          f(t) ={" "}
-          <input value={exprInput} onChange={(e) => updateExprText(e.target.value)} style={{ font: "inherit", width: "28ch" }} />
+        {!useBuilder && (
+          <label>
+            f(t) ={" "}
+            <input value={exprInput} onChange={(e) => updateExprText(e.target.value)} style={{ font: "inherit", width: "28ch" }} />
+          </label>
+        )}
+        <label style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+          <input type="checkbox" checked={useBuilder} onChange={(e) => toggleBuilder(e.target.checked)} /> sum-of-sinusoids builder
         </label>
+      </div>
+      {useBuilder && (
+        <div style={{ margin: "0.25rem 0" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={headerCellStyle}>amplitude</th>
+                  <th style={headerCellStyle}>frequency (Hz)</th>
+                  <th style={headerCellStyle}>phase (rad)</th>
+                  <th style={headerCellStyle} />
+                </tr>
+              </thead>
+              <tbody>
+                {builderTerms.map((term) => (
+                  <tr key={term.id}>
+                    <td style={dataCellStyle}>
+                      <input
+                        value={term.amplitude}
+                        onChange={(e) => updateTerm(term.id, "amplitude", e.target.value)}
+                        style={{ font: "inherit", width: "7ch" }}
+                      />
+                    </td>
+                    <td style={dataCellStyle}>
+                      <input
+                        value={term.frequency}
+                        onChange={(e) => updateTerm(term.id, "frequency", e.target.value)}
+                        style={{ font: "inherit", width: "7ch" }}
+                      />
+                    </td>
+                    <td style={dataCellStyle}>
+                      <input
+                        value={term.phase}
+                        onChange={(e) => updateTerm(term.id, "phase", e.target.value)}
+                        style={{ font: "inherit", width: "7ch" }}
+                      />
+                    </td>
+                    <td style={dataCellStyle}>
+                      <button
+                        type="button"
+                        onClick={() => removeTerm(term.id)}
+                        disabled={builderTerms.length <= 1}
+                        aria-label="Remove term"
+                        title="Remove term"
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" onClick={addTerm} style={{ margin: "0.5rem 0" }}>
+            + Add term
+          </button>
+          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>f(t) = {exprText}</p>
+        </div>
+      )}
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <label>
           sample rate (Hz):{" "}
           <input
@@ -621,3 +752,6 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     </div>
   );
 }
+
+const headerCellStyle: CSSProperties = { textAlign: "left", padding: "0.15rem 0.6rem", borderBottom: "1px solid var(--border)", fontWeight: 600 };
+const dataCellStyle: CSSProperties = { padding: "0.15rem 0.6rem" };
