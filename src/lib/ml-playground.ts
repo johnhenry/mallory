@@ -77,21 +77,43 @@ export function generateDataset(type: DatasetType, pointsPerClass: number, seed:
  * `Module.parameters()`'s reflection walk finds both layers' weights.
  * Seeded init via `Linear`'s own `rng` option, so training is fully
  * deterministic end to end.
+ *
+ * `dropoutRate` (default 0, i.e. off) inserts an `nn.Dropout` between the
+ * ReLU and the output layer. `trainer.fit`'s `step()` calls
+ * `model.forward(variable(x))` with a single argument (see trainer.js), so
+ * there's no channel to pass a per-call training flag through -- instead
+ * this follows the standard `Module.training` attribute convention
+ * (`nn.Dropout.forward` itself takes an explicit `training` bool), toggled
+ * via `train()`/`eval()`. Defaults to training mode; `predictProbabilityGrid`
+ * switches to eval mode for inference so dropout doesn't corrupt the
+ * decision boundary it renders.
  */
 export class TinyMlp extends nn.Module {
   readonly l1: InstanceType<typeof nn.Linear>;
   readonly l2: InstanceType<typeof nn.Linear>;
+  readonly dropout: InstanceType<typeof nn.Dropout>;
+  training = true;
 
-  constructor(hidden: number, seed: number) {
+  constructor(hidden: number, seed: number, dropoutRate = 0) {
     super();
     if (!Number.isInteger(hidden) || hidden <= 0 || hidden > 64) throw new Error("Hidden units must be a positive integer up to 64.");
+    if (!Number.isFinite(dropoutRate) || dropoutRate < 0 || dropoutRate >= 1) throw new Error("Dropout rate must be a number in [0, 1).");
     const rng = new Rng(seed);
     this.l1 = new nn.Linear(2, hidden, { rng });
     this.l2 = new nn.Linear(hidden, 1, { rng });
+    this.dropout = new nn.Dropout(dropoutRate);
+  }
+
+  train(): void {
+    this.training = true;
+  }
+
+  eval(): void {
+    this.training = false;
   }
 
   forward(x: ReturnType<typeof variable>): ReturnType<typeof variable> {
-    return this.l2.forward(this.l1.forward(x).relu());
+    return this.l2.forward(this.dropout.forward(this.l1.forward(x).relu(), this.training));
   }
 }
 
@@ -170,7 +192,10 @@ export interface GridDomain {
  * P(label=1) over a `resolution x resolution` grid -- one batched forward
  * pass (the whole grid as a single [R*R, 2] tensor), sigmoided from logits.
  * Row index 0 is the domain's MIN y; the caller's renderer decides screen
- * orientation.
+ * orientation. Temporarily switches `model` to eval mode (dropout becomes a
+ * no-op) for the duration of this call, restoring the prior mode afterward --
+ * inference should see the model's expected-value behavior, not a randomly
+ * dropped-out sample of it.
  */
 export function predictProbabilityGrid(model: TinyMlp, domain: GridDomain, resolution: number): number[][] {
   if (!Number.isInteger(resolution) || resolution <= 1 || resolution > 200) throw new Error("Resolution must be an integer in [2, 200].");
@@ -183,7 +208,14 @@ export function predictProbabilityGrid(model: TinyMlp, domain: GridDomain, resol
     }
   }
   const input = Tensor.from(coords, { dtype: "f64" }).reshape([resolution * resolution, 2]);
-  const probs = model.forward(variable(input)).sigmoid().value;
+  const wasTraining = model.training;
+  model.eval();
+  let probs: ReturnType<typeof variable>["value"];
+  try {
+    probs = model.forward(variable(input)).sigmoid().value;
+  } finally {
+    model.training = wasTraining;
+  }
   const grid: number[][] = [];
   for (let j = 0; j < resolution; j++) {
     const row: number[] = [];

@@ -424,6 +424,7 @@ export function cellIdsMlPlayground(cellId: string) {
     hidden: `mlHidden:${cellId}`,
     lr: `mlLr:${cellId}`,
     epochs: `mlEpochs:${cellId}`,
+    dropout: `mlDropout:${cellId}`,
     points: `mlPoints:${cellId}`,
   };
 }

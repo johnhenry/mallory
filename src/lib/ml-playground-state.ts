@@ -20,10 +20,22 @@ export interface MlPlaygroundStateV1 {
   epochs: string;
 }
 
-export type MlPlaygroundState = MlPlaygroundStateV1;
+export interface MlPlaygroundStateV2 {
+  v: 2;
+  dataset: DatasetType;
+  pointsPerClass: string;
+  dataSeed: string;
+  modelSeed: string;
+  hidden: string;
+  lr: string;
+  epochs: string;
+  dropout: string;
+}
+
+export type MlPlaygroundState = MlPlaygroundStateV2;
 
 export const DEFAULT_ML_PLAYGROUND_STATE: MlPlaygroundState = {
-  v: 1,
+  v: 2,
   dataset: "moons",
   pointsPerClass: "60",
   dataSeed: "7",
@@ -31,17 +43,20 @@ export const DEFAULT_ML_PLAYGROUND_STATE: MlPlaygroundState = {
   hidden: "8",
   lr: "0.05",
   epochs: "200",
+  dropout: "0",
 };
 
 export function encodeMlPlaygroundState(state: MlPlaygroundState): string {
   return base64UrlEncode(JSON.stringify(state));
 }
 
-/** Returns null on any malformed/unrecognized fragment rather than throwing. */
+/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades a v1 payload to v2 with dropout defaulted off. */
 export function decodeMlPlaygroundState(fragment: string): MlPlaygroundState | null {
   try {
     const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
-    return isMlPlaygroundStateV1(parsed) ? parsed : null;
+    if (isMlPlaygroundStateV2(parsed)) return parsed;
+    if (isMlPlaygroundStateV1(parsed)) return { ...parsed, v: 2, dropout: DEFAULT_ML_PLAYGROUND_STATE.dropout };
+    return null;
   } catch {
     return null;
   }
@@ -49,13 +64,22 @@ export function decodeMlPlaygroundState(fragment: string): MlPlaygroundState | n
 
 const DATASET_TYPES: DatasetType[] = ["xor", "moons", "rings"];
 
-export function isMlPlaygroundStateV1(value: unknown): value is MlPlaygroundStateV1 {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  if (v.v !== 1) return false;
+function hasV1Fields(v: Record<string, unknown>): boolean {
   if (!DATASET_TYPES.includes(v.dataset as DatasetType)) return false;
   const fields = ["pointsPerClass", "dataSeed", "modelSeed", "hidden", "lr", "epochs"] as const;
   return fields.every((f) => typeof v[f] === "string");
+}
+
+export function isMlPlaygroundStateV1(value: unknown): value is MlPlaygroundStateV1 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return v.v === 1 && hasV1Fields(v);
+}
+
+export function isMlPlaygroundStateV2(value: unknown): value is MlPlaygroundStateV2 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return v.v === 2 && hasV1Fields(v) && typeof v.dropout === "string";
 }
 
 function base64UrlEncode(input: string): string {
