@@ -1,11 +1,29 @@
 import type { Path2D } from "mallory-math";
 import { useEffect, useRef } from "react";
 import type { CellGraph } from "../lib/cell-graph.ts";
-import { cellIdsMultiRow, cellIdsNotebookBlock } from "../lib/cell-ids.ts";
+import { cellIdsMultiRow, cellIdsNotebookBlock, notebookCurveCellId } from "../lib/cell-ids.ts";
 import { drawAxes, drawExpressionLayer, drawPath, type Viewport } from "../lib/render-path.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { ExpressionRow } from "./ExpressionRow.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
+
+/** A row's optional publish-name (issue #35 item 2) -- a plain controlled input against `ids.curveName`, since renaming is infrequent (unlike `expr`'s per-keystroke parse cost, nothing here justifies ExpressionRow's local-state-mirror pattern). */
+function CurveNameInput({ graph, rowId, onRename }: { graph: CellGraph; rowId: string; onRename: (name: string) => void }) {
+  const ids = cellIdsMultiRow(rowId);
+  const name = useCell<string>(graph, ids.curveName);
+  return (
+    <label style={{ fontSize: "0.8rem", marginLeft: "0.5rem" }}>
+      name:{" "}
+      <input
+        value={name}
+        onChange={(e) => onRename(e.target.value)}
+        placeholder="(unpublished)"
+        style={{ font: "inherit", width: "10ch" }}
+        title="Publish this row's curve under a name so a curve-transform block can reference it"
+      />
+    </label>
+  );
+}
 
 const WIDTH = 400;
 const HEIGHT = 400;
@@ -24,8 +42,9 @@ const PALETTE = [0x2563eb, 0xdc2626, 0x16a34a];
  *
  * NON-GOALS (v1): no URL persistence, fork, save, or annotations for an
  * individual block (a notebook *document* could still be saved as a whole
- * -- see NotebookPanel's own doc comment); cross-referencing is limited to
- * a named scalar "value" block, not another graph block's entire curve.
+ * -- see NotebookPanel's own doc comment). A row can also be given a name
+ * (see `CurveNameInput` above) to publish its whole curve for cross-block
+ * reference (issue #35 item 2) -- see `notebookCurveCellId`'s doc comment.
  */
 export function NotebookGraphBlock({
   graph,
@@ -47,6 +66,7 @@ export function NotebookGraphBlock({
       graph.set(ids.expr, initialSource);
       graph.set(ids.color, PALETTE[0] as number);
       graph.set(ids.visible, true);
+      graph.set(ids.curveName, "", { auxiliary: true });
       graph.set(blockIds.expressionList, [id], { auxiliary: true });
     }
   }
@@ -60,7 +80,26 @@ export function NotebookGraphBlock({
     graph.set(ids.expr, "x");
     graph.set(ids.color, PALETTE[current.length % PALETTE.length] as number);
     graph.set(ids.visible, true);
+    graph.set(ids.curveName, "", { auxiliary: true });
     graph.set(blockIds.expressionList, [...current, id]);
+  }
+
+  /**
+   * Publishes/renames/un-publishes a row's curve under a user-given name
+   * (issue #35 item 2) -- mirrors NotebookPanel's `updateValueName`, but for
+   * a whole curve rather than a scalar: `graph.define()` (not `set()`) so
+   * the published cell stays a live passthrough to `ids.path`, tracking
+   * viewport-driven resampling instead of freezing a snapshot. No
+   * "still used elsewhere" cross-check on the old name (unlike
+   * `updateValueName`) -- matches this component's/NotebookPanel's own
+   * established orphan-tolerance convention for per-row cleanup.
+   */
+  function renameCurve(rowId: string, name: string) {
+    const ids = cellIdsMultiRow(rowId);
+    const oldName = graph.hasValue(ids.curveName) ? graph.get<string>(ids.curveName) : "";
+    if (oldName && oldName !== name) graph.delete(notebookCurveCellId(oldName));
+    graph.set(ids.curveName, name, { auxiliary: true });
+    if (name) graph.define(notebookCurveCellId(name), () => graph.get<Path2D>(ids.path), { auxiliary: true });
   }
 
   useEffect(() => {
@@ -94,7 +133,10 @@ export function NotebookGraphBlock({
   return (
     <div>
       {rowIds.map((id) => (
-        <ExpressionRow key={id} graph={graph} rowId={id} viewportCellId={blockIds.viewport} />
+        <div key={id}>
+          <ExpressionRow graph={graph} rowId={id} viewportCellId={blockIds.viewport} />
+          <CurveNameInput graph={graph} rowId={id} onRename={(name) => renameCurve(id, name)} />
+        </div>
       ))}
       <button type="button" onClick={addRow} style={{ fontSize: "0.8rem" }}>
         + Add expression

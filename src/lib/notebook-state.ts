@@ -26,8 +26,16 @@ import { isSystemStateV1, type SystemState } from "./system-state.ts";
  */
 export interface NotebookGraphBlockStateV1 {
   type: "graph";
-  rows: Array<{ source: string; color: number; visible: boolean; params: Record<string, number> }>;
+  /** `name` (issue #35 item 2): publishes this row's sampled curve under a referenceable name -- see `notebookCurveCellId`. Omitted/empty means "not published," same as an un-named row today. */
+  rows: Array<{ source: string; color: number; visible: boolean; params: Record<string, number>; name?: string }>;
   viewport: { xMin: number; xMax: number; yMin: number; yMax: number };
+}
+
+/** Numeric derivative/integral of a named published curve (issue #35 item 2), computed via `mallory-iteration`'s `pairwiseSync`/`transducers.accumulate` -- see `curve-transform.ts`. */
+export interface NotebookCurveTransformBlockStateV1 {
+  type: "curve-transform";
+  curveName: string;
+  op: "derivative" | "integral";
 }
 
 export interface NotebookSurface3DBlockStateV1 {
@@ -92,7 +100,8 @@ export type NotebookBlockStateV1 =
   | NotebookSystemsBlockStateV1
   | NotebookGeometryBlockStateV1
   | NotebookComplexBlockStateV1
-  | NotebookTensorBlockStateV1;
+  | NotebookTensorBlockStateV1
+  | NotebookCurveTransformBlockStateV1;
 
 export interface NotebookStateV1 {
   v: 1;
@@ -107,7 +116,7 @@ export const DEFAULT_NOTEBOOK_STATE: NotebookState = {
     {
       type: "text",
       content:
-        "A reactive notebook: mix free-form notes with live graph cells and named value cells. Every graph cell below shares one CellGraph, so a graph cell's expression can reference an earlier value cell by name -- e.g. a value block named \"k\" makes \"k\" available to any graph cell below it, sourced live instead of getting its own independent slider. Referencing another graph cell's entire curve (not just a named scalar) is a later extension.",
+        "A reactive notebook: mix free-form notes with live graph cells and named value cells. Every graph cell below shares one CellGraph, so a graph cell's expression can reference an earlier value cell by name -- e.g. a value block named \"k\" makes \"k\" available to any graph cell below it, sourced live instead of getting its own independent slider. A graph row can also be given a name (via its row's \"name\" field) to publish its whole curve, which a \"curve transform\" block below can then reference to compute a numeric derivative or running integral.",
     },
     {
       type: "graph",
@@ -153,7 +162,8 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
         typeof row.color === "number" &&
         typeof row.visible === "boolean" &&
         typeof row.params === "object" &&
-        row.params !== null
+        row.params !== null &&
+        (row.name === undefined || typeof row.name === "string")
       );
     });
   }
@@ -170,6 +180,9 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
   if (b.type === "tensor") {
     if (typeof b.source !== "string" || typeof b.op !== "string" || !(b.op in TENSOR_OP_LABELS)) return false;
     return b.opArg === undefined || typeof b.opArg === "number";
+  }
+  if (b.type === "curve-transform") {
+    return typeof b.curveName === "string" && (b.op === "derivative" || b.op === "integral");
   }
   return false;
 }

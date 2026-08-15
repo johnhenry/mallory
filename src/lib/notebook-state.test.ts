@@ -24,6 +24,22 @@ test("round-trips a mixed text/graph/value block document with unicode and per-r
   assert.deepEqual(decodeNotebookState(fragment), state);
 });
 
+test("round-trips a named graph row and a curve-transform block (issue #35 item 2)", () => {
+  const state = {
+    v: 1 as const,
+    blocks: [
+      {
+        type: "graph" as const,
+        rows: [{ source: "sin(x)", color: 0x2563eb, visible: true, params: {}, name: "f" }],
+        viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 },
+      },
+      { type: "curve-transform" as const, curveName: "f", op: "derivative" as const },
+    ],
+  };
+  const fragment = encodeNotebookState(state);
+  assert.deepEqual(decodeNotebookState(fragment), state);
+});
+
 test("encoded fragment is URL-fragment-safe (no +, /, or = padding)", () => {
   const fragment = encodeNotebookState(DEFAULT_NOTEBOOK_STATE);
   assert.ok(!/[+/=]/.test(fragment), `fragment contains unsafe characters: ${fragment}`);
@@ -41,6 +57,10 @@ test("decodeNotebookState rejects a well-formed but wrong-shape payload", () => 
   assert.equal(decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "value", name: "k" }] })), null);
   assert.equal(
     decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "graph", rows: "nope", viewport: {} }] })),
+    null,
+  );
+  assert.equal(
+    decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "curve-transform", curveName: "f", op: "nonsense" }] })),
     null,
   );
 });
