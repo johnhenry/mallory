@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { cellIdsStatistics, type CellIdsStatistics } from "../lib/cell-ids.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import {
   DEFAULT_STATISTICS_STATE,
   decodeStatisticsState,
@@ -283,6 +284,18 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
   const smoothingResult = useCell<SmoothingResult>(graph, ids.smoothingResult);
   const smoothingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const residualCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Standalone only (issue #43, same enabled:syncUrl pattern as RegressionPanel's #121 adoption):
+  // a notebook-embedded instance shares its graph with NotebookPanel's own useUndoHistory, so a
+  // second independent history here would double-fire on Ctrl+Z.
+  const history = useUndoHistory(
+    graph,
+    () => getCurrentStatisticsState(graph, ids),
+    (state) => seedStatisticsState(graph, ids, state),
+    250,
+    undefined,
+    syncUrl,
+  );
 
   const [dataInput, setDataInput] = useState(data);
   // Keeps the input box in sync when `data` changes for a reason other than
@@ -603,6 +616,12 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
             Save to gallery
+          </button>{" "}
+          <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
+            ↩ Undo
+          </button>{" "}
+          <button type="button" onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z / Cmd+Y)">
+            ↪ Redo
           </button>
           {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>
