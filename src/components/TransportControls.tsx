@@ -22,7 +22,7 @@ export interface TransportControlsProps {
 export function TransportControls({ graph, time, duration, playing, setPlaying, loop, setLoop, speed, setSpeed }: TransportControlsProps) {
   if (duration <= 0) return null;
   return (
-    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", margin: "0.5rem 0" }}>
+    <div className="timeline-control" style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", margin: "0.5rem 0" }}>
       <button type="button" onClick={() => setPlaying((p) => !p)}>
         {playing ? "Pause" : "Play"}
       </button>
@@ -42,6 +42,7 @@ export function TransportControls({ graph, time, duration, playing, setPlaying, 
       </label>
       <input
         type="range"
+        className="timeline-slider"
         min={0}
         max={duration}
         step={0.01}

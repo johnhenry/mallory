@@ -57,11 +57,15 @@ export function KeyframeSliderControl({ graph, ids, name }: { graph: CellGraph; 
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", fontSize: "0.85rem", border: "1px solid #eee", padding: "0.4rem" }}>
+    <div
+      className="timeline-control"
+      style={{ display: "flex", flexDirection: "column", fontSize: "0.85rem", border: "1px solid #eee", padding: "0.4rem" }}
+    >
       <label style={{ display: "flex", flexDirection: "column" }}>
         {name} = {value.toFixed(2)}
         <input
           type="range"
+          className="timeline-slider"
           min={range.min}
           max={range.max}
           step={range.step}
@@ -74,7 +78,7 @@ export function KeyframeSliderControl({ graph, ids, name }: { graph: CellGraph; 
         <input type="checkbox" checked={animated} onChange={toggleAnimated} /> Animate
       </label>
       {animated && track && (
-        <div>
+        <div className="timeline-control">
           {track.map((k, i) => (
             <div key={i} style={{ display: "flex", gap: "0.25rem", alignItems: "center" }}>
               <input

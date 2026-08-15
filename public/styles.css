@@ -369,3 +369,34 @@ body:has(.app-shell) {
     padding: 1.2rem 1.1rem 2.5rem;
   }
 }
+
+/* Issue #53's remaining "slider/transport controls sized for touch on the
+   keyframe timeline" item: `(pointer: coarse)` (true for touchscreens,
+   false for a mouse/trackpad even on a touch-capable laptop) rather than
+   `(max-width: ...)`, since a touch-vs-mouse distinction is about input
+   precision, not viewport size -- a touch tablet in landscape at a wide
+   viewport still needs the larger targets a narrow-viewport media query
+   wouldn't catch. Scoped to `.timeline-slider`/`.timeline-control`
+   (TransportControls.tsx, KeyframeSliderControl.tsx) rather than every
+   `input[type="range"]` app-wide -- other sliders (e.g. area-shading
+   bounds) are plain small numeric steppers, not something a thumb drags
+   along a track, so widening them isn't the same ask. */
+@media (pointer: coarse) {
+  .timeline-slider {
+    height: 2rem;
+  }
+  .timeline-slider::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+  }
+  .timeline-slider::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+    border: none;
+  }
+  .timeline-control button,
+  .timeline-control input[type="checkbox"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
