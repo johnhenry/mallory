@@ -1,13 +1,16 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic, type DifferentiationStep, type Expr } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import type { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, notebookValueCellId, VIEWPORT_CELL } from "../lib/cell-ids.ts";
 import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
+import { exprToLatex } from "../lib/expr-to-latex.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import type { Viewport } from "../lib/render-path.ts";
 import { findDiscontinuities, findRootCrossings, sampleExpr, sampleExprAdaptive } from "../lib/sample-function.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { CopyableTex } from "./CopyableTex.tsx";
 import { MathInput } from "./MathInput.tsx";
+import { TexSpan } from "./TexSpan.tsx";
 
 const RESOLUTION = 400;
 const AXIS_VARIABLE = "x";
@@ -15,6 +18,11 @@ const AXIS_VARIABLE = "x";
 interface AreaResult {
   value: number;
   path: ReturnType<typeof sampleExpr>;
+}
+
+interface Derivative {
+  steps: DifferentiationStep[];
+  result: Expr;
 }
 
 /**
@@ -247,6 +255,25 @@ function useRowCells(graph: CellGraph, rowId: string, viewportCellId: string = V
         },
         { auxiliary: true },
       );
+
+      // Step-by-step differentiation trace (issue #51). Unconditional, like
+      // GraphCanvas's own ids.derivative -- a single differentiate pass is
+      // cheap regardless of whether the accordion showing it is open, so
+      // there's no "off" gate here (unlike showDerivative/showArea, which
+      // guard real sampling work). Whether the trace is DISPLAYED for a
+      // given row is purely local UI state (showSteps below), not a cell.
+      graph.define(
+        ids.derivative,
+        (): Derivative | null => {
+          try {
+            const expr = Symbolic.parse(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
+            return Symbolic.differentiateSteps(expr, AXIS_VARIABLE);
+          } catch {
+            return null;
+          }
+        },
+        { auxiliary: true },
+      );
     }
   }
   return ids;
@@ -273,10 +300,15 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
   const areaLower = useCell<number>(graph, ids.areaLower);
   const areaUpper = useCell<number>(graph, ids.areaUpper);
   const area = useCell<AreaResult | null>(graph, ids.area);
+  const derivative = useCell<Derivative | null>(graph, ids.derivative);
   const error = useCell<string | null>(graph, ids.error);
   const [exprInput, setExprInput] = useState(expr);
   const [useMathKeyboard, setUseMathKeyboard] = useState(false);
   const [latexInput, setLatexInput] = useState(() => toLatexOrEmpty(expr));
+  // Purely local UI state, not a cell -- matches GraphCanvas's own
+  // showSteps exactly (the derivative compute above is unconditional;
+  // this only controls whether the trace accordion is open).
+  const [showSteps, setShowSteps] = useState(false);
 
   // Same reasoning as GraphCanvas's own slider-seeding effect: freeVars is
   // read synchronously during render via useCell, so seeding a newly
@@ -393,6 +425,11 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
             ] {area ? `= ${area.value.toFixed(4)}` : ""}
           </span>
         )}
+        {derivative && (
+          <label style={{ fontSize: "0.78rem", color: "var(--muted)" }} title="Step-by-step differentiation trace for this row">
+            <input type="checkbox" checked={showSteps} onChange={(e) => setShowSteps(e.target.checked)} /> steps
+          </label>
+        )}
         {freeVars.map((name) =>
           graph.hasValue(notebookValueCellId(name)) ? (
             <span key={name} style={{ fontSize: "0.78rem", color: "var(--muted)" }} title={`Sourced from the "${name}" value block`}>
@@ -409,6 +446,18 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
         )}
       </div>
       {error && <p style={{ fontSize: "0.8rem", color: "var(--danger)", margin: "0.2rem 0 0" }}>{error}</p>}
+      {showSteps && derivative && (
+        <div style={{ fontSize: "0.85rem", margin: "0.25rem 0 0 1.5rem" }}>
+          dy/dx = <CopyableTex tex={exprToLatex(derivative.result)} />
+          <ol>
+            {derivative.steps.map((step, i) => (
+              <li key={i}>
+                <strong>{step.rule}</strong>: d/dx[<TexSpan tex={exprToLatex(step.input)} />] = <TexSpan tex={exprToLatex(step.output)} />
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </div>
   );
 }

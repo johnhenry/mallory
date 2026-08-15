@@ -13,6 +13,17 @@ import { fileURLToPath } from "node:url";
 import esbuild from "esbuild";
 
 export async function load(url, context, nextLoad) {
+  // A bare `import "some-package/styles.css"` (e.g. TexSpan.tsx's katex
+  // stylesheet) is a side-effect-only import a bundler (Vite, in this
+  // app's real build) turns into actual injected CSS -- Node's own module
+  // resolution has no concept of that and throws ERR_UNKNOWN_FILE_EXTENSION
+  // on the bare .css extension. Standing in for what a bundler would do
+  // here: treat it as an empty module, matching how Jest/webpack's own
+  // css-loader-under-test-runner shims behave (imported for side effects
+  // that don't exist outside a real DOM/stylesheet anyway).
+  if (url.endsWith(".css")) {
+    return { format: "module", source: "export {};", shortCircuit: true };
+  }
   if (url.endsWith(".tsx")) {
     const path = fileURLToPath(url);
     const source = await readFile(path, "utf8");

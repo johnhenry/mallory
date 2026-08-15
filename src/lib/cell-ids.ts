@@ -402,13 +402,18 @@ export const EXPRESSION_LIST_CELL = "expressionList";
  * (GraphCanvasMulti.tsx/ExpressionRow.tsx) -- deliberately a smaller set
  * than `cellIds`: v1 covers the curve itself, its color/visibility,
  * free-variable sliders, an optional f' overlay curve (sharing the row's
- * own color, dashed), and now (issue #51) per-row area-under-curve
- * shading, but not yet the single-pane `GraphCanvas`'s point-drag/step-by-
- * step-differentiation-trace/region-shading/finite-structure features,
- * which stay single-expression-only for now (porting each to a multi-
- * curve-aware form is follow-on work, not this pass). Exact-mode evaluation
- * (#107) is shared across the whole panel instead of per-row, so it lives
- * on GraphCanvasMulti's own MODE_CELL, not here.
+ * own color, dashed), per-row area-under-curve shading (#51), and now
+ * (#51 again) a step-by-step differentiation trace, but not yet the
+ * single-pane `GraphCanvas`'s point-drag/region-shading/finite-structure
+ * features, which stay single-expression-only for now (porting each to a
+ * multi-curve-aware form is follow-on work, not this pass). Exact-mode
+ * evaluation (#107) is shared across the whole panel instead of per-row,
+ * so it lives on GraphCanvasMulti's own MODE_CELL, not here -- the
+ * differentiation trace, by contrast, is both computed AND displayed
+ * per-row: each row owns an independent local `showSteps` toggle (plain
+ * `useState`, not a cell -- see ExpressionRow.tsx), so any number of rows
+ * can have their trace accordion open at once, with no cross-row
+ * mutual-exclusion mechanism.
  */
 export function cellIdsMultiRow(cellId: string) {
   return {
@@ -436,6 +441,8 @@ export function cellIdsMultiRow(cellId: string) {
     areaUpper: `multiAreaUpper:${cellId}`,
     /** `{value, path} | null` -- null while `showArea` is off, matching `derivativePath`'s "off costs nothing" convention. */
     area: `multiArea:${cellId}`,
+    /** The step-by-step differentiation trace (issue #51): unconditionally computed, like GraphCanvas's own `ids.derivative` -- a single differentiate pass is cheap, so there's no "off" gate here. Display is gated by each row's own local `showSteps` toggle in ExpressionRow.tsx, independent per row. */
+    derivative: `multiDerivative:${cellId}`,
     param: (name: string) => `multiParam:${cellId}:${name}`,
   };
 }
