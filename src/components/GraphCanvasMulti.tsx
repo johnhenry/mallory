@@ -19,6 +19,7 @@ import { getThemeColors } from "../lib/theme-colors.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY } from "../lib/viewport.ts";
 import { ExpressionRow } from "./ExpressionRow.tsx";
 import { useCell } from "../lib/use-cell.ts";
+import { useUndoHistory } from "../hooks/use-undo-history.ts";
 
 const WIDTH = 600;
 const HEIGHT = 600;
@@ -82,6 +83,34 @@ function seedRow(
   graph.set(ids.color, color);
   graph.set(ids.visible, visible);
   for (const [name, value] of Object.entries(params)) graph.set(ids.param(name), value);
+}
+
+/**
+ * Applies a previously-snapshotted MultiGraphState back onto the live graph
+ * (undo/redo, issue #43). Follows `removeRow`'s documented ordering: the new
+ * rows are seeded and EXPRESSION_LIST_CELL swapped to them FIRST, so the
+ * redraw/URL-sync listeners that fire synchronously never observe a list
+ * entry whose cells are already deleted -- only then are the old rows' cells
+ * deleted (params before the fixed cells, same as removeRow).
+ */
+function restoreMultiGraphState(graph: CellGraph, state: MultiGraphState): void {
+  const oldIds = graph.get<string[]>(EXPRESSION_LIST_CELL);
+  const newIds = state.rows.map(() => crypto.randomUUID());
+  newIds.forEach((id, i) => {
+    const row = state.rows[i] as MultiGraphState["rows"][number];
+    seedRow(graph, id, row.source, row.color, row.visible, row.params);
+  });
+  graph.set(VIEWPORT_CELL, state.viewport);
+  graph.set(ANNOTATIONS_CELL, state.annotations ?? []);
+  graph.set(EXPRESSION_LIST_CELL, newIds);
+  for (const id of oldIds) {
+    const ids = cellIdsMultiRow(id);
+    const freeVars = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
+    for (const name of freeVars) graph.delete(ids.param(name));
+    for (const cellId of Object.values(ids)) {
+      if (typeof cellId === "string") graph.delete(cellId);
+    }
+  }
 }
 
 /**
@@ -159,6 +188,11 @@ export function GraphCanvasMulti() {
   const rowIds = useCell<string[]>(graph, EXPRESSION_LIST_CELL);
   const annotations = useCell<MultiGraphAnnotation[]>(graph, ANNOTATIONS_CELL);
   const pointReadout = useCell<PointReadout | null>(graph, POINT_READOUT_CELL);
+  const history = useUndoHistory(
+    graph,
+    () => getCurrentMultiGraphState(graph),
+    (state) => restoreMultiGraphState(graph, state),
+  );
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [annotating, setAnnotating] = useState(false);
   const [readingPoint, setReadingPoint] = useState(false);
@@ -481,6 +515,12 @@ export function GraphCanvasMulti() {
         </button>
         <button type="button" onClick={resetView} title="Restore the default viewport">
           Reset view
+        </button>
+        <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
+          ↩ Undo
+        </button>
+        <button type="button" onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z / Cmd+Y)">
+          ↪ Redo
         </button>
       </div>
       <p style={{ fontSize: "0.78rem", color: "var(--muted)", margin: "0.25rem 0" }}>
