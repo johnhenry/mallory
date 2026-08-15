@@ -35,7 +35,9 @@ import { getCurrentOdeSystemState } from "./OdeSystemPanel.tsx";
 import { getCurrentRegressionState } from "./RegressionPanel.tsx";
 import { getCurrentStatisticsState } from "./StatisticsPanel.tsx";
 import { getCurrentSystemState } from "./SystemSolverPanel.tsx";
+import { type TensorOpType } from "../lib/tensor-block.ts";
 import { NotebookGeometryBlock } from "./NotebookGeometryBlock.tsx";
+import { NotebookTensorBlock } from "./NotebookTensorBlock.tsx";
 import { NotebookGraph3DBlock } from "./NotebookGraph3DBlock.tsx";
 import { NotebookGraphBlock } from "./NotebookGraphBlock.tsx";
 import { NotebookOdeBlock } from "./NotebookOdeBlock.tsx";
@@ -56,7 +58,8 @@ type Block =
   | { id: string; type: "regression"; initialState: RegressionState }
   | { id: string; type: "statistics"; initialState: StatisticsState }
   | { id: string; type: "systems"; initialState: SystemState }
-  | { id: string; type: "geometry"; initialOps: GeometryOp[] };
+  | { id: string; type: "geometry"; initialOps: GeometryOp[] }
+  | { id: string; type: "tensor"; source: string; op: TensorOpType };
 
 /**
  * Seeds a "graph" block's rows/viewport into `graph` (mirrors
@@ -110,6 +113,7 @@ function hydrateBlocks(graph: CellGraph, state: NotebookState): Block[] {
     if (b.type === "regression") return { id, type: "regression", initialState: b.state };
     if (b.type === "statistics") return { id, type: "statistics", initialState: b.state };
     if (b.type === "systems") return { id, type: "systems", initialState: b.state };
+    if (b.type === "tensor") return { id, type: "tensor", source: b.source, op: b.op };
     return { id, type: "geometry", initialOps: b.state.ops };
   });
 }
@@ -159,6 +163,7 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
         return { type: "statistics", state: getCurrentStatisticsState(graph, cellIdsStatistics(block.id)) };
       }
       if (block.type === "systems") return { type: "systems", state: getCurrentSystemState(graph, cellIdsSystem(block.id)) };
+      if (block.type === "tensor") return { type: "tensor", source: block.source, op: block.op };
       return { type: "geometry", state: getCurrentGeometryState(graph, cellIdsGeometry(block.id)) };
     }),
   };
@@ -275,6 +280,18 @@ export function NotebookPanel() {
 
   function addGeometryBlock() {
     setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "geometry", initialOps: DEFAULT_GEOMETRY_STATE.ops }]);
+  }
+
+  function addTensorBlock() {
+    setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "tensor", source: "1 2 3\n4 5 6\n7 8 9", op: "none" }]);
+  }
+
+  function updateTensorSource(id: string, source: string) {
+    setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, source } : b)));
+  }
+
+  function updateTensorOp(id: string, op: TensorOpType) {
+    setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, op } : b)));
   }
 
   // Single-letter names only: implicit-mult.ts's tokenizer splits any
@@ -542,6 +559,30 @@ export function NotebookPanel() {
   });
 
   useModelContextTool({
+    name: "notebook_add_tensor_block",
+    description:
+      "Append a tensor block (a small literal 2D grid, one row per line, rendered as a heat-colored table with an optional tensor op applied) to the end of the notebook.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", description: 'Grid text, one row per line, numbers separated by spaces/commas (default a 3x3 example).' },
+        op: {
+          type: "string",
+          enum: ["none", "abs", "neg", "exp", "sqrt", "clip01", "transpose", "fliplr", "flipud", "roll"],
+          description: 'Display op applied to the grid (default "none").',
+        },
+      },
+    },
+    handler: (input: Record<string, unknown>) => {
+      const id = crypto.randomUUID();
+      const source = typeof input.source === "string" && input.source.trim() ? input.source : "1 2 3\n4 5 6\n7 8 9";
+      const op = (typeof input.op === "string" ? input.op : "none") as TensorOpType;
+      setBlocks((prev) => [...prev, { id, type: "tensor", source, op }]);
+      return { id };
+    },
+  });
+
+  useModelContextTool({
     name: "notebook_remove_block",
     description: "Remove a block by id (as reported by notebook_list_blocks).",
     inputSchema: {
@@ -621,6 +662,13 @@ export function NotebookPanel() {
               <NotebookStatisticsBlock graph={graph} blockId={block.id} initialState={block.initialState} />
             ) : block.type === "systems" ? (
               <NotebookSystemsBlock graph={graph} blockId={block.id} initialState={block.initialState} />
+            ) : block.type === "tensor" ? (
+              <NotebookTensorBlock
+                source={block.source}
+                op={block.op}
+                onSourceChange={(source) => updateTensorSource(block.id, source)}
+                onOpChange={(op) => updateTensorOp(block.id, op)}
+              />
             ) : (
               <NotebookGeometryBlock graph={graph} blockId={block.id} initialOps={block.initialOps} />
             )}
@@ -657,6 +705,9 @@ export function NotebookPanel() {
         </button>
         <button type="button" onClick={addGeometryBlock}>
           + Geometry block
+        </button>
+        <button type="button" onClick={addTensorBlock}>
+          + Tensor block
         </button>
         <button type="button" onClick={addValueBlock}>
           + Value block

@@ -1,4 +1,5 @@
 import { isGeometryStateV1, type GeometryState } from "./geometry-state.ts";
+import { TENSOR_OP_LABELS, type TensorOpType } from "./tensor-block.ts";
 import { isOdeStateV1, type OdeState } from "./ode-state.ts";
 import { isOdeSystemStateV1, type OdeSystemState } from "./ode-system-state.ts";
 import { isRegressionStateV1, type RegressionState } from "./regression-state.ts";
@@ -64,6 +65,13 @@ export interface NotebookGeometryBlockStateV1 {
   state: GeometryState;
 }
 
+/** A small literal tensor (the raw grid TEXT, not a parsed array -- mid-typing invalid input must survive a save/reload round trip) plus one structural/elementwise op applied for display. */
+export interface NotebookTensorBlockStateV1 {
+  type: "tensor";
+  source: string;
+  op: TensorOpType;
+}
+
 export type NotebookBlockStateV1 =
   | { type: "text"; content: string }
   | NotebookGraphBlockStateV1
@@ -74,7 +82,8 @@ export type NotebookBlockStateV1 =
   | NotebookRegressionBlockStateV1
   | NotebookStatisticsBlockStateV1
   | NotebookSystemsBlockStateV1
-  | NotebookGeometryBlockStateV1;
+  | NotebookGeometryBlockStateV1
+  | NotebookTensorBlockStateV1;
 
 export interface NotebookStateV1 {
   v: 1;
@@ -148,6 +157,7 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
   if (b.type === "statistics") return isStatisticsStateV1(b.state);
   if (b.type === "systems") return isSystemStateV1(b.state);
   if (b.type === "geometry") return isGeometryStateV1(b.state);
+  if (b.type === "tensor") return typeof b.source === "string" && typeof b.op === "string" && b.op in TENSOR_OP_LABELS;
   return false;
 }
 
