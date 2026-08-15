@@ -3,7 +3,7 @@ import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsSeries, type CellIdsSeries } from "../lib/cell-ids.ts";
 import { analyzeSeries, type SeriesResult } from "../lib/series-analysis.ts";
 import { DEFAULT_SERIES_STATE, decodeSeriesState, encodeSeriesState, type SeriesState } from "../lib/series-state.ts";
-import { drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -110,6 +110,7 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
     const yMax = Math.max(...yValues);
     const pad = Math.max((yMax - yMin) * 0.1, 1e-6);
     const viewport: Viewport = { xMin: ns[0] ?? 0, xMax: ns[ns.length - 1] ?? 1, yMin: yMin - pad, yMax: yMax + pad };
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     drawScatter(ctx, partialSums.map((p) => ({ x: p.n, y: p.sum })), viewport, WIDTH, HEIGHT, 3, "#2563eb");
 
     if (finalSum !== null) {

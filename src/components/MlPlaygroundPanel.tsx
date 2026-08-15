@@ -15,7 +15,7 @@ import {
   type DatasetType,
   type LabeledPoint,
 } from "../lib/ml-playground.ts";
-import { drawPolyline, drawScatter } from "../lib/render-path.ts";
+import { drawAxes, drawPolyline, drawScatter } from "../lib/render-path.ts";
 import type { Viewport } from "../lib/viewport.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -207,6 +207,7 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
       }
       ctx.putImageData(image, 0, 0);
     }
+    drawAxes(ctx, VIEWPORT, BOUNDARY_SIZE, BOUNDARY_SIZE);
     if (pointsResult.ok) {
       const class0 = pointsResult.value.filter((p) => p.label === 0);
       const class1 = pointsResult.value.filter((p) => p.label === 1);
@@ -222,6 +223,7 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
     if (lossHistory.length < 2) return;
     const maxLoss = Math.max(...lossHistory);
     const viewport: Viewport = { xMin: 0, xMax: lossHistory.length - 1, yMin: 0, yMax: maxLoss * 1.05 };
+    drawAxes(ctx, viewport, LOSS_WIDTH, LOSS_HEIGHT);
     drawPolyline(ctx, lossHistory.map((loss, i) => ({ x: i, y: loss })), viewport, LOSS_WIDTH, LOSS_HEIGHT, "#dc2626");
   }, [lossHistory]);
 

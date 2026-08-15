@@ -10,7 +10,7 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { DEFAULT_REGRESSION_STATE, decodeRegressionState, encodeRegressionState, type RegressionState } from "../lib/regression-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
-import { drawPath, drawPoint, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawPath, drawPoint, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { findOutlierIndices, fitRobustLinear, type RobustLinearFit } from "../lib/robust-regression.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -261,6 +261,7 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (!fit.ok) return;
     drawScatter(ctx, fit.points, viewport, WIDTH, HEIGHT);
     let curvePoints: Vector<number>[];

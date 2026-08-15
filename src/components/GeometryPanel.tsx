@@ -9,6 +9,7 @@ import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
+import { drawAxes } from "../lib/render-path.ts";
 import { cellIdsGeometry, type CellIdsGeometry } from "../lib/cell-ids.ts";
 import {
   DEFAULT_GEOMETRY_STATE,
@@ -661,6 +662,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
     function redraw() {
       if (!ctx) return;
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
+      drawAxes(ctx, VIEWPORT, WIDTH, HEIGHT);
       for (const id of graph.get<string[]>(listIds.objectList)) {
         if (graph.has(pointCellId(id))) {
           const p = graph.get<PointRecord>(pointCellId(id));

@@ -2,7 +2,7 @@ import type { Path2D } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsOde2, type CellIdsOde2 } from "../lib/cell-ids.ts";
-import { drawPath, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
 import {
   attemptOde2ndOrderClosedForm,
   type Ode2ndOrderClosedFormAttempt,
@@ -146,6 +146,7 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (solution.ok) drawPath(ctx, solution.path, viewport, WIDTH, HEIGHT);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [solution, xMin, xMax, yMin, yMax]);

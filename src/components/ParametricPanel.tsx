@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsParametric } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
-import { drawPath, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
 import { sampleParametricCurve, samplePolarCurve } from "../lib/sample-parametric.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -83,6 +83,7 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, VIEWPORT, WIDTH, HEIGHT);
     if (path.ok) drawPath(ctx, path.path, VIEWPORT, WIDTH, HEIGHT);
   }, [path]);
 

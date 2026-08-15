@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsOdeSystem, type CellIdsOdeSystem } from "../lib/cell-ids.ts";
-import { drawPath, drawPoint, drawVectorField, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawPath, drawPoint, drawVectorField, type Viewport } from "../lib/render-path.ts";
 import { toScreenX, toScreenY } from "../lib/viewport.ts";
 import {
   odeSystemTrajectoryToPhasePath,
@@ -242,6 +242,7 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (vectorField.ok) drawVectorField(ctx, vectorField.points, viewport, WIDTH, HEIGHT);
     if (trajectory.ok) {
       drawPath(ctx, trajectory.path, viewport, WIDTH, HEIGHT);
