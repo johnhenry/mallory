@@ -34,6 +34,7 @@ const MASK_LABELS: Record<MaskType, string> = {
   lowpass: "Low-pass (blur)",
   highpass: "High-pass (edges)",
   bandpass: "Band-pass (ring)",
+  wedge: "Directional wedge",
   none: "None (pass-through)",
 };
 
@@ -43,6 +44,8 @@ function seedState(graph: CellGraph, ids: CellIdsImageFrequency, state: ImageFre
   graph.set(ids.maskType, state.maskType);
   graph.set(ids.radius, state.radius);
   graph.set(ids.radius2, state.radius2);
+  graph.set(ids.wedgeAngle, state.wedgeAngle ?? DEFAULT_IMAGE_FREQUENCY_STATE.wedgeAngle);
+  graph.set(ids.wedgeWidth, state.wedgeWidth ?? DEFAULT_IMAGE_FREQUENCY_STATE.wedgeWidth);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsImageFrequency): ImageFrequencyState {
@@ -53,6 +56,8 @@ function getCurrentState(graph: CellGraph, ids: CellIdsImageFrequency): ImageFre
     maskType: graph.get<MaskType>(ids.maskType),
     radius: graph.get<string>(ids.radius),
     radius2: graph.get<string>(ids.radius2),
+    wedgeAngle: graph.get<string>(ids.wedgeAngle),
+    wedgeWidth: graph.get<string>(ids.wedgeWidth),
   };
 }
 
@@ -71,9 +76,13 @@ function useImageFrequencyGraph(cellId: string): CellGraph {
         const maskType = graph.get<MaskType>(ids.maskType);
         const radius = Number(graph.get<string>(ids.radius));
         const radius2 = Number(graph.get<string>(ids.radius2));
-        if ([size, radius, radius2].some(Number.isNaN)) throw new Error("Size and radii must all be numbers.");
+        const wedgeAngle = Number(graph.get<string>(ids.wedgeAngle));
+        const wedgeWidth = Number(graph.get<string>(ids.wedgeWidth));
+        if ([size, radius, radius2, wedgeAngle, wedgeWidth].some(Number.isNaN)) {
+          throw new Error("Size, radii, and wedge angle/width must all be numbers.");
+        }
         const source = generatePattern(pattern, size);
-        return { ok: true, value: analyzeImageFrequency(source, size, maskType, radius, radius2) };
+        return { ok: true, value: analyzeImageFrequency(source, size, maskType, radius, radius2, wedgeAngle, wedgeWidth) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
@@ -109,6 +118,8 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
   const maskType = useCell<MaskType>(graph, ids.maskType);
   const radius = useCell<string>(graph, ids.radius);
   const radius2 = useCell<string>(graph, ids.radius2);
+  const wedgeAngle = useCell<string>(graph, ids.wedgeAngle);
+  const wedgeWidth = useCell<string>(graph, ids.wedgeWidth);
   const result = useCell<Result<FrequencyResult>>(graph, ids.result);
 
   useEffect(() => {
@@ -188,6 +199,30 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
               style={{ font: "inherit", width: "6ch" }}
             />
           </label>
+        )}
+        {maskType === "wedge" && (
+          <>
+            <label>
+              angle (deg):{" "}
+              <input
+                type="number"
+                value={wedgeAngle}
+                onChange={(e) => graph.set(ids.wedgeAngle, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+            <label>
+              width (deg):{" "}
+              <input
+                type="number"
+                min={0}
+                max={180}
+                value={wedgeWidth}
+                onChange={(e) => graph.set(ids.wedgeWidth, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+          </>
         )}
       </div>
       {!result.ok && <p style={{ color: "var(--danger)" }}>{result.message}</p>}
