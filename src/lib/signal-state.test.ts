@@ -88,3 +88,29 @@ test("isSignalStateV2: rejects a resample field with the wrong type when present
   const badResampleUp = { ...DEFAULT_SIGNAL_STATE, resampleUp: 2 };
   assert.equal(isSignalStateV2(badResampleUp), false);
 });
+
+test("isSignalStateV2: accepts a v2 state missing the sum-of-sinusoids builder fields entirely (an old encoded URL hash from before that feature existed)", () => {
+  const preBuilderState = { v: 2, exprText: "sin(t)", sampleRate: "64", duration: "1", nperseg: "16", noverlap: "8" };
+  assert.equal(isSignalStateV2(preBuilderState), true);
+});
+
+test("isSignalStateV2: rejects a malformed builderTerms field (wrong shape entirely, or a term missing a required string field)", () => {
+  const badUseBuilder = { ...DEFAULT_SIGNAL_STATE, useBuilder: "yes" };
+  assert.equal(isSignalStateV2(badUseBuilder), false);
+  const notAnArray = { ...DEFAULT_SIGNAL_STATE, builderTerms: "nope" };
+  assert.equal(isSignalStateV2(notAnArray), false);
+  const missingField = { ...DEFAULT_SIGNAL_STATE, builderTerms: [{ amplitude: "1", frequency: "5" }] };
+  assert.equal(isSignalStateV2(missingField), false);
+  const wrongFieldType = { ...DEFAULT_SIGNAL_STATE, builderTerms: [{ amplitude: 1, frequency: "5", phase: "0" }] };
+  assert.equal(isSignalStateV2(wrongFieldType), false);
+});
+
+test("encodeSignalState/decodeSignalState: round-trips the full state including builder terms", () => {
+  const state = {
+    ...DEFAULT_SIGNAL_STATE,
+    useBuilder: true,
+    builderTerms: [{ amplitude: "2", frequency: "3", phase: "1.5" }],
+  };
+  const decoded = decodeSignalState(encodeSignalState(state));
+  assert.deepEqual(decoded, state);
+});

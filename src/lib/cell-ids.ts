@@ -400,6 +400,8 @@ export function cellIdsSignal(cellId: string) {
     resampleUp: `signalResampleUp:${cellId}`,
     resampleDown: `signalResampleDown:${cellId}`,
     resampleResult: `signalResampleResult:${cellId}`,
+    useBuilder: `signalUseBuilder:${cellId}`,
+    builderTerms: `signalBuilderTerms:${cellId}`,
   };
 }
 

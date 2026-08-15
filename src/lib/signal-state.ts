@@ -1,4 +1,16 @@
 /**
+ * A single term of the sum-of-sinusoids builder (issue #31's remaining
+ * "alternative to the raw expression input" item). No `id` field -- row
+ * ids are just React/cell keys, not referenced elsewhere, regenerated on
+ * decode, mirroring RegressionRowState's identical convention.
+ */
+export interface SinusoidTerm {
+  amplitude: string;
+  frequency: string;
+  phase: string;
+}
+
+/**
  * URL-state schema for SignalPanel -- the raw inputs only (see
  * cell-ids.ts's cellIdsSignal); every result cell is purely derived.
  */
@@ -41,6 +53,16 @@ export interface SignalStateV2 {
   showResample?: boolean;
   resampleUp?: string;
   resampleDown?: string;
+  /**
+   * Sum-of-sinusoids builder (issue #31's last remaining scope item) --
+   * optional for the same reason as every other field above. `useBuilder`
+   * toggles which UI edits `exprText` (the builder writes a generated
+   * string into the same cell); `builderTerms` is the row data that
+   * generated it, kept even when the toggle is off so switching back on
+   * doesn't lose the user's rows.
+   */
+  useBuilder?: boolean;
+  builderTerms?: SinusoidTerm[];
 }
 
 export type SignalState = SignalStateV2;
@@ -64,6 +86,11 @@ export const DEFAULT_SIGNAL_STATE: SignalState = {
   showResample: false,
   resampleUp: "1",
   resampleDown: "2",
+  useBuilder: false,
+  builderTerms: [
+    { amplitude: "1", frequency: "5", phase: "0" },
+    { amplitude: "0.5", frequency: "12", phase: "0" },
+  ],
 };
 
 export function encodeSignalState(state: SignalState): string {
@@ -105,8 +132,19 @@ export function isSignalStateV2(value: unknown): value is SignalStateV2 {
   if (v.showPeaks !== undefined && typeof v.showPeaks !== "boolean") return false;
   if (v.showCorrelation !== undefined && typeof v.showCorrelation !== "boolean") return false;
   if (v.showResample !== undefined && typeof v.showResample !== "boolean") return false;
+  if (v.useBuilder !== undefined && typeof v.useBuilder !== "boolean") return false;
+  if (v.builderTerms !== undefined && !isSinusoidTermArray(v.builderTerms)) return false;
   const optionalStringFields = ["minAmplitude", "minSpacingHz", "minProminence", "exprTextB", "resampleUp", "resampleDown"] as const;
   return optionalStringFields.every((f) => v[f] === undefined || typeof v[f] === "string");
+}
+
+function isSinusoidTermArray(value: unknown): value is SinusoidTerm[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((t) => {
+    if (typeof t !== "object" || t === null) return false;
+    const term = t as Record<string, unknown>;
+    return typeof term.amplitude === "string" && typeof term.frequency === "string" && typeof term.phase === "string";
+  });
 }
 
 function base64UrlEncode(input: string): string {
