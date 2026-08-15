@@ -38,25 +38,50 @@ export function generatePattern(type: PatternType, size: number): number[][] {
   return grid;
 }
 
-export type MaskType = "lowpass" | "highpass" | "bandpass" | "none";
+export type MaskType = "lowpass" | "highpass" | "bandpass" | "wedge" | "none";
+
+/**
+ * Folds an angle in degrees to `[0, 180)` -- a line through the spectrum's
+ * center at angle theta is indistinguishable from one at theta+180 (the
+ * spectrum is point-symmetric about DC for a real-valued image), so
+ * `wedge`'s angle comparisons only need to consider directions modulo a
+ * half-turn.
+ */
+function foldAngleDeg(angleDeg: number): number {
+  return ((angleDeg % 180) + 180) % 180;
+}
 
 /**
  * Builds a `size x size` binary mask (1 = keep, 0 = zero out) centered on the
  * (fftshift'd) spectrum's own DC position -- a disc for `lowpass`, its
  * complement (a ring extending to the corners) for `highpass`, an annulus
- * for `bandpass`, or all-ones for `none` (a round-trip sanity check: masking
- * with `none` and inverting should exactly reconstruct the input).
+ * for `bandpass`, a symmetric bowtie through the center for `wedge` (issue
+ * #32's directional filter -- keeps frequency content oriented along
+ * `wedgeAngleDeg`, e.g. 0deg/horizontal keeps vertical image edges), or
+ * all-ones for `none` (a round-trip sanity check: masking with `none` and
+ * inverting should exactly reconstruct the input).
  */
-export function buildMask(size: number, type: MaskType, radius: number, radius2?: number): number[][] {
+export function buildMask(
+  size: number,
+  type: MaskType,
+  radius: number,
+  radius2?: number,
+  wedgeAngleDeg = 0,
+  wedgeWidthDeg = 30,
+): number[][] {
   if (size <= 0) throw new Error(`size must be positive -- got ${size}.`);
   if (radius < 0) throw new Error(`radius must be non-negative -- got ${radius}.`);
   const outerRadius = radius2 ?? radius + 4;
+  const targetAngle = foldAngleDeg(wedgeAngleDeg);
+  const halfWidth = wedgeWidthDeg / 2;
   const center = (size - 1) / 2;
   const mask: number[][] = [];
   for (let y = 0; y < size; y++) {
     const row: number[] = [];
     for (let x = 0; x < size; x++) {
-      const dist = Math.hypot(x - center, y - center);
+      const dx = x - center;
+      const dy = y - center;
+      const dist = Math.hypot(dx, dy);
       let keep: boolean;
       switch (type) {
         case "lowpass":
@@ -68,6 +93,19 @@ export function buildMask(size: number, type: MaskType, radius: number, radius2?
         case "bandpass":
           keep = dist >= radius && dist <= outerRadius;
           break;
+        case "wedge": {
+          // DC itself has no meaningful direction -- always keep it, the
+          // same way a disc/ring mask always includes or excludes it as a
+          // single well-defined point rather than an edge case.
+          if (dist < 1e-9) {
+            keep = true;
+            break;
+          }
+          const angle = foldAngleDeg((Math.atan2(dy, dx) * 180) / Math.PI);
+          const diff = Math.abs(angle - targetAngle);
+          keep = Math.min(diff, 180 - diff) <= halfWidth;
+          break;
+        }
         case "none":
           keep = true;
           break;
@@ -117,6 +155,8 @@ export function analyzeImageFrequency(
   maskType: MaskType,
   radius: number,
   radius2?: number,
+  wedgeAngleDeg?: number,
+  wedgeWidthDeg?: number,
 ): FrequencyResult {
   const height = pixels.length;
   const width = pixels[0]?.length ?? 0;
@@ -143,7 +183,7 @@ export function analyzeImageFrequency(
     magnitudeSpectrum.push(row);
   }
 
-  const mask = buildMask(size, maskType, radius, radius2);
+  const mask = buildMask(size, maskType, radius, radius2, wedgeAngleDeg, wedgeWidthDeg);
   const maskTensor = grid2DToTensor(mask, "f64"); // f64 to match fft2/fftshift's own output dtype -- Tensor has no implicit promotion (confirmed directly: mismatched dtypes throw on mul()).
   const maskedReal = shifted.real.mul(maskTensor);
   const maskedImag = shifted.imag.mul(maskTensor);

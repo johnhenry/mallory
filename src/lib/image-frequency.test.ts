@@ -58,6 +58,40 @@ test("buildMask: bandpass keeps only the annulus between the two radii", () => {
   assert.equal(mask[center]?.[center + 4], 0); // dist 4, outside the outer radius
 });
 
+test("buildMask: wedge (0deg, width 30) keeps horizontal-ish directions and excludes vertical, hand-checked on a 9x9 grid (center at (4,4))", () => {
+  const mask = buildMask(9, "wedge", 0, undefined, 0, 30);
+  // east (8,4): dx=4,dy=0 -> angle 0deg -> kept.
+  assert.equal(mask[4]?.[8], 1);
+  // west (0,4): dx=-4,dy=0 -> angle 180deg, folds to 0deg (same line through center) -> kept.
+  assert.equal(mask[4]?.[0], 1);
+  // south (4,8): dx=0,dy=4 -> angle 90deg -> outside the +/-15deg wedge -> excluded.
+  assert.equal(mask[8]?.[4], 0);
+  // north (4,0): dx=0,dy=-4 -> angle -90deg, folds to 90deg -> excluded.
+  assert.equal(mask[0]?.[4], 0);
+  // DC itself (dist 0) has no direction -- always kept, like a disc mask's own single well-defined center point.
+  assert.equal(mask[4]?.[4], 1);
+});
+
+test("buildMask: wedge at 90deg keeps vertical and excludes horizontal -- the complementary case to the 0deg wedge above", () => {
+  const mask = buildMask(9, "wedge", 0, undefined, 90, 30);
+  assert.equal(mask[8]?.[4], 1); // south, 90deg -> kept
+  assert.equal(mask[0]?.[4], 1); // north, folds to 90deg -> kept
+  assert.equal(mask[4]?.[8], 0); // east, 0deg -> excluded
+  assert.equal(mask[4]?.[0], 0); // west, folds to 0deg -> excluded
+});
+
+test("buildMask: wedge angle wraps correctly across the 0/180 boundary -- a point at 175deg (5deg on the OTHER side of the wrap) is still kept by a 0deg-centered wedge, which a naive |diff| comparison (175 vs 0 = diff 175) would wrongly exclude", () => {
+  const size = 41;
+  const center = 20;
+  const radius = 15; // large enough that rounding to the nearest integer pixel doesn't blur the exact angle
+  const dx = radius * Math.cos((175 * Math.PI) / 180);
+  const dy = radius * Math.sin((175 * Math.PI) / 180);
+  const x = Math.round(center + dx);
+  const y = Math.round(center + dy);
+  const mask = buildMask(size, "wedge", 0, undefined, 0, 30);
+  assert.equal(mask[y]?.[x], 1);
+});
+
 test("buildMask: 'none' keeps everything", () => {
   const mask = buildMask(4, "none", 0);
   for (const row of mask) for (const v of row) assert.equal(v, 1);

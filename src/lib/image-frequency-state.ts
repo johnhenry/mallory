@@ -15,6 +15,15 @@ export interface ImageFrequencyStateV1 {
   maskType: MaskType;
   radius: string;
   radius2: string;
+  /**
+   * Directional-wedge mask params (issue #32's remaining scope) -- optional
+   * (not a schema version bump, same convention as GradientDescentStateV1's
+   * `useSchedule`/`stepSize`/`gamma`) so an old encoded URL hash from
+   * before these fields existed still decodes instead of failing
+   * validation and silently resetting the WHOLE state to defaults.
+   */
+  wedgeAngle?: string;
+  wedgeWidth?: string;
 }
 
 export type ImageFrequencyState = ImageFrequencyStateV1;
@@ -26,6 +35,8 @@ export const DEFAULT_IMAGE_FREQUENCY_STATE: ImageFrequencyState = {
   maskType: "lowpass",
   radius: "8",
   radius2: "16",
+  wedgeAngle: "0",
+  wedgeWidth: "30",
 };
 
 export function encodeImageFrequencyState(state: ImageFrequencyState): string {
@@ -43,7 +54,7 @@ export function decodeImageFrequencyState(fragment: string): ImageFrequencyState
 }
 
 const PATTERN_TYPES: PatternType[] = ["checkerboard", "stripes", "circle", "gradient"];
-const MASK_TYPES: MaskType[] = ["lowpass", "highpass", "bandpass", "none"];
+const MASK_TYPES: MaskType[] = ["lowpass", "highpass", "bandpass", "wedge", "none"];
 
 export function isImageFrequencyStateV1(value: unknown): value is ImageFrequencyStateV1 {
   if (typeof value !== "object" || value === null) return false;
@@ -52,7 +63,9 @@ export function isImageFrequencyStateV1(value: unknown): value is ImageFrequency
   if (!PATTERN_TYPES.includes(v.pattern as PatternType)) return false;
   if (!MASK_TYPES.includes(v.maskType as MaskType)) return false;
   const fields = ["size", "radius", "radius2"] as const;
-  return fields.every((f) => typeof v[f] === "string");
+  if (!fields.every((f) => typeof v[f] === "string")) return false;
+  const optionalFields = ["wedgeAngle", "wedgeWidth"] as const;
+  return optionalFields.every((f) => v[f] === undefined || typeof v[f] === "string");
 }
 
 function base64UrlEncode(input: string): string {

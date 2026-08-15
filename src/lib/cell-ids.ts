@@ -387,6 +387,8 @@ export function cellIdsImageFrequency(cellId: string) {
     maskType: `imageFreqMaskType:${cellId}`,
     radius: `imageFreqRadius:${cellId}`,
     radius2: `imageFreqRadius2:${cellId}`,
+    wedgeAngle: `imageFreqWedgeAngle:${cellId}`,
+    wedgeWidth: `imageFreqWedgeWidth:${cellId}`,
     result: `imageFreqResult:${cellId}`,
   };
 }
