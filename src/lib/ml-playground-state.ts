@@ -30,6 +30,16 @@ export interface MlPlaygroundStateV2 {
   lr: string;
   epochs: string;
   dropout: string;
+  /**
+   * Issue #34's "StepLR exposure" remaining-scope item -- optional (not a
+   * v3 bump), same convention as `gradient-descent-state.ts`'s own
+   * `useSchedule`/`stepSize`/`gamma` fields: off by default, and an old
+   * encoded hash from before this field existed still decodes instead of
+   * failing validation and resetting the whole state.
+   */
+  useSchedule?: boolean;
+  stepSize?: string;
+  gamma?: string;
 }
 
 export type MlPlaygroundState = MlPlaygroundStateV2;
@@ -44,6 +54,9 @@ export const DEFAULT_ML_PLAYGROUND_STATE: MlPlaygroundState = {
   lr: "0.05",
   epochs: "200",
   dropout: "0",
+  useSchedule: false,
+  stepSize: "50",
+  gamma: "0.5",
 };
 
 export function encodeMlPlaygroundState(state: MlPlaygroundState): string {
@@ -79,7 +92,10 @@ export function isMlPlaygroundStateV1(value: unknown): value is MlPlaygroundStat
 export function isMlPlaygroundStateV2(value: unknown): value is MlPlaygroundStateV2 {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  return v.v === 2 && hasV1Fields(v) && typeof v.dropout === "string";
+  if (v.v !== 2 || !hasV1Fields(v) || typeof v.dropout !== "string") return false;
+  const optionalStringFields = ["stepSize", "gamma"] as const;
+  if (!optionalStringFields.every((f) => v[f] === undefined || typeof v[f] === "string")) return false;
+  return v.useSchedule === undefined || typeof v.useSchedule === "boolean";
 }
 
 function base64UrlEncode(input: string): string {

@@ -45,6 +45,9 @@ function seedState(graph: CellGraph, ids: CellIdsMlPlayground, state: MlPlaygrou
   graph.set(ids.lr, state.lr);
   graph.set(ids.epochs, state.epochs);
   graph.set(ids.dropout, state.dropout);
+  graph.set(ids.useSchedule, state.useSchedule ?? DEFAULT_ML_PLAYGROUND_STATE.useSchedule);
+  graph.set(ids.stepSize, state.stepSize ?? DEFAULT_ML_PLAYGROUND_STATE.stepSize);
+  graph.set(ids.gamma, state.gamma ?? DEFAULT_ML_PLAYGROUND_STATE.gamma);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsMlPlayground): MlPlaygroundState {
@@ -58,6 +61,9 @@ function getCurrentState(graph: CellGraph, ids: CellIdsMlPlayground): MlPlaygrou
     lr: graph.get<string>(ids.lr),
     epochs: graph.get<string>(ids.epochs),
     dropout: graph.get<string>(ids.dropout),
+    useSchedule: graph.get<boolean>(ids.useSchedule),
+    stepSize: graph.get<string>(ids.stepSize),
+    gamma: graph.get<string>(ids.gamma),
   };
 }
 
@@ -128,6 +134,9 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
   const lr = useCell<string>(graph, ids.lr);
   const epochs = useCell<string>(graph, ids.epochs);
   const dropout = useCell<string>(graph, ids.dropout);
+  const useSchedule = useCell<boolean>(graph, ids.useSchedule);
+  const stepSize = useCell<string>(graph, ids.stepSize);
+  const gamma = useCell<string>(graph, ids.gamma);
   const pointsResult = useCell<Result<LabeledPoint[]>>(graph, ids.points);
 
   const [lossHistory, setLossHistory] = useState<number[]>([]);
@@ -166,7 +175,8 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
       if (!modelRef.current) {
         modelRef.current = new TinyMlp(Number(hidden), Number(modelSeed), Number(dropout));
       }
-      const result = await trainModel(modelRef.current, pointsResult.value, Number(lr), Number(epochs));
+      const schedule = useSchedule ? { stepSize: Number(stepSize), gamma: Number(gamma) } : undefined;
+      const result = await trainModel(modelRef.current, pointsResult.value, Number(lr), Number(epochs), schedule);
       setLossHistory((prev) => [...prev, ...result.lossHistory]);
       setTotalEpochs((prev) => prev + result.lossHistory.length);
       setProbabilityGrid(predictProbabilityGrid(modelRef.current, DOMAIN, GRID_RESOLUTION));
@@ -306,6 +316,28 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
         <button type="button" onClick={handleReset} disabled={training}>
           Reset
         </button>
+      </div>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label>
+          <input type="checkbox" checked={useSchedule} onChange={(e) => graph.set(ids.useSchedule, e.target.checked)} /> StepLR schedule
+        </label>
+        {useSchedule && (
+          <>
+            <label>
+              step size:{" "}
+              <input
+                type="number"
+                min={1}
+                value={stepSize}
+                onChange={(e) => graph.set(ids.stepSize, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+            <label>
+              gamma: <input value={gamma} onChange={(e) => graph.set(ids.gamma, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
+            </label>
+          </>
+        )}
       </div>
       {!pointsResult.ok && <p style={{ color: "var(--danger)" }}>{pointsResult.message}</p>}
       {trainError && <p style={{ color: "var(--danger)" }}>{trainError}</p>}

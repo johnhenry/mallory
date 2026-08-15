@@ -167,20 +167,56 @@ const MAX_EPOCHS = 2000;
  * intended integration, not a bespoke loop): Adam + `binaryCrossEntropy` on
  * logits, `epochs` steps over the whole dataset. Mutates `model`'s weights
  * in place -- callers keep the model across calls to continue training.
+ *
+ * An optional `schedule` wraps the optimizer in `optim.StepLR` (issue #34's
+ * remaining "StepLR exposure" item, mirroring `gradient-descent.ts`'s own
+ * StepLR wiring). `trainer.configure({...epochs}).fit({x,y})` has no hook
+ * to call `scheduler.step()` BETWEEN its internal `epochs`-many
+ * `optimizer.step()` calls -- it's one synchronous batch, not a
+ * per-iteration loop the caller can interleave with. So a scheduled run
+ * calls `fit()` once per SINGLE epoch instead, `scheduler.step()`'d after
+ * each -- the exact same "optimizer.step(); scheduler.step();"
+ * per-iteration convention `gradient-descent.ts` already established,
+ * just spread across `epochs` separate `fit()` calls rather than one. The
+ * SAME `optimizer` instance is reused across every call (constructed once,
+ * outside the loop), so Adam's per-parameter momentum/second-moment state
+ * persists correctly across chunks -- only `optimizer.lr` (StepLR's own
+ * target) changes between calls, verified empirically against the real
+ * installed package: `stepSize=3, gamma=0.5` produces the lr sequence
+ * `[1,1,1,0.5,0.5,0.5,0.25,0.25,0.25,0.125]` over 10 `.step()` calls,
+ * matching `StepLR`'s own documented `initialLr * gamma^floor(n/stepSize)`
+ * contract exactly.
  */
-export async function trainModel(model: TinyMlp, points: readonly LabeledPoint[], lr: number, epochs: number): Promise<TrainResult> {
+export async function trainModel(
+  model: TinyMlp,
+  points: readonly LabeledPoint[],
+  lr: number,
+  epochs: number,
+  schedule?: { stepSize: number; gamma: number },
+): Promise<TrainResult> {
   if (points.length === 0) throw new Error("Dataset is empty.");
   if (!Number.isFinite(lr) || lr <= 0) throw new Error("Learning rate must be a positive number.");
   if (!Number.isInteger(epochs) || epochs <= 0 || epochs > MAX_EPOCHS) throw new Error(`Epochs must be a positive integer up to ${MAX_EPOCHS}.`);
+  if (schedule) {
+    if (!Number.isInteger(schedule.stepSize) || schedule.stepSize <= 0) throw new Error("Schedule step size must be a positive integer.");
+    if (!Number.isFinite(schedule.gamma) || schedule.gamma <= 0) throw new Error("Schedule gamma must be a positive number.");
+  }
   const { x, y } = datasetToBatch(points);
-  const fit = trainer.configure({
-    model,
-    optimizer: new optim.Adam(model.parameters(), { lr }),
-    lossFn: stableBinaryCrossEntropy,
-    epochs,
-  });
-  const { lossHistory } = await fit.fit({ x, y });
-  return { lossHistory: [...lossHistory] };
+  const optimizer = new optim.Adam(model.parameters(), { lr });
+  if (!schedule) {
+    const fit = trainer.configure({ model, optimizer, lossFn: stableBinaryCrossEntropy, epochs });
+    const { lossHistory } = await fit.fit({ x, y });
+    return { lossHistory: [...lossHistory] };
+  }
+  const scheduler = new optim.StepLR(optimizer, schedule);
+  const lossHistory: number[] = [];
+  for (let epoch = 0; epoch < epochs; epoch++) {
+    const fit = trainer.configure({ model, optimizer, lossFn: stableBinaryCrossEntropy, epochs: 1 });
+    const result = await fit.fit({ x, y });
+    lossHistory.push(...result.lossHistory);
+    scheduler.step();
+  }
+  return { lossHistory };
 }
 
 export interface GridDomain {
