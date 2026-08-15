@@ -350,6 +350,11 @@ export function cellIdsSignal(cellId: string) {
     nperseg: `signalNperseg:${cellId}`,
     noverlap: `signalNoverlap:${cellId}`,
     spectrogramResult: `signalSpectrogramResult:${cellId}`,
+    showPeaks: `signalShowPeaks:${cellId}`,
+    minAmplitude: `signalMinAmplitude:${cellId}`,
+    minSpacingHz: `signalMinSpacingHz:${cellId}`,
+    minProminence: `signalMinProminence:${cellId}`,
+    peaksResult: `signalPeaksResult:${cellId}`,
   };
 }
 

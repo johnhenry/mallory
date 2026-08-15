@@ -7,12 +7,14 @@ import {
   amplitudeSpectrum,
   computeSpectrogram,
   drawSpectrogram,
+  findSpectrumPeaks,
   sampleWaveform,
   type AmplitudeSpectrum,
   type Spectrogram,
+  type SpectrumPeak,
   type Waveform,
 } from "../lib/signal-waveform.ts";
-import { drawPolyline } from "../lib/render-path.ts";
+import { drawPoint, drawPolyline } from "../lib/render-path.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -33,6 +35,10 @@ function seedSignalState(graph: CellGraph, ids: CellIdsSignal, state: SignalStat
   graph.set(ids.duration, state.duration);
   graph.set(ids.nperseg, state.nperseg);
   graph.set(ids.noverlap, state.noverlap);
+  graph.set(ids.showPeaks, state.showPeaks ?? DEFAULT_SIGNAL_STATE.showPeaks);
+  graph.set(ids.minAmplitude, state.minAmplitude ?? DEFAULT_SIGNAL_STATE.minAmplitude);
+  graph.set(ids.minSpacingHz, state.minSpacingHz ?? DEFAULT_SIGNAL_STATE.minSpacingHz);
+  graph.set(ids.minProminence, state.minProminence ?? DEFAULT_SIGNAL_STATE.minProminence);
 }
 
 function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalState {
@@ -43,6 +49,10 @@ function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalStat
     duration: graph.get<string>(ids.duration),
     nperseg: graph.get<string>(ids.nperseg),
     noverlap: graph.get<string>(ids.noverlap),
+    showPeaks: graph.get<boolean>(ids.showPeaks),
+    minAmplitude: graph.get<string>(ids.minAmplitude),
+    minSpacingHz: graph.get<string>(ids.minSpacingHz),
+    minProminence: graph.get<string>(ids.minProminence),
   };
 }
 
@@ -77,6 +87,29 @@ function useSignalGraph(cellId: string): CellGraph {
       if (!waveform.ok) return waveform;
       try {
         return { ok: true, value: amplitudeSpectrum(waveform.value) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.peaksResult, (): Result<SpectrumPeak[]> => {
+      const spectrum = graph.get<Result<AmplitudeSpectrum>>(ids.spectrumResult);
+      if (!spectrum.ok) return spectrum;
+      try {
+        const minAmplitude = Number(graph.get<string>(ids.minAmplitude));
+        const minSpacingHz = Number(graph.get<string>(ids.minSpacingHz));
+        const minProminence = Number(graph.get<string>(ids.minProminence));
+        if (Number.isNaN(minAmplitude) || Number.isNaN(minSpacingHz) || Number.isNaN(minProminence)) {
+          throw new Error("Peak thresholds must all be numbers.");
+        }
+        return {
+          ok: true,
+          value: findSpectrumPeaks(spectrum.value, {
+            minAmplitude: minAmplitude > 0 ? minAmplitude : undefined,
+            minSpacingHz: minSpacingHz > 0 ? minSpacingHz : undefined,
+            minProminence: minProminence > 0 ? minProminence : undefined,
+          }),
+        };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
@@ -123,6 +156,11 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const nperseg = useCell<string>(graph, ids.nperseg);
   const noverlap = useCell<string>(graph, ids.noverlap);
   const spectrogramResult = useCell<Result<Spectrogram>>(graph, ids.spectrogramResult);
+  const showPeaks = useCell<boolean>(graph, ids.showPeaks);
+  const minAmplitude = useCell<string>(graph, ids.minAmplitude);
+  const minSpacingHz = useCell<string>(graph, ids.minSpacingHz);
+  const minProminence = useCell<string>(graph, ids.minProminence);
+  const peaksResult = useCell<Result<SpectrumPeak[]>>(graph, ids.peaksResult);
 
   const [exprInput, setExprInput] = useState(exprText);
   // Keeps the input box in sync when exprText changes for a reason other
@@ -172,7 +210,12 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     const viewport: Viewport = { xMin: 0, xMax: frequencies[frequencies.length - 1]!, yMin: 0, yMax: maxAmp * 1.1 };
     const points = frequencies.map((f, i) => ({ x: f, y: amplitudes[i]! }));
     drawPolyline(ctx, points, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, "#dc2626");
-  }, [spectrumResult]);
+    if (showPeaks && peaksResult.ok) {
+      for (const peak of peaksResult.value) {
+        drawPoint(ctx, { x: peak.frequency, y: peak.amplitude }, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, 5, "#16a34a");
+      }
+    }
+  }, [spectrumResult, showPeaks, peaksResult]);
 
   useEffect(() => {
     const canvas = spectrogramCanvasRef.current;
@@ -234,6 +277,59 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="signal-spectrum" />
       </div>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label>
+          <input type="checkbox" checked={showPeaks} onChange={(e) => graph.set(ids.showPeaks, e.target.checked)} /> Find peaks
+        </label>
+        {showPeaks && (
+          <>
+            <label>
+              min amplitude:{" "}
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={minAmplitude}
+                onChange={(e) => graph.set(ids.minAmplitude, e.target.value)}
+                style={{ font: "inherit", width: "8ch" }}
+              />
+            </label>
+            <label>
+              min spacing (Hz):{" "}
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={minSpacingHz}
+                onChange={(e) => graph.set(ids.minSpacingHz, e.target.value)}
+                style={{ font: "inherit", width: "8ch" }}
+              />
+            </label>
+            <label>
+              min prominence:{" "}
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={minProminence}
+                onChange={(e) => graph.set(ids.minProminence, e.target.value)}
+                style={{ font: "inherit", width: "8ch" }}
+              />
+            </label>
+          </>
+        )}
+      </div>
+      {showPeaks && !peaksResult.ok && <p style={{ color: "var(--danger)" }}>{peaksResult.message}</p>}
+      {showPeaks && peaksResult.ok && (
+        <ul style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+          {peaksResult.value.length === 0 && <li>No peaks found.</li>}
+          {peaksResult.value.map((peak) => (
+            <li key={peak.frequency}>
+              {peak.frequency.toFixed(2)}Hz -- amplitude {peak.amplitude.toFixed(3)}, prominence {peak.prominence.toFixed(3)}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <h3>Spectrogram</h3>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>

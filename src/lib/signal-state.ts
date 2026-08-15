@@ -16,6 +16,17 @@ export interface SignalStateV2 {
   duration: string;
   nperseg: string;
   noverlap: string;
+  /**
+   * Issue #31's "findPeaks on the spectrum" extra -- off by default. Optional
+   * (not a schema version bump, same convention as GradientDescentStateV1's
+   * `useSchedule`/`stepSize`/`gamma`) so an old encoded URL hash from before
+   * these fields existed still decodes instead of failing validation and
+   * silently resetting the WHOLE state to defaults.
+   */
+  showPeaks?: boolean;
+  minAmplitude?: string;
+  minSpacingHz?: string;
+  minProminence?: string;
 }
 
 export type SignalState = SignalStateV2;
@@ -27,6 +38,10 @@ export const DEFAULT_SIGNAL_STATE: SignalState = {
   duration: "1",
   nperseg: "16",
   noverlap: "8",
+  showPeaks: false,
+  minAmplitude: "0",
+  minSpacingHz: "0",
+  minProminence: "0",
 };
 
 export function encodeSignalState(state: SignalState): string {
@@ -64,7 +79,10 @@ export function isSignalStateV2(value: unknown): value is SignalStateV2 {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   if (v.v !== 2 || !hasV1Fields(v)) return false;
-  return typeof v.nperseg === "string" && typeof v.noverlap === "string";
+  if (typeof v.nperseg !== "string" || typeof v.noverlap !== "string") return false;
+  if (v.showPeaks !== undefined && typeof v.showPeaks !== "boolean") return false;
+  const optionalStringFields = ["minAmplitude", "minSpacingHz", "minProminence"] as const;
+  return optionalStringFields.every((f) => v[f] === undefined || typeof v[f] === "string");
 }
 
 function base64UrlEncode(input: string): string {
