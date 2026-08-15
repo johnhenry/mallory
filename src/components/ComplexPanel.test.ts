@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber, Symbolic } from "mallory-math";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsComplex } from "../lib/cell-ids.ts";
 import { setupTestDom } from "../lib/test-dom.ts";
 import { complexParamEnv, getCurrentComplexState } from "./ComplexPanel.tsx";
 
-const { createElement, mount } = await setupTestDom();
+const { createElement, mount, domWindow } = await setupTestDom();
 const complexPanelModule = await import("./ComplexPanel.tsx");
+
+/** Same click-then-native-events pattern as ExpressionRow.test.ts's identically-named helper. */
+function clickCheckbox(input: HTMLInputElement) {
+  input.dispatchEvent(new domWindow.MouseEvent("click", { bubbles: true, cancelable: true }) as unknown as Event);
+}
 // ComplexPanel's single, all-optional-with-default props parameter doesn't
 // satisfy createElement's overload resolution -- same gap DiscretePanel's
 // own test works around with a re-typed local alias.
@@ -82,6 +87,78 @@ test("ComplexPanel: a free variable in f(z) (e.g. c in z^2+c) surfaces a slider,
   await update(() => graph.set(ids.param("c"), 5));
   assert.equal(slider.value, "5");
   assert.ok(container.textContent?.includes("= 5.0000+0.0000i"), container.textContent ?? "");
+
+  await unmount();
+});
+
+test("ComplexPanel: the math keyboard checkbox swaps the plain input for a math-field seeded with f(z)'s LaTeX", async () => {
+  const graph = new CellGraph();
+
+  // Mount on a fresh graph first -- same reason as the free-var test above:
+  // useComplexGraph's one-time reactive-cell setup is gated on
+  // !graph.has(ids.exprText). DEFAULT_COMPLEX_STATE.exprText is "z^2 + 1",
+  // so no pre-seed is needed here.
+  const { container, update, unmount } = await mount(createElement(ComplexPanel, { cellId: "complex-mathkb", graph, syncUrl: false }));
+  assert.ok(container.querySelector('input[type="text"], input:not([type])'), "expected the plain text input by default");
+  assert.equal(container.querySelector("math-field"), null);
+
+  const toggle = Array.from(container.querySelectorAll('input[type="checkbox"]')).find(
+    (el) => el.closest("label")?.textContent?.includes("math keyboard"),
+  ) as HTMLInputElement;
+  assert.ok(toggle, "expected a \"math keyboard\" checkbox");
+
+  await update(() => clickCheckbox(toggle));
+  const field = container.querySelector("math-field") as unknown as { value: string } | null;
+  assert.ok(field, "expected a <math-field> once the math-keyboard toggle is on");
+  // Hand-computed: Symbolic.toLatex(Symbolic.parse("z^2 + 1")) round-trips
+  // through Symbolic.fromLatex back to the same expression source.
+  assert.equal(Symbolic.toString(Symbolic.fromLatex(field!.value)), "z^2 + 1");
+
+  await unmount();
+});
+
+test("ComplexPanel: typing into the math-field flows LaTeX -> expression source -> the exprText cell", async () => {
+  const graph = new CellGraph();
+  const ids = cellIdsComplex("complex-mathkb-2");
+
+  const { container, update, unmount } = await mount(createElement(ComplexPanel, { cellId: "complex-mathkb-2", graph, syncUrl: false }));
+  await update(() => graph.set(ids.exprText, "z"));
+  const toggle = Array.from(container.querySelectorAll('input[type="checkbox"]')).find(
+    (el) => el.closest("label")?.textContent?.includes("math keyboard"),
+  ) as HTMLInputElement;
+  await update(() => clickCheckbox(toggle));
+  const field = container.querySelector("math-field") as unknown as { value: string; dispatchEvent: (e: Event) => void } | null;
+  assert.ok(field);
+
+  await update(() => {
+    field!.value = "z^3+c";
+    field!.dispatchEvent(new domWindow.Event("input", { bubbles: true }) as unknown as Event);
+  });
+  // Hand-computed: fromLatex("z^3+c") -> Pow(z,3)+c -> toString "z^3 + c".
+  assert.equal(graph.get<string>(ids.exprText), "z^3 + c");
+
+  await unmount();
+});
+
+test("ComplexPanel: incomplete LaTeX typed into the math-field (fromLatex throws) leaves exprText at its last good value", async () => {
+  const graph = new CellGraph();
+  const ids = cellIdsComplex("complex-mathkb-3");
+
+  const { container, update, unmount } = await mount(createElement(ComplexPanel, { cellId: "complex-mathkb-3", graph, syncUrl: false }));
+  await update(() => graph.set(ids.exprText, "z"));
+  const toggle = Array.from(container.querySelectorAll('input[type="checkbox"]')).find(
+    (el) => el.closest("label")?.textContent?.includes("math keyboard"),
+  ) as HTMLInputElement;
+  await update(() => clickCheckbox(toggle));
+  const field = container.querySelector("math-field") as unknown as { value: string; dispatchEvent: (e: Event) => void } | null;
+  assert.ok(field);
+
+  await update(() => {
+    // "\frac{1}{" is a mid-edit incomplete LaTeX fragment -- fromLatex throws.
+    field!.value = "\\frac{1}{";
+    field!.dispatchEvent(new domWindow.Event("input", { bubbles: true }) as unknown as Event);
+  });
+  assert.equal(graph.get<string>(ids.exprText), "z", "exprText should be unchanged on a parse failure");
 
   await unmount();
 });
