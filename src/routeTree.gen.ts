@@ -9,92 +9,36 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SystemsRouteImport } from './routes/systems'
-import { Route as Surface3dRouteImport } from './routes/surface-3d'
-import { Route as StatisticsRouteImport } from './routes/statistics'
-import { Route as RegressionRouteImport } from './routes/regression'
-import { Route as ParametricRouteImport } from './routes/parametric'
-import { Route as OdeSystemRouteImport } from './routes/ode-system'
-import { Route as OdeRouteImport } from './routes/ode'
-import { Route as NotebookRouteImport } from './routes/notebook'
-import { Route as MultiRouteImport } from './routes/multi'
-import { Route as LinkedRouteImport } from './routes/linked'
-import { Route as ImplicitRouteImport } from './routes/implicit'
-import { Route as GeometryRouteImport } from './routes/geometry'
-import { Route as DemosRouteImport } from './routes/demos'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as DemosRouteImport } from './routes/demos'
+import { Route as GeometryRouteImport } from './routes/geometry'
+import { Route as ImplicitRouteImport } from './routes/implicit'
+import { Route as LinkedRouteImport } from './routes/linked'
+import { Route as MultiRouteImport } from './routes/multi'
+import { Route as NotebookRouteImport } from './routes/notebook'
+import { Route as OdeRouteImport } from './routes/ode'
+import { Route as OdeSystemRouteImport } from './routes/ode-system'
+import { Route as ParametricRouteImport } from './routes/parametric'
+import { Route as RegressionRouteImport } from './routes/regression'
+import { Route as StatisticsRouteImport } from './routes/statistics'
+import { Route as Surface3dRouteImport } from './routes/surface-3d'
+import { Route as SystemsRouteImport } from './routes/systems'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
-import { Route as AppSignalRouteImport } from './routes/_app/signal'
-import { Route as AppPracticeRouteImport } from './routes/_app/practice'
-import { Route as AppNotesRouteImport } from './routes/_app/notes'
-import { Route as AppMlRouteImport } from './routes/_app/ml'
-import { Route as AppImageRouteImport } from './routes/_app/image'
-import { Route as AppGraphingRouteImport } from './routes/_app/graphing'
-import { Route as AppGeoRouteImport } from './routes/_app/geo'
-import { Route as AppGalleryRouteImport } from './routes/_app/gallery'
-import { Route as AppDataRouteImport } from './routes/_app/data'
-import { Route as AppCalculusRouteImport } from './routes/_app/calculus'
-import { Route as AppCalculatorRouteImport } from './routes/_app/calculator'
 import { Route as App3dRouteImport } from './routes/_app/3d'
+import { Route as AppCalculatorRouteImport } from './routes/_app/calculator'
+import { Route as AppCalculusRouteImport } from './routes/_app/calculus'
+import { Route as AppDataRouteImport } from './routes/_app/data'
+import { Route as AppGalleryRouteImport } from './routes/_app/gallery'
+import { Route as AppGeoRouteImport } from './routes/_app/geo'
+import { Route as AppGraphingRouteImport } from './routes/_app/graphing'
+import { Route as AppImageRouteImport } from './routes/_app/image'
+import { Route as AppMlRouteImport } from './routes/_app/ml'
+import { Route as AppNotesRouteImport } from './routes/_app/notes'
+import { Route as AppPracticeRouteImport } from './routes/_app/practice'
+import { Route as AppSignalRouteImport } from './routes/_app/signal'
 
-const SystemsRoute = SystemsRouteImport.update({
-  id: '/systems',
-  path: '/systems',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const Surface3dRoute = Surface3dRouteImport.update({
-  id: '/surface-3d',
-  path: '/surface-3d',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StatisticsRoute = StatisticsRouteImport.update({
-  id: '/statistics',
-  path: '/statistics',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RegressionRoute = RegressionRouteImport.update({
-  id: '/regression',
-  path: '/regression',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ParametricRoute = ParametricRouteImport.update({
-  id: '/parametric',
-  path: '/parametric',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OdeSystemRoute = OdeSystemRouteImport.update({
-  id: '/ode-system',
-  path: '/ode-system',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OdeRoute = OdeRouteImport.update({
-  id: '/ode',
-  path: '/ode',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const NotebookRoute = NotebookRouteImport.update({
-  id: '/notebook',
-  path: '/notebook',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MultiRoute = MultiRouteImport.update({
-  id: '/multi',
-  path: '/multi',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LinkedRoute = LinkedRouteImport.update({
-  id: '/linked',
-  path: '/linked',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ImplicitRoute = ImplicitRouteImport.update({
-  id: '/implicit',
-  path: '/implicit',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GeometryRoute = GeometryRouteImport.update({
-  id: '/geometry',
-  path: '/geometry',
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DemosRoute = DemosRouteImport.update({
@@ -102,8 +46,64 @@ const DemosRoute = DemosRouteImport.update({
   path: '/demos',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AppRoute = AppRouteImport.update({
-  id: '/_app',
+const GeometryRoute = GeometryRouteImport.update({
+  id: '/geometry',
+  path: '/geometry',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ImplicitRoute = ImplicitRouteImport.update({
+  id: '/implicit',
+  path: '/implicit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LinkedRoute = LinkedRouteImport.update({
+  id: '/linked',
+  path: '/linked',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MultiRoute = MultiRouteImport.update({
+  id: '/multi',
+  path: '/multi',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotebookRoute = NotebookRouteImport.update({
+  id: '/notebook',
+  path: '/notebook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OdeRoute = OdeRouteImport.update({
+  id: '/ode',
+  path: '/ode',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OdeSystemRoute = OdeSystemRouteImport.update({
+  id: '/ode-system',
+  path: '/ode-system',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ParametricRoute = ParametricRouteImport.update({
+  id: '/parametric',
+  path: '/parametric',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RegressionRoute = RegressionRouteImport.update({
+  id: '/regression',
+  path: '/regression',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StatisticsRoute = StatisticsRouteImport.update({
+  id: '/statistics',
+  path: '/statistics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Surface3dRoute = Surface3dRouteImport.update({
+  id: '/surface-3d',
+  path: '/surface-3d',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SystemsRoute = SystemsRouteImport.update({
+  id: '/systems',
+  path: '/systems',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -111,54 +111,9 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
-const AppSignalRoute = AppSignalRouteImport.update({
-  id: '/signal',
-  path: '/signal',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPracticeRoute = AppPracticeRouteImport.update({
-  id: '/practice',
-  path: '/practice',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppNotesRoute = AppNotesRouteImport.update({
-  id: '/notes',
-  path: '/notes',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppMlRoute = AppMlRouteImport.update({
-  id: '/ml',
-  path: '/ml',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppImageRoute = AppImageRouteImport.update({
-  id: '/image',
-  path: '/image',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppGraphingRoute = AppGraphingRouteImport.update({
-  id: '/graphing',
-  path: '/graphing',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppGeoRoute = AppGeoRouteImport.update({
-  id: '/geo',
-  path: '/geo',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppGalleryRoute = AppGalleryRouteImport.update({
-  id: '/gallery',
-  path: '/gallery',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppDataRoute = AppDataRouteImport.update({
-  id: '/data',
-  path: '/data',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppCalculusRoute = AppCalculusRouteImport.update({
-  id: '/calculus',
-  path: '/calculus',
+const App3dRoute = App3dRouteImport.update({
+  id: '/3d',
+  path: '/3d',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCalculatorRoute = AppCalculatorRouteImport.update({
@@ -166,9 +121,54 @@ const AppCalculatorRoute = AppCalculatorRouteImport.update({
   path: '/calculator',
   getParentRoute: () => AppRoute,
 } as any)
-const App3dRoute = App3dRouteImport.update({
-  id: '/3d',
-  path: '/3d',
+const AppCalculusRoute = AppCalculusRouteImport.update({
+  id: '/calculus',
+  path: '/calculus',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDataRoute = AppDataRouteImport.update({
+  id: '/data',
+  path: '/data',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppGalleryRoute = AppGalleryRouteImport.update({
+  id: '/gallery',
+  path: '/gallery',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppGeoRoute = AppGeoRouteImport.update({
+  id: '/geo',
+  path: '/geo',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppGraphingRoute = AppGraphingRouteImport.update({
+  id: '/graphing',
+  path: '/graphing',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppImageRoute = AppImageRouteImport.update({
+  id: '/image',
+  path: '/image',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMlRoute = AppMlRouteImport.update({
+  id: '/ml',
+  path: '/ml',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppNotesRoute = AppNotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPracticeRoute = AppPracticeRouteImport.update({
+  id: '/practice',
+  path: '/practice',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSignalRoute = AppSignalRouteImport.update({
+  id: '/signal',
+  path: '/signal',
   getParentRoute: () => AppRoute,
 } as any)
 
@@ -365,88 +365,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/systems': {
-      id: '/systems'
-      path: '/systems'
-      fullPath: '/systems'
-      preLoaderRoute: typeof SystemsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/surface-3d': {
-      id: '/surface-3d'
-      path: '/surface-3d'
-      fullPath: '/surface-3d'
-      preLoaderRoute: typeof Surface3dRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/statistics': {
-      id: '/statistics'
-      path: '/statistics'
-      fullPath: '/statistics'
-      preLoaderRoute: typeof StatisticsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/regression': {
-      id: '/regression'
-      path: '/regression'
-      fullPath: '/regression'
-      preLoaderRoute: typeof RegressionRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/parametric': {
-      id: '/parametric'
-      path: '/parametric'
-      fullPath: '/parametric'
-      preLoaderRoute: typeof ParametricRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ode-system': {
-      id: '/ode-system'
-      path: '/ode-system'
-      fullPath: '/ode-system'
-      preLoaderRoute: typeof OdeSystemRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ode': {
-      id: '/ode'
-      path: '/ode'
-      fullPath: '/ode'
-      preLoaderRoute: typeof OdeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/notebook': {
-      id: '/notebook'
-      path: '/notebook'
-      fullPath: '/notebook'
-      preLoaderRoute: typeof NotebookRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/multi': {
-      id: '/multi'
-      path: '/multi'
-      fullPath: '/multi'
-      preLoaderRoute: typeof MultiRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/linked': {
-      id: '/linked'
-      path: '/linked'
-      fullPath: '/linked'
-      preLoaderRoute: typeof LinkedRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/implicit': {
-      id: '/implicit'
-      path: '/implicit'
-      fullPath: '/implicit'
-      preLoaderRoute: typeof ImplicitRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/geometry': {
-      id: '/geometry'
-      path: '/geometry'
-      fullPath: '/geometry'
-      preLoaderRoute: typeof GeometryRouteImport
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/demos': {
@@ -456,11 +379,88 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemosRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app': {
-      id: '/_app'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AppRouteImport
+    '/geometry': {
+      id: '/geometry'
+      path: '/geometry'
+      fullPath: '/geometry'
+      preLoaderRoute: typeof GeometryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/implicit': {
+      id: '/implicit'
+      path: '/implicit'
+      fullPath: '/implicit'
+      preLoaderRoute: typeof ImplicitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/linked': {
+      id: '/linked'
+      path: '/linked'
+      fullPath: '/linked'
+      preLoaderRoute: typeof LinkedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/multi': {
+      id: '/multi'
+      path: '/multi'
+      fullPath: '/multi'
+      preLoaderRoute: typeof MultiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notebook': {
+      id: '/notebook'
+      path: '/notebook'
+      fullPath: '/notebook'
+      preLoaderRoute: typeof NotebookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ode': {
+      id: '/ode'
+      path: '/ode'
+      fullPath: '/ode'
+      preLoaderRoute: typeof OdeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ode-system': {
+      id: '/ode-system'
+      path: '/ode-system'
+      fullPath: '/ode-system'
+      preLoaderRoute: typeof OdeSystemRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/parametric': {
+      id: '/parametric'
+      path: '/parametric'
+      fullPath: '/parametric'
+      preLoaderRoute: typeof ParametricRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/regression': {
+      id: '/regression'
+      path: '/regression'
+      fullPath: '/regression'
+      preLoaderRoute: typeof RegressionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/statistics': {
+      id: '/statistics'
+      path: '/statistics'
+      fullPath: '/statistics'
+      preLoaderRoute: typeof StatisticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/surface-3d': {
+      id: '/surface-3d'
+      path: '/surface-3d'
+      fullPath: '/surface-3d'
+      preLoaderRoute: typeof Surface3dRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/systems': {
+      id: '/systems'
+      path: '/systems'
+      fullPath: '/systems'
+      preLoaderRoute: typeof SystemsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -470,74 +470,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/signal': {
-      id: '/_app/signal'
-      path: '/signal'
-      fullPath: '/signal'
-      preLoaderRoute: typeof AppSignalRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/practice': {
-      id: '/_app/practice'
-      path: '/practice'
-      fullPath: '/practice'
-      preLoaderRoute: typeof AppPracticeRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/notes': {
-      id: '/_app/notes'
-      path: '/notes'
-      fullPath: '/notes'
-      preLoaderRoute: typeof AppNotesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/ml': {
-      id: '/_app/ml'
-      path: '/ml'
-      fullPath: '/ml'
-      preLoaderRoute: typeof AppMlRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/image': {
-      id: '/_app/image'
-      path: '/image'
-      fullPath: '/image'
-      preLoaderRoute: typeof AppImageRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/graphing': {
-      id: '/_app/graphing'
-      path: '/graphing'
-      fullPath: '/graphing'
-      preLoaderRoute: typeof AppGraphingRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/geo': {
-      id: '/_app/geo'
-      path: '/geo'
-      fullPath: '/geo'
-      preLoaderRoute: typeof AppGeoRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/gallery': {
-      id: '/_app/gallery'
-      path: '/gallery'
-      fullPath: '/gallery'
-      preLoaderRoute: typeof AppGalleryRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/data': {
-      id: '/_app/data'
-      path: '/data'
-      fullPath: '/data'
-      preLoaderRoute: typeof AppDataRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/calculus': {
-      id: '/_app/calculus'
-      path: '/calculus'
-      fullPath: '/calculus'
-      preLoaderRoute: typeof AppCalculusRouteImport
+    '/_app/3d': {
+      id: '/_app/3d'
+      path: '/3d'
+      fullPath: '/3d'
+      preLoaderRoute: typeof App3dRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/calculator': {
@@ -547,11 +484,74 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCalculatorRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/3d': {
-      id: '/_app/3d'
-      path: '/3d'
-      fullPath: '/3d'
-      preLoaderRoute: typeof App3dRouteImport
+    '/_app/calculus': {
+      id: '/_app/calculus'
+      path: '/calculus'
+      fullPath: '/calculus'
+      preLoaderRoute: typeof AppCalculusRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/data': {
+      id: '/_app/data'
+      path: '/data'
+      fullPath: '/data'
+      preLoaderRoute: typeof AppDataRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/gallery': {
+      id: '/_app/gallery'
+      path: '/gallery'
+      fullPath: '/gallery'
+      preLoaderRoute: typeof AppGalleryRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/geo': {
+      id: '/_app/geo'
+      path: '/geo'
+      fullPath: '/geo'
+      preLoaderRoute: typeof AppGeoRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/graphing': {
+      id: '/_app/graphing'
+      path: '/graphing'
+      fullPath: '/graphing'
+      preLoaderRoute: typeof AppGraphingRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/image': {
+      id: '/_app/image'
+      path: '/image'
+      fullPath: '/image'
+      preLoaderRoute: typeof AppImageRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/ml': {
+      id: '/_app/ml'
+      path: '/ml'
+      fullPath: '/ml'
+      preLoaderRoute: typeof AppMlRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/notes': {
+      id: '/_app/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof AppNotesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/practice': {
+      id: '/_app/practice'
+      path: '/practice'
+      fullPath: '/practice'
+      preLoaderRoute: typeof AppPracticeRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/signal': {
+      id: '/_app/signal'
+      path: '/signal'
+      fullPath: '/signal'
+      preLoaderRoute: typeof AppSignalRouteImport
       parentRoute: typeof AppRoute
     }
   }
