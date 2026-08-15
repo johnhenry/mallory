@@ -37,6 +37,7 @@ import { Route as AppNotesRouteImport } from './routes/_app/notes'
 import { Route as AppPracticeRouteImport } from './routes/_app/practice'
 import { Route as AppSignalRouteImport } from './routes/_app/signal'
 import { Route as AppWorkspaceRouteImport } from './routes/_app/workspace'
+import { Route as ApiMcpRouteImport } from './routes/api.mcp'
 import { Route as SIdRouteImport } from './routes/s.$id'
 
 const AppRoute = AppRouteImport.update({
@@ -178,6 +179,11 @@ const AppWorkspaceRoute = AppWorkspaceRouteImport.update({
   path: '/workspace',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiMcpRoute = ApiMcpRouteImport.update({
+  id: '/api/mcp',
+  path: '/api/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SIdRoute = SIdRouteImport.update({
   id: '/s/$id',
   path: '/s/$id',
@@ -212,6 +218,7 @@ export interface FileRoutesByFullPath {
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
   '/workspace': typeof AppWorkspaceRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/s/$id': typeof SIdRoute
 }
 export interface FileRoutesByTo {
@@ -241,6 +248,7 @@ export interface FileRoutesByTo {
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
   '/workspace': typeof AppWorkspaceRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/s/$id': typeof SIdRoute
   '/': typeof AppIndexRoute
 }
@@ -273,6 +281,7 @@ export interface FileRoutesById {
   '/_app/practice': typeof AppPracticeRoute
   '/_app/signal': typeof AppSignalRoute
   '/_app/workspace': typeof AppWorkspaceRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/s/$id': typeof SIdRoute
   '/_app/': typeof AppIndexRoute
 }
@@ -306,6 +315,7 @@ export interface FileRouteTypes {
     | '/practice'
     | '/signal'
     | '/workspace'
+    | '/api/mcp'
     | '/s/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -335,6 +345,7 @@ export interface FileRouteTypes {
     | '/practice'
     | '/signal'
     | '/workspace'
+    | '/api/mcp'
     | '/s/$id'
     | '/'
   id:
@@ -366,6 +377,7 @@ export interface FileRouteTypes {
     | '/_app/practice'
     | '/_app/signal'
     | '/_app/workspace'
+    | '/api/mcp'
     | '/s/$id'
     | '/_app/'
   fileRoutesById: FileRoutesById
@@ -385,6 +397,7 @@ export interface RootRouteChildren {
   StatisticsRoute: typeof StatisticsRoute
   Surface3dRoute: typeof Surface3dRoute
   SystemsRoute: typeof SystemsRoute
+  ApiMcpRoute: typeof ApiMcpRoute
   SIdRoute: typeof SIdRoute
 }
 
@@ -586,6 +599,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkspaceRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/mcp': {
+      id: '/api/mcp'
+      path: '/api/mcp'
+      fullPath: '/api/mcp'
+      preLoaderRoute: typeof ApiMcpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/s/$id': {
       id: '/s/$id'
       path: '/s/$id'
@@ -647,6 +667,7 @@ const rootRouteChildren: RootRouteChildren = {
   StatisticsRoute: StatisticsRoute,
   Surface3dRoute: Surface3dRoute,
   SystemsRoute: SystemsRoute,
+  ApiMcpRoute: ApiMcpRoute,
   SIdRoute: SIdRoute,
 }
 export const routeTree = rootRouteImport
