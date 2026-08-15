@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { CategoryTabs } from "~/components/CategoryTabs.tsx";
+import { DataImportPanel } from "~/components/DataImportPanel.tsx";
 import { DiscretePanel } from "~/components/DiscretePanel.tsx";
 import { GraphTheoryPanel } from "~/components/GraphTheoryPanel.tsx";
 import { MatrixPanel } from "~/components/MatrixPanel.tsx";
@@ -38,6 +39,7 @@ function DataPage() {
           { label: "Matrix", key: "matrix", render: () => <MatrixPanel /> },
           { label: "Discrete", key: "discrete", render: () => <DiscretePanel /> },
           { label: "Graph Theory", key: "graph-theory", render: () => <GraphTheoryPanel /> },
+          { label: "Import", key: "import", render: () => <DataImportPanel /> },
         ]}
       />
     </div>
