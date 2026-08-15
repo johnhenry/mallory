@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzeImageFrequency, buildMask, drawGrayscaleGrid, generatePattern, rgbaToGrayscaleGrid } from "./image-frequency.ts";
+import {
+  analyzeImageFrequency,
+  buildMask,
+  canvasPointToGridCell,
+  drawGrayscaleGrid,
+  generatePattern,
+  makeAllOnesMask,
+  paintMaskCell,
+  rgbaToGrayscaleGrid,
+} from "./image-frequency.ts";
 
 test("generatePattern: gradient spans exactly 0..255 left to right", () => {
   const grid = generatePattern("gradient", 5);
@@ -156,6 +165,78 @@ test("buildMask: 'none' keeps everything", () => {
 test("buildMask: rejects a non-positive size or a negative radius", () => {
   assert.throws(() => buildMask(0, "lowpass", 1), /size must be positive/);
   assert.throws(() => buildMask(4, "lowpass", -1), /radius must be non-negative/);
+});
+
+test('buildMask: "freehand" is a valid MaskType but buildMask itself refuses to handle it -- the caller must supply a painted customMask instead', () => {
+  assert.throws(() => buildMask(8, "freehand", 4), /does not handle "freehand"/);
+});
+
+test("makeAllOnesMask: a fresh size x size grid, every cell exactly 1", () => {
+  const mask = makeAllOnesMask(3);
+  assert.deepEqual(mask, [
+    [1, 1, 1],
+    [1, 1, 1],
+    [1, 1, 1],
+  ]);
+});
+
+test("canvasPointToGridCell: hand-computed floor((p/canvasSize)*gridSize) -- (130,10) on a 256x256 canvas with a 64x64 grid maps to (32,2)", () => {
+  assert.deepEqual(canvasPointToGridCell(130, 10, 256, 256, 64), { gx: 32, gy: 2 });
+});
+
+test("canvasPointToGridCell: the last valid pixel (255,255) maps to the last valid cell (63,63), not gridSize itself", () => {
+  assert.deepEqual(canvasPointToGridCell(255, 255, 256, 256, 64), { gx: 63, gy: 63 });
+});
+
+test("canvasPointToGridCell: out-of-canvas pixel positions clamp into [0, gridSize-1] rather than producing an out-of-bounds cell", () => {
+  assert.deepEqual(canvasPointToGridCell(-5, 300, 256, 256, 64), { gx: 0, gy: 63 });
+});
+
+test("paintMaskCell: a radius-1 brush at (2,2) on a 5x5 all-1 mask sets exactly the 3x3 block [1..3]x[1..3] to the painted value, leaving the rest untouched", () => {
+  const mask = makeAllOnesMask(5);
+  const painted = paintMaskCell(mask, 2, 2, 0, 1);
+  for (let y = 0; y < 5; y++) {
+    for (let x = 0; x < 5; x++) {
+      const inBrush = x >= 1 && x <= 3 && y >= 1 && y <= 3;
+      assert.equal(painted[y]![x], inBrush ? 0 : 1, `(${x},${y})`);
+    }
+  }
+});
+
+test("paintMaskCell: does not mutate the input mask (returns a fresh grid)", () => {
+  const mask = makeAllOnesMask(3);
+  paintMaskCell(mask, 1, 1, 0, 1);
+  assert.deepEqual(mask, makeAllOnesMask(3));
+});
+
+test("paintMaskCell: a brush near the edge clips to the grid rather than throwing or wrapping", () => {
+  const mask = makeAllOnesMask(5);
+  const painted = paintMaskCell(mask, 0, 0, 0, 1);
+  assert.deepEqual(painted, [
+    [0, 0, 1, 1, 1],
+    [0, 0, 1, 1, 1],
+    [1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1],
+  ]);
+});
+
+test('analyzeImageFrequency: maskType "freehand" with no customMask throws a clear error', () => {
+  const pattern = generatePattern("checkerboard", 8);
+  assert.throws(() => analyzeImageFrequency(pattern, 8, "freehand", 4), /Freehand mask must be/);
+});
+
+test('analyzeImageFrequency: maskType "freehand" with a wrong-size customMask throws', () => {
+  const pattern = generatePattern("checkerboard", 8);
+  assert.throws(() => analyzeImageFrequency(pattern, 8, "freehand", 4, undefined, undefined, undefined, makeAllOnesMask(4)), /Freehand mask must be/);
+});
+
+test('analyzeImageFrequency: an all-1 "freehand" customMask produces bit-identical output to "none" (both are all-pass), hand-verified via a direct comparison', () => {
+  const pattern = generatePattern("checkerboard", 8);
+  const none = analyzeImageFrequency(pattern, 8, "none", 4);
+  const freehand = analyzeImageFrequency(pattern, 8, "freehand", 4, undefined, undefined, undefined, makeAllOnesMask(8));
+  assert.deepEqual(freehand.filtered, none.filtered);
+  assert.deepEqual(freehand.original, none.original);
 });
 
 test("analyzeImageFrequency: an all-pass ('none') mask round-trips the resized image almost exactly (fft2 -> fftshift -> ifftshift -> ifft2 is the identity)", () => {

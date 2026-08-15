@@ -58,7 +58,7 @@ export function decodeImageFrequencyState(fragment: string): ImageFrequencyState
 }
 
 const PATTERN_TYPES: PatternType[] = ["checkerboard", "stripes", "circle", "gradient", "moire", "upload"];
-const MASK_TYPES: MaskType[] = ["lowpass", "highpass", "bandpass", "notch", "wedge", "none"];
+const MASK_TYPES: MaskType[] = ["lowpass", "highpass", "bandpass", "notch", "wedge", "none", "freehand"];
 
 export function isImageFrequencyStateV1(value: unknown): value is ImageFrequencyStateV1 {
   if (typeof value !== "object" || value === null) return false;
