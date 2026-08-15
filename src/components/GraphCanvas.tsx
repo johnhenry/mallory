@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
-import { cellIds, TIME_CELL } from "../lib/cell-ids.ts";
+import { cellIds, TIME_CELL, workspaceValueCellId, type CellIds } from "../lib/cell-ids.ts";
+import { getWorkspaceGraph } from "../lib/workspace-graph.ts";
 import { resolveChatCommand, type ChatCommandContext } from "../lib/chat-commands.ts";
 import { getExportVideoJob, renderExportPreviewFrame, startExportVideoJob, type ExportVideoInput } from "../lib/export-video.ts";
 import { exprToLatex } from "../lib/expr-to-latex.ts";
@@ -64,6 +65,29 @@ interface AreaResult {
 }
 
 /**
+ * Resolves each free variable's numeric value, checking the app-global
+ * workspace (issue #42) before falling back to this pane's own local
+ * slider cell -- mirrors `ExpressionRow.tsx`'s `notebookValueCellId`
+ * fallback (workspace variables are `set()`, never `get()`-only, so
+ * `hasValue` correctly distinguishes a real override from a phantom
+ * lookup-created cell; see `WorkspacePanel.tsx`'s `listWorkspaceVariables`
+ * doc comment for why that distinction matters). Reads the workspace's
+ * OWN separate `CellGraph` instance, not `graph` -- see the `useEffect`
+ * in `GraphCanvas` below for why that means this alone isn't reactive to
+ * a workspace change and needs an explicit subscription bridge.
+ */
+export function computeParams(graph: CellGraph, ids: CellIds): Record<string, number> {
+  const workspace = getWorkspaceGraph();
+  const names = graph.get<string[]>(ids.freeVars);
+  const params: Record<string, number> = {};
+  for (const name of names) {
+    const workspaceId = workspaceValueCellId(name);
+    params[name] = workspace.hasValue(workspaceId) ? workspace.get<number>(workspaceId) : graph.get<number>(ids.param(name));
+  }
+  return params;
+}
+
+/**
  * Sets up one pane's reactive cells on `graph` (created fresh unless an
  * `externalGraph` is supplied by a caller that wants several panes to share
  * one CellGraph — see LinkedGraphPanes.tsx): source expr cell -> free-var
@@ -111,16 +135,7 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
         { auxiliary: true },
       );
 
-      graph.define(
-        ids.params,
-        () => {
-          const names = graph.get<string[]>(ids.freeVars);
-          const params: Record<string, number> = {};
-          for (const name of names) params[name] = graph.get<number>(ids.param(name));
-          return params;
-        },
-        { auxiliary: true },
-      );
+      graph.define(ids.params, () => computeParams(graph, ids), { auxiliary: true });
 
       let lastGoodPath: Path2D | null = null;
       graph.define(
@@ -414,6 +429,23 @@ export function GraphCanvas({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, freeVars]);
+
+  // Bridges the workspace's own separate CellGraph into this pane's
+  // reactivity (issue #42): `computeParams` reads `getWorkspaceGraph()`
+  // directly rather than through THIS graph's `get()`, so CellGraph's
+  // per-instance dependency tracking (`this.stack`) never sees that read --
+  // a workspace variable changing would otherwise silently fail to redraw
+  // the curve. Redefining `ids.params` with the SAME compute function is
+  // how `graph.define()`'s own "redefine forces an immediate, synchronous
+  // recompute" behavior (see cell-graph.ts) is (ab)used here as a manual
+  // "something this cell depends on outside the graph just changed" signal.
+  useEffect(() => {
+    const workspace = getWorkspaceGraph();
+    return workspace.subscribeAll(() => {
+      graph.define(ids.params, () => computeParams(graph, ids), { auxiliary: true });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph]);
   const [mode, setMode] = useState<"float" | "exact">("float");
   const [showSteps, setShowSteps] = useState(false);
   const [showArea, setShowArea] = useState(false);
