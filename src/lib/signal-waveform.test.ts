@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { heatCellColor } from "./heatmap.ts";
-import { amplitudeSpectrum, computeSpectrogram, drawSpectrogram, sampleWaveform } from "./signal-waveform.ts";
+import { amplitudeSpectrum, computeSpectrogram, drawSpectrogram, findSpectrumPeaks, sampleWaveform } from "./signal-waveform.ts";
 
 test("sampleWaveform: samples a constant expression correctly", () => {
   const w = sampleWaveform("5", 10, 1);
@@ -161,4 +161,42 @@ test("drawSpectrogram: an empty spectrogram draws nothing (no crash)", () => {
   const { ctx, getFillRectCalls } = makeFakeCtx();
   drawSpectrogram(ctx, { frameTimes: [], frequencies: [], magnitudes: [] }, 100, 100, 0);
   assert.equal(getFillRectCalls().length, 0);
+});
+
+test("findSpectrumPeaks: finds the 3 local-maxima peaks in a hand-built amplitude array, matching mallory-signal's findPeaks output directly", () => {
+  const spectrum = { frequencies: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], amplitudes: [0, 1, 3, 1, 0, 0, 5, 2, 0, 4, 4, 0] };
+  const peaks = findSpectrumPeaks(spectrum);
+  assert.deepEqual(
+    peaks.map((p) => p.frequency),
+    [2, 6, 9],
+  );
+  assert.deepEqual(
+    peaks.map((p) => p.amplitude),
+    [3, 5, 4],
+  );
+});
+
+test("findSpectrumPeaks: minAmplitude filters out peaks below the threshold", () => {
+  const spectrum = { frequencies: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], amplitudes: [0, 1, 3, 1, 0, 0, 5, 2, 0, 4, 4, 0] };
+  const peaks = findSpectrumPeaks(spectrum, { minAmplitude: 4 });
+  assert.deepEqual(
+    peaks.map((p) => p.frequency),
+    [6, 9],
+  );
+});
+
+test("findSpectrumPeaks: minSpacingHz converts to a bin-count distance using the spectrum's own bin spacing (2Hz/bin here, deliberately not 1Hz so a Hz<->bin-count mixup is distinguishable)", () => {
+  const spectrum = { frequencies: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22], amplitudes: [0, 1, 3, 1, 0, 0, 5, 2, 0, 4, 4, 0] };
+  const peaks = findSpectrumPeaks(spectrum, { minSpacingHz: 8 });
+  // 8Hz / 2Hz-per-bin = 4-bin distance required. The shorter peak (index 9, freq 18Hz, height 4)
+  // loses to its taller neighbor (index 6, freq 12Hz, height 5) since they're only 3 bins apart.
+  assert.deepEqual(
+    peaks.map((p) => p.frequency),
+    [4, 12],
+  );
+});
+
+test("findSpectrumPeaks: an amplitude array with no local maxima returns no peaks", () => {
+  const spectrum = { frequencies: [0, 1, 2, 3], amplitudes: [0, 1, 2, 3] }; // monotonically increasing, no interior peak
+  assert.deepEqual(findSpectrumPeaks(spectrum), []);
 });

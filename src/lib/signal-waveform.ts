@@ -1,6 +1,6 @@
 import { Symbolic } from "mallory-math";
 import { rfft } from "mallory-fft";
-import { hannWindow, stft } from "mallory-signal";
+import { findPeaks, hannWindow, stft } from "mallory-signal";
 import { Tensor } from "mallory-tensor-core";
 import { finiteRange, heatCellColor } from "./heatmap.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
@@ -70,6 +70,48 @@ export function amplitudeSpectrum(waveform: Waveform): AmplitudeSpectrum {
     amplitudes.push(k === 0 || k === nyquistBin ? magnitude / n : (magnitude * 2) / n);
   }
   return { frequencies, amplitudes };
+}
+
+export interface SpectrumPeak {
+  frequency: number;
+  amplitude: number;
+  prominence: number;
+}
+
+export interface FindSpectrumPeaksOptions {
+  /** Minimum peak amplitude. */
+  minAmplitude?: number;
+  /** Minimum required spacing between peaks, in Hz (converted to a bin-count `distance` internally -- mallory-signal's own `findPeaks` works in sample/bin units, not Hz). */
+  minSpacingHz?: number;
+  /** Minimum required topographic prominence, in the same amplitude units as `minAmplitude`. */
+  minProminence?: number;
+}
+
+/**
+ * Local-maxima peaks of a spectrum via `mallory-signal`'s `findPeaks`
+ * (issue #31's "findPeaks on the spectrum" extra) -- confirmed directly
+ * against the real installed package before writing this: a signal with
+ * two clear local maxima and one that's part of a flat plateau reports
+ * exactly the plateau's first (earlier) index, matching its own
+ * scipy-`find_peaks`-parity doc comment.
+ *
+ * `minSpacingHz` converts to `findPeaks`' own `distance` option (a sample
+ * count) using the spectrum's own bin spacing (`frequencies[1] -
+ * frequencies[0]`) -- a spectrum always has at least 2 bins (DC + Nyquist),
+ * so this division is safe by construction.
+ */
+export function findSpectrumPeaks(spectrum: AmplitudeSpectrum, options: FindSpectrumPeaksOptions = {}): SpectrumPeak[] {
+  const binSpacingHz = (spectrum.frequencies[1] ?? 1) - (spectrum.frequencies[0] ?? 0);
+  const result = findPeaks(Tensor.from(spectrum.amplitudes), {
+    height: options.minAmplitude,
+    distance: options.minSpacingHz !== undefined && binSpacingHz > 0 ? Math.max(1, Math.round(options.minSpacingHz / binSpacingHz)) : undefined,
+    prominence: options.minProminence,
+  });
+  return result.indices.map((index, i) => ({
+    frequency: spectrum.frequencies[index]!,
+    amplitude: result.heights[i]!,
+    prominence: result.prominences[i]!,
+  }));
 }
 
 export interface Spectrogram {
