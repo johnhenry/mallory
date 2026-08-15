@@ -61,7 +61,7 @@ type Block =
   | { id: string; type: "statistics"; initialState: StatisticsState }
   | { id: string; type: "systems"; initialState: SystemState }
   | { id: string; type: "geometry"; initialOps: GeometryOp[] }
-  | { id: string; type: "tensor"; source: string; op: TensorOpType };
+  | { id: string; type: "tensor"; source: string; op: TensorOpType; opArg: number };
 
 /**
  * Seeds a "graph" block's rows/viewport into `graph` (mirrors
@@ -115,7 +115,7 @@ function hydrateBlocks(graph: CellGraph, state: NotebookState): Block[] {
     if (b.type === "regression") return { id, type: "regression", initialState: b.state };
     if (b.type === "statistics") return { id, type: "statistics", initialState: b.state };
     if (b.type === "systems") return { id, type: "systems", initialState: b.state };
-    if (b.type === "tensor") return { id, type: "tensor", source: b.source, op: b.op };
+    if (b.type === "tensor") return { id, type: "tensor", source: b.source, op: b.op, opArg: b.opArg ?? 1 };
     return { id, type: "geometry", initialOps: b.state.ops };
   });
 }
@@ -165,7 +165,7 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
         return { type: "statistics", state: getCurrentStatisticsState(graph, cellIdsStatistics(block.id)) };
       }
       if (block.type === "systems") return { type: "systems", state: getCurrentSystemState(graph, cellIdsSystem(block.id)) };
-      if (block.type === "tensor") return { type: "tensor", source: block.source, op: block.op };
+      if (block.type === "tensor") return { type: "tensor", source: block.source, op: block.op, opArg: block.opArg };
       return { type: "geometry", state: getCurrentGeometryState(graph, cellIdsGeometry(block.id)) };
     }),
   };
@@ -363,7 +363,7 @@ export function NotebookPanel() {
   }
 
   function addTensorBlock() {
-    setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "tensor", source: "1 2 3\n4 5 6\n7 8 9", op: "none" }]);
+    setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "tensor", source: "1 2 3\n4 5 6\n7 8 9", op: "none", opArg: 1 }]);
   }
 
   function updateTensorSource(id: string, source: string) {
@@ -372,6 +372,10 @@ export function NotebookPanel() {
 
   function updateTensorOp(id: string, op: TensorOpType) {
     setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, op } : b)));
+  }
+
+  function updateTensorOpArg(id: string, opArg: number) {
+    setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, opArg } : b)));
   }
 
   // Single-letter names only: implicit-mult.ts's tokenizer splits any
@@ -648,8 +652,12 @@ export function NotebookPanel() {
         source: { type: "string", description: 'Grid text, one row per line, numbers separated by spaces/commas (default a 3x3 example).' },
         op: {
           type: "string",
-          enum: ["none", "abs", "neg", "exp", "sqrt", "clip01", "transpose", "fliplr", "flipud", "roll"],
-          description: 'Display op applied to the grid (default "none").',
+          enum: ["none", "abs", "neg", "exp", "sqrt", "clip01", "transpose", "fliplr", "flipud", "roll", "pad", "repeat"],
+          description: 'Display op applied to the grid (default "none"). "pad"/"repeat" read opArg.',
+        },
+        opArg: {
+          type: "number",
+          description: 'Only read by "pad" (border width, default 1) and "repeat" (row-repeat count, default 1); ignored by every other op.',
         },
       },
     },
@@ -657,7 +665,8 @@ export function NotebookPanel() {
       const id = crypto.randomUUID();
       const source = typeof input.source === "string" && input.source.trim() ? input.source : "1 2 3\n4 5 6\n7 8 9";
       const op = (typeof input.op === "string" ? input.op : "none") as TensorOpType;
-      setBlocks((prev) => [...prev, { id, type: "tensor", source, op }]);
+      const opArg = typeof input.opArg === "number" ? input.opArg : 1;
+      setBlocks((prev) => [...prev, { id, type: "tensor", source, op, opArg }]);
       return { id };
     },
   });
@@ -751,8 +760,10 @@ export function NotebookPanel() {
               <NotebookTensorBlock
                 source={block.source}
                 op={block.op}
+                opArg={block.opArg}
                 onSourceChange={(source) => updateTensorSource(block.id, source)}
                 onOpChange={(op) => updateTensorOp(block.id, op)}
+                onOpArgChange={(opArg) => updateTensorOpArg(block.id, opArg)}
               />
             ) : (
               <NotebookGeometryBlock graph={graph} blockId={block.id} initialOps={block.initialOps} />

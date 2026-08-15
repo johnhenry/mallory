@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { finiteRange, heatCellColor } from "../lib/heatmap.ts";
 import {
+  TENSOR_OPS_WITH_ARG,
   TENSOR_OP_LABELS,
   applyTensorOp,
   parseTensorGrid,
@@ -19,8 +20,10 @@ type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 export interface NotebookTensorBlockProps {
   source: string;
   op: TensorOpType;
+  opArg: number;
   onSourceChange: (source: string) => void;
   onOpChange: (op: TensorOpType) => void;
+  onOpArgChange: (opArg: number) => void;
 }
 
 /**
@@ -37,16 +40,16 @@ export interface NotebookTensorBlockProps {
  * the whole-curve reference convention it needs) is issue #35's item 2,
  * still open.
  */
-export function NotebookTensorBlock({ source, op, onSourceChange, onOpChange }: NotebookTensorBlockProps) {
+export function NotebookTensorBlock({ source, op, opArg, onSourceChange, onOpChange, onOpArgChange }: NotebookTensorBlockProps) {
   const view = useMemo<Result<TensorView>>(() => {
     try {
       const grid = parseTensorGrid(source);
-      const result = applyTensorOp(grid, op);
+      const result = applyTensorOp(grid, op, opArg);
       return { ok: true, value: { result, summary: summarizeTensor(result) } };
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };
     }
-  }, [source, op]);
+  }, [source, op, opArg]);
 
   return (
     <div>
@@ -70,6 +73,19 @@ export function NotebookTensorBlock({ source, op, onSourceChange, onOpChange }: 
             ))}
           </select>
         </label>
+        {TENSOR_OPS_WITH_ARG.has(op) && (
+          <label style={{ fontSize: "0.9rem" }} title={op === "pad" ? "Border width added on all four sides" : "How many times each row repeats"}>
+            {op === "pad" ? "width" : "count"}:{" "}
+            <input
+              type="number"
+              min={op === "pad" ? 0 : 1}
+              step={1}
+              value={opArg}
+              onChange={(e) => onOpArgChange(Number(e.target.value))}
+              style={{ font: "inherit", width: "5ch" }}
+            />
+          </label>
+        )}
       </div>
       {view.ok ? (
         <TensorTable view={view.value} />
