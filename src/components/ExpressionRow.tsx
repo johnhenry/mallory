@@ -6,7 +6,7 @@ import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
 import { exprToLatex } from "../lib/expr-to-latex.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import type { Viewport } from "../lib/render-path.ts";
-import { findDiscontinuities, findRootCrossings, sampleExpr, sampleExprAdaptive } from "../lib/sample-function.ts";
+import { findDiscontinuities, findRootCrossings, sampleExpr, sampleExprAdaptive, sampleRegionMask } from "../lib/sample-function.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
 import { MathInput } from "./MathInput.tsx";
@@ -268,6 +268,25 @@ function useRowCells(graph: CellGraph, rowId: string, viewportCellId: string = V
           try {
             const expr = Symbolic.parse(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
             return Symbolic.differentiateSteps(expr, AXIS_VARIABLE);
+          } catch {
+            return null;
+          }
+        },
+        { auxiliary: true },
+      );
+
+      // 1D inequality shading (issue #51), same "only populated for a `cmp`
+      // top-level expression" gate as GraphCanvas's own ids.regionMask --
+      // sampleRegionMask itself returns null for any non-inequality
+      // expression, so nothing extra needs guarding here.
+      graph.define(
+        ids.regionMask,
+        (): boolean[] | null => {
+          try {
+            const viewport = graph.get<Viewport>(viewportCellId);
+            const expr = Symbolic.parse(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
+            const params = graph.get<Record<string, number>>(ids.params);
+            return sampleRegionMask(expr, { min: viewport.xMin, max: viewport.xMax }, RESOLUTION, AXIS_VARIABLE, params);
           } catch {
             return null;
           }
