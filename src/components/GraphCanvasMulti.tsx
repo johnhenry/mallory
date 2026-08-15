@@ -42,6 +42,22 @@ const INTERSECTIONS_CELL = "intersections";
 // screen-space-nearest-match reasoning.
 const POINT_READOUT_CELL = "pointReadout";
 
+// The in-progress viewport during an active pan/zoom gesture, or null when
+// idle -- issue #52's debounced-refinement fix. `VIEWPORT_CELL` is the
+// "committed, sampled" viewport every row's ids.path depends on (still only
+// touched at gesture END); this cell is read ONLY by redraw() below to
+// reproject each row's already-sampled Path2D through the live gesture
+// position, at zero resampling cost -- toScreenX/toScreenY handle both
+// translation (pan) and rescaling (zoom) purely at draw time, so panning
+// and zooming stay responsive without CellGraph recomputing every visible
+// curve's sampleExprAdaptive call on every pointermove/wheel tick.
+// Known tradeoff, matching the ticket's own suggested approach: panning/
+// zooming far enough to reveal x beyond what was sampled at gesture start
+// shows nothing there until the gesture-end commit resamples -- the same
+// "pan then fill in, zoom then sharpen" behavior common to interactive
+// graphing/mapping tools, not attempted to be hidden with sampling margin.
+const LIVE_VIEWPORT_CELL = "liveViewport";
+
 // Cycled by index (mod length) as rows are added -- not meant to be a large
 // or exhaustive palette, just enough that a handful of curves stay visually
 // distinguishable before a user reaches for the color picker themselves.
@@ -101,6 +117,7 @@ function restoreMultiGraphState(graph: CellGraph, state: MultiGraphState): void 
     seedRow(graph, id, row.source, row.color, row.visible, row.params);
   });
   graph.set(VIEWPORT_CELL, state.viewport);
+  graph.set<Viewport | null>(LIVE_VIEWPORT_CELL, null);
   graph.set(ANNOTATIONS_CELL, state.annotations ?? []);
   graph.set(EXPRESSION_LIST_CELL, newIds);
   for (const id of oldIds) {
@@ -138,6 +155,7 @@ function useMultiGraph(): CellGraph {
     const decoded = typeof window !== "undefined" ? decodeMultiGraphState(window.location.hash.slice(1)) : null;
     const state = decoded ?? DEFAULT_MULTI_GRAPH_STATE;
     graph.set(VIEWPORT_CELL, state.viewport, { auxiliary: true });
+    graph.set<Viewport | null>(LIVE_VIEWPORT_CELL, null, { auxiliary: true });
     const initialIds = state.rows.map(() => crypto.randomUUID());
     initialIds.forEach((id, i) => {
       const row = state.rows[i] as MultiGraphState["rows"][number];
@@ -274,6 +292,16 @@ export function GraphCanvasMulti() {
   }
 
   function handleCanvasPointerDown(e: PointerEvent<HTMLCanvasElement>) {
+    // Flush any pending zoom-debounce commit first: a scroll-then-immediately-
+    // drag sequence could otherwise start the new pan's anchor capture (a few
+    // lines down, and readingPoint's own VIEWPORT_CELL read above) against a
+    // stale pre-zoom VIEWPORT_CELL while the zoomed position only exists in
+    // LIVE_VIEWPORT_CELL, producing a visible jump when the pan starts.
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    commitLiveViewport();
     if (readingPoint) {
       const viewport = graph.get<Viewport>(VIEWPORT_CELL);
       const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
@@ -337,19 +365,42 @@ export function GraphCanvasMulti() {
     const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
     const xMin = drag.anchorX - (sx / WIDTH) * drag.spanX;
     const yMin = drag.anchorY - ((HEIGHT - sy) / HEIGHT) * drag.spanY;
-    graph.set(VIEWPORT_CELL, { xMin, xMax: xMin + drag.spanX, yMin, yMax: yMin + drag.spanY });
+    // Live-only write (issue #52): every visible curve's ids.path depends on
+    // VIEWPORT_CELL, not this cell, so panning stays a pure redraw -- zero
+    // resampling -- for the whole gesture. Committed to VIEWPORT_CELL (the
+    // one real resample) on pointerup below.
+    graph.set(LIVE_VIEWPORT_CELL, { xMin, xMax: xMin + drag.spanX, yMin, yMax: yMin + drag.spanY });
   }
 
   function handleCanvasPointerUp() {
+    if (dragRef.current?.kind === "pan") commitLiveViewport();
     dragRef.current = null;
   }
 
-  const ZOOM_STEP = 1.1;
+  /** Copies a pending LIVE_VIEWPORT_CELL override into the real, sampled VIEWPORT_CELL (the gesture-end resample) and clears the override -- shared by pan-release and the wheel-zoom debounce below. */
+  function commitLiveViewport() {
+    const live = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL);
+    if (!live) return;
+    graph.set(VIEWPORT_CELL, live);
+    graph.set<Viewport | null>(LIVE_VIEWPORT_CELL, null);
+  }
 
-  /** Wheel-to-zoom, anchored on the cursor's data point (same anchor technique as panning). */
+  const ZOOM_STEP = 1.1;
+  const ZOOM_COMMIT_DEBOUNCE_MS = 150;
+  const zoomCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Wheel-to-zoom, anchored on the cursor's data point (same anchor
+   * technique as panning). Also live-only (issue #52): a trackpad's
+   * continuous scroll has no discrete "gesture end" event the way a pan's
+   * pointerup does, so the real VIEWPORT_CELL commit (the resample) is
+   * debounced instead -- fires `ZOOM_COMMIT_DEBOUNCE_MS` after the last
+   * wheel event, reset on every new one, same idea as a search-box's
+   * debounced fetch.
+   */
   function handleCanvasWheel(e: WheelEvent<HTMLCanvasElement>) {
     e.preventDefault();
-    const viewport = graph.get<Viewport>(VIEWPORT_CELL);
+    const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
     const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
     const anchorX = toDataX(sx, viewport, WIDTH);
     const anchorY = toDataY(sy, viewport, HEIGHT);
@@ -358,10 +409,26 @@ export function GraphCanvasMulti() {
     const spanY = (viewport.yMax - viewport.yMin) * factor;
     const xMin = anchorX - (sx / WIDTH) * spanX;
     const yMin = anchorY - ((HEIGHT - sy) / HEIGHT) * spanY;
-    graph.set(VIEWPORT_CELL, { xMin, xMax: xMin + spanX, yMin, yMax: yMin + spanY });
+    graph.set(LIVE_VIEWPORT_CELL, { xMin, xMax: xMin + spanX, yMin, yMax: yMin + spanY });
+    if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    zoomCommitTimerRef.current = setTimeout(() => {
+      zoomCommitTimerRef.current = null;
+      commitLiveViewport();
+    }, ZOOM_COMMIT_DEBOUNCE_MS);
   }
 
+  useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    };
+  }, []);
+
   function resetView() {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    graph.set<Viewport | null>(LIVE_VIEWPORT_CELL, null);
     graph.set(VIEWPORT_CELL, DEFAULT_MULTI_GRAPH_STATE.viewport);
   }
 
@@ -386,6 +453,11 @@ export function GraphCanvasMulti() {
   // the viewport ever moves, but it's real: every curve visibly recenters,
   // since all rows already read VIEWPORT_CELL.
   function jumpToAnnotation(a: MultiGraphAnnotation) {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    graph.set<Viewport | null>(LIVE_VIEWPORT_CELL, null);
     const current = graph.get<Viewport>(VIEWPORT_CELL);
     const halfWidth = (current.xMax - current.xMin) / 2;
     const halfHeight = (current.yMax - current.yMin) / 2;
@@ -419,7 +491,7 @@ export function GraphCanvasMulti() {
     function redraw() {
       if (!ctx) return;
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      const viewport = graph.get<Viewport>(VIEWPORT_CELL);
+      const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
       const theme = getThemeColors();
       for (const id of graph.get<string[]>(EXPRESSION_LIST_CELL)) {
         const ids = cellIdsMultiRow(id);
