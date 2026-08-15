@@ -451,6 +451,9 @@ export function cellIdsMlPlayground(cellId: string) {
     epochs: `mlEpochs:${cellId}`,
     dropout: `mlDropout:${cellId}`,
     points: `mlPoints:${cellId}`,
+    useSchedule: `mlUseSchedule:${cellId}`,
+    stepSize: `mlStepSize:${cellId}`,
+    gamma: `mlGamma:${cellId}`,
   };
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { nn, variable } from "mallory-tensor-autograd";
+import { constant, nn, optim, variable } from "mallory-tensor-autograd";
 import { Tensor } from "mallory-tensor-core";
 import {
   TinyMlp,
@@ -100,6 +100,53 @@ test("trainModel: rejects an empty dataset, non-positive lr, and an out-of-range
   await assert.rejects(() => trainModel(model, [], 0.05, 10), /Dataset is empty/);
   await assert.rejects(() => trainModel(model, generateDataset("xor", 5, 1), 0, 10), /Learning rate/);
   await assert.rejects(() => trainModel(model, generateDataset("xor", 5, 1), 0.05, 5000), /Epochs/);
+});
+
+test("trainModel: rejects a non-positive schedule step size and a non-positive gamma", async () => {
+  const model = new TinyMlp(4, 1);
+  const points = generateDataset("xor", 5, 1);
+  await assert.rejects(() => trainModel(model, points, 0.05, 10, { stepSize: 0, gamma: 0.5 }), /Schedule step size/);
+  await assert.rejects(() => trainModel(model, points, 0.05, 10, { stepSize: 5, gamma: 0 }), /Schedule gamma/);
+});
+
+test("trainModel: a StepLR schedule produces a lossHistory of exactly `epochs` entries (one per single-epoch fit() chunk, none lost or duplicated)", async () => {
+  const model = new TinyMlp(6, 3);
+  const points = generateDataset("moons", 10, 2);
+  const result = await trainModel(model, points, 0.1, 12, { stepSize: 4, gamma: 0.5 });
+  assert.equal(result.lossHistory.length, 12);
+});
+
+test("trainModel: with a schedule, same seeds give an identical lossHistory (still fully deterministic)", async () => {
+  const run = async () => {
+    const model = new TinyMlp(6, 7);
+    return (await trainModel(model, generateDataset("moons", 15, 3), 0.05, 20, { stepSize: 5, gamma: 0.5 })).lossHistory;
+  };
+  assert.deepEqual(await run(), await run());
+});
+
+test("trainModel: a StepLR schedule matches a hand-rolled reference loop bit-for-bit -- same optimizer instance reused across chunks (Adam's momentum state persists), scheduler.step() once per epoch, exactly mirroring trainer.js's own step() (model.zeroGrad -> variable(x)/constant(y) -> forward -> loss -> backward -> optimizer.step) plus scheduler.step() after", async () => {
+  const points = generateDataset("moons", 10, 4);
+  const { x, y } = datasetToBatch(points);
+  const schedule = { stepSize: 4, gamma: 0.5 };
+
+  const modelA = new TinyMlp(6, 11);
+  const resultA = await trainModel(modelA, points, 0.1, 12, schedule);
+
+  const modelB = new TinyMlp(6, 11);
+  const optimizer = new optim.Adam(modelB.parameters(), { lr: 0.1 });
+  const scheduler = new optim.StepLR(optimizer, schedule);
+  const lossHistoryB: number[] = [];
+  for (let epoch = 0; epoch < 12; epoch++) {
+    modelB.zeroGrad();
+    const prediction = modelB.forward(variable(x));
+    const loss = stableBinaryCrossEntropy(prediction, constant(y));
+    loss.backward();
+    optimizer.step();
+    scheduler.step();
+    lossHistoryB.push(loss.value.item() as number);
+  }
+
+  assert.deepEqual(resultA.lossHistory, lossHistoryB);
 });
 
 test("predictProbabilityGrid: values are sigmoid(logit), hand-computed against known weights (not raw logits)", async () => {
