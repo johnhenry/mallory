@@ -239,6 +239,16 @@ export function cellIdsSeries(cellId: string) {
 
 export type CellIdsSeries = ReturnType<typeof cellIdsSeries>;
 
+export function cellIdsFourier(cellId: string) {
+  return {
+    waveType: `fourierWaveType:${cellId}`,
+    harmonics: `fourierHarmonics:${cellId}`,
+    samples: `fourierSamples:${cellId}`,
+  };
+}
+
+export type CellIdsFourier = ReturnType<typeof cellIdsFourier>;
+
 export function cellIdsMonteCarlo(cellId: string) {
   return {
     seed: `mcSeed:${cellId}`,

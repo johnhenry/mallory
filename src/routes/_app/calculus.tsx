@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { CategoryTabs } from "~/components/CategoryTabs.tsx";
+import { FourierPanel } from "~/components/FourierPanel.tsx";
 import { Ode2Panel } from "~/components/Ode2Panel.tsx";
 import { OdePanel } from "~/components/OdePanel.tsx";
 import { OdeSystemPanel } from "~/components/OdeSystemPanel.tsx";
@@ -34,6 +35,7 @@ function CalculusPage() {
           { label: "ODE System", key: "ode-system", render: () => <OdeSystemPanel /> },
           { label: "Taylor & Limits", key: "taylor", render: () => <TaylorPanel /> },
           { label: "Series", key: "series", render: () => <SeriesPanel /> },
+          { label: "Fourier", key: "fourier", render: () => <FourierPanel /> },
         ]}
       />
     </div>
