@@ -55,6 +55,38 @@ test("decodes a fragment with no annotations field at all (encoded before annota
   assert.equal(decoded.annotations, undefined);
 });
 
+test("round-trips exact mode", () => {
+  const state = {
+    v: 1 as const,
+    rows: [{ source: "x", color: 0x2563eb, visible: true, params: {} }],
+    viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 },
+    mode: "exact" as const,
+  };
+  const fragment = encodeMultiGraphState(state);
+  assert.deepEqual(decodeMultiGraphState(fragment), state);
+});
+
+test("decodes a fragment with no mode field at all (encoded before exact-mode existed) without throwing", () => {
+  const legacyFragment = (encodeMultiGraphState as unknown as (s: unknown) => string)({
+    v: 1,
+    rows: [{ source: "x", color: 0x2563eb, visible: true, params: {} }],
+    viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 },
+  });
+  const decoded = decodeMultiGraphState(legacyFragment);
+  assert.ok(decoded);
+  assert.equal(decoded.mode, undefined);
+});
+
+test("rejects an invalid mode value", () => {
+  const badFragment = (encodeMultiGraphState as unknown as (s: unknown) => string)({
+    v: 1,
+    rows: [],
+    viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 },
+    mode: "imaginary",
+  });
+  assert.equal(decodeMultiGraphState(badFragment), null);
+});
+
 test("rejects a malformed annotation entry", () => {
   const badFragment = (encodeMultiGraphState as unknown as (s: unknown) => string)({
     v: 1,
