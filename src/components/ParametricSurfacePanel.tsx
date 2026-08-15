@@ -15,6 +15,7 @@ import {
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -97,6 +98,7 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
   const ids = cellIdsParametricSurface(cellId);
   const containerRef = useRef<HTMLDivElement>(null);
   const groupRef = useRef<THREE.Group | null>(null);
+  const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const exprX = useCell<string>(graph, ids.exprX);
   const exprY = useCell<string>(graph, ids.exprY);
@@ -142,9 +144,13 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
     const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.1, 1000);
     camera.position.set(6, 6, 6);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // preserveDrawingBuffer: true -- see Graph3DCanvas's identical comment;
+    // without it, canvas.toBlob() (PngExportButton, issue #45) can race
+    // WebGL's post-composite buffer clear and read back blank.
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(WIDTH, HEIGHT, false);
     container.appendChild(renderer.domElement);
+    rendererCanvasRef.current = renderer.domElement;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -174,6 +180,7 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
       renderer.dispose();
       container.removeChild(renderer.domElement);
       groupRef.current = null;
+      rendererCanvasRef.current = null;
     };
   }, []);
 
@@ -229,6 +236,9 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
       </div>
       {!meshResult.ok && <p style={{ color: "var(--danger)" }}>{meshResult.message}</p>}
       <div ref={containerRef} style={{ maxWidth: WIDTH, border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="parametric-surface" />
+      </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom.</p>
     </div>
   );
