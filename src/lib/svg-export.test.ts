@@ -5,6 +5,7 @@ import {
   pathsToSvgDocument,
   polylinePointsToSvgD,
   polylineToSvgDocument,
+  polylinesToSvgDocument,
   scatterPointsToSvgDocument,
   svgExportFilename,
 } from "./svg-export.ts";
@@ -76,6 +77,46 @@ test("polylineToSvgDocument: wraps points into an SVG document with the given co
 
 test("polylineToSvgDocument: an empty point array produces a valid (empty) SVG document, not a stray <path>", () => {
   const svg = polylineToSvgDocument([], VIEWPORT, 50, 50);
+  assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">\n\n</svg>');
+});
+
+test("polylinesToSvgDocument: one <path> per line, hand-computed screen coordinates matching polylinePointsToSvgD for each line independently", () => {
+  const lineA = [
+    { x: 0, y: 0 },
+    { x: 1, y: 1 },
+  ];
+  const lineB = [
+    { x: 2, y: 0 },
+    { x: 2, y: 2 },
+  ];
+  const svg = polylinesToSvgDocument([lineA, lineB], VIEWPORT, 100, 100);
+  assert.ok(svg.includes(`<path d="${polylinePointsToSvgD(lineA, VIEWPORT, 100, 100)}" fill="none" stroke="#2563eb" stroke-width="1.5" />`));
+  assert.ok(svg.includes(`<path d="${polylinePointsToSvgD(lineB, VIEWPORT, 100, 100)}" fill="none" stroke="#2563eb" stroke-width="1.5" />`));
+});
+
+test("polylinesToSvgDocument: skips empty lines rather than emitting a stray zero-length <path>", () => {
+  const svg = polylinesToSvgDocument([[], [{ x: 0, y: 0 }]], VIEWPORT, 100, 100);
+  assert.equal((svg.match(/<path/g) ?? []).length, 1);
+});
+
+test("polylinesToSvgDocument: custom color/stroke-width applies to every line", () => {
+  const svg = polylinesToSvgDocument(
+    [
+      [{ x: 0, y: 0 }],
+      [{ x: 1, y: 1 }],
+    ],
+    VIEWPORT,
+    100,
+    100,
+    "#dc2626",
+    3,
+  );
+  assert.equal((svg.match(/stroke="#dc2626"/g) ?? []).length, 2);
+  assert.equal((svg.match(/stroke-width="3"/g) ?? []).length, 2);
+});
+
+test("polylinesToSvgDocument: an empty lines array produces a valid (empty) SVG document", () => {
+  const svg = polylinesToSvgDocument([], VIEWPORT, 50, 50);
   assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">\n\n</svg>');
 });
 

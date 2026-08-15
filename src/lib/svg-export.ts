@@ -91,6 +91,29 @@ export function polylineToSvgDocument(
 }
 
 /**
+ * Wraps MULTIPLE plain point arrays into a standalone SVG document -- the
+ * `polylineToSvgDocument` counterpart to `pathsToSvgDocument`'s multi-line
+ * handling, for a caller (e.g. ComplexPanel's conformal grid mapping) that
+ * draws several independent `drawPolyline` lines onto one canvas rather
+ * than the single-line case `polylineToSvgDocument` covers. Empty lines are
+ * skipped (matching `polylineToSvgDocument`'s own empty-array behavior)
+ * rather than emitting a stray zero-length `<path>`.
+ */
+export function polylinesToSvgDocument(
+  lines: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>,
+  viewport: Viewport,
+  width: number,
+  height: number,
+  color = "#2563eb",
+  strokeWidth = 1.5,
+): string {
+  const elements = lines
+    .filter((line) => line.length > 0)
+    .map((line) => `<path d="${polylinePointsToSvgD(line, viewport, width, height)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" />`);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${elements.join("\n")}\n</svg>`;
+}
+
+/**
  * Wraps a plain point array into a standalone SVG document as `<circle>`
  * elements -- the `drawScatter` counterpart to `polylineToSvgDocument`, for
  * a finite-structure/roots/extrema marker overlay rather than a connected
