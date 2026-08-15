@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { isAgentModeEnabled, setAgentModeEnabled } from "../lib/webmcp-agent-mode.ts";
 import { announceWebMcpReady, useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useSymbolicTools } from "../hooks/use-symbolic-tools.ts";
+import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { NAV_SECTIONS, SECTION_PATHS } from "../lib/nav-sections.ts";
+import { getWorkspaceGraph } from "../lib/workspace-graph.ts";
 
 export const Route = createFileRoute("/_app")({
   component: AppShell,
@@ -87,6 +89,13 @@ function AppShell() {
   // registered alongside app_navigate above, for the same "harmless no-op
   // without document.modelContext" reason.
   useSymbolicTools();
+
+  // The global workspace (issue #42): registered at the app shell, not on
+  // the /workspace page itself -- an agent (or a human on a completely
+  // different panel) needs to read/set a workspace variable without a
+  // human also having the inspector page open, since the workspace's whole
+  // point is being reachable from anywhere.
+  useCellGraphTools("workspace", getWorkspaceGraph());
 
   return (
     <div className="app-shell">

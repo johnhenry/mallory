@@ -559,6 +559,19 @@ export function notebookValueCellId(name: string): string {
 }
 
 /**
+ * A workspace variable's cell, keyed by its user-given `name` (issue #42) --
+ * the app-global counterpart to `notebookValueCellId`, same registry-free
+ * convention: a panel's free variable `k` resolves to this cell via a plain
+ * `graph.hasValue(workspaceValueCellId("k"))` check against the singleton
+ * workspace `CellGraph` (see `workspace-graph.ts`), not a separate name ->
+ * panel lookup. Unlike the notebook's per-document graph, this is the SAME
+ * cell no matter which page reads or writes it.
+ */
+export function workspaceValueCellId(name: string): string {
+  return `workspace:${name}`;
+}
+
+/**
  * A notebook graph row's published curve (issue #35 item 2), keyed by its
  * user-given name -- the whole-curve counterpart to `notebookValueCellId`
  * above, same registry-free convention: a curve-transform block reads this
