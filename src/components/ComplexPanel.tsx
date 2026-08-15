@@ -15,6 +15,7 @@ import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { renderDomainColoring } from "../lib/complex-raster.ts";
 import { nthRootsOfUnity } from "../lib/roots-of-unity.ts";
+import { findComplexZeros, findComplexPoles, type ComplexDomain } from "../lib/complex-roots.ts";
 import { autoFitViewport, mapGridLines, polarGridLines, rectangularGridLines, type MappedLine } from "../lib/conformal-grid.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { drawPolyline, drawScatter } from "../lib/render-path.ts";
@@ -28,6 +29,7 @@ type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 const WIDTH = 480;
 const HEIGHT = 480;
 const VIEWPORT: Viewport = { xMin: -3, xMax: 3, yMin: -3, yMax: 3 };
+const ROOT_SEARCH_DOMAIN: ComplexDomain = { reMin: VIEWPORT.xMin, reMax: VIEWPORT.xMax, imMin: VIEWPORT.yMin, imMax: VIEWPORT.yMax };
 
 export function seedComplexState(graph: CellGraph, ids: CellIdsComplex, state: ComplexState): void {
   graph.set(ids.exprText, state.exprText);
@@ -38,11 +40,13 @@ export function seedComplexState(graph: CellGraph, ids: CellIdsComplex, state: C
   graph.set(ids.showConformalGrid, state.showConformalGrid);
   graph.set(ids.conformalGridType, state.conformalGridType);
   graph.set(ids.conformalGridSpacing, state.conformalGridSpacing);
+  graph.set(ids.showZeros, state.showZeros);
+  graph.set(ids.showPoles, state.showPoles);
 }
 
 export function getCurrentComplexState(graph: CellGraph, ids: CellIdsComplex): ComplexState {
   return {
-    v: 2,
+    v: 3,
     exprText: graph.get<string>(ids.exprText),
     probeRe: graph.get<string>(ids.probeRe),
     probeIm: graph.get<string>(ids.probeIm),
@@ -51,6 +55,8 @@ export function getCurrentComplexState(graph: CellGraph, ids: CellIdsComplex): C
     showConformalGrid: graph.get<boolean>(ids.showConformalGrid),
     conformalGridType: graph.get<ConformalGridType>(ids.conformalGridType),
     conformalGridSpacing: graph.get<string>(ids.conformalGridSpacing),
+    showZeros: graph.get<boolean>(ids.showZeros),
+    showPoles: graph.get<boolean>(ids.showPoles),
   };
 }
 
@@ -173,6 +179,36 @@ function useComplexGraph(cellId: string, externalGraph?: CellGraph): CellGraph {
           return { ok: false, message: e instanceof Error ? e.message : String(e) };
         }
       });
+
+      graph.define(ids.zerosResult, (): Result<ComplexNumber[]> => {
+        try {
+          const parsed = graph.get<Result<Expr>>(ids.parseResult);
+          if (!parsed.ok) throw new Error(parsed.message);
+          const expr = parsed.value;
+          const derivative = Symbolic.differentiate(expr, "z");
+          const params = graph.get<Record<string, number>>(ids.params);
+          const g = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
+          const gPrime = (z: ComplexNumber) => evaluateComplex(derivative, complexParamEnv(params, z));
+          return { ok: true, value: findComplexZeros(g, gPrime, ROOT_SEARCH_DOMAIN) };
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        }
+      });
+
+      graph.define(ids.polesResult, (): Result<ComplexNumber[]> => {
+        try {
+          const parsed = graph.get<Result<Expr>>(ids.parseResult);
+          if (!parsed.ok) throw new Error(parsed.message);
+          const expr = parsed.value;
+          const derivative = Symbolic.differentiate(expr, "z");
+          const params = graph.get<Record<string, number>>(ids.params);
+          const f = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
+          const fPrime = (z: ComplexNumber) => evaluateComplex(derivative, complexParamEnv(params, z));
+          return { ok: true, value: findComplexPoles(f, fPrime, ROOT_SEARCH_DOMAIN) };
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        }
+      });
     }
 
     ref.current = graph;
@@ -214,6 +250,10 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
   const conformalGridType = useCell<ConformalGridType>(graph, ids.conformalGridType);
   const conformalGridSpacing = useCell<string>(graph, ids.conformalGridSpacing);
   const conformalGridResult = useCell<Result<ConformalGridReading>>(graph, ids.conformalGridResult);
+  const showZeros = useCell<boolean>(graph, ids.showZeros);
+  const zerosResult = useCell<Result<ComplexNumber[]>>(graph, ids.zerosResult);
+  const showPoles = useCell<boolean>(graph, ids.showPoles);
+  const polesResult = useCell<Result<ComplexNumber[]>>(graph, ids.polesResult);
   const freeVars = useCell<string[]>(graph, ids.freeVars);
   const params = useCell<Record<string, number>>(graph, ids.params);
 
@@ -283,7 +323,15 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     if (showConformalGrid && conformalGridResult.ok) {
       for (const line of conformalGridResult.value.zLines) drawPolyline(ctx, line, VIEWPORT, WIDTH, HEIGHT, "rgba(255,255,255,0.6)");
     }
-  }, [parseResult, showRootsOfUnity, rootsResult, showConformalGrid, conformalGridResult, params]);
+    if (showZeros && zerosResult.ok) {
+      const points = zerosResult.value.map((r) => ({ x: r.value, y: r.iValue }));
+      drawScatter(ctx, points, VIEWPORT, WIDTH, HEIGHT, 5, "#16a34a");
+    }
+    if (showPoles && polesResult.ok) {
+      const points = polesResult.value.map((r) => ({ x: r.value, y: r.iValue }));
+      drawScatter(ctx, points, VIEWPORT, WIDTH, HEIGHT, 5, "#dc2626");
+    }
+  }, [parseResult, showRootsOfUnity, rootsResult, showConformalGrid, conformalGridResult, showZeros, zerosResult, showPoles, polesResult, params]);
 
   useEffect(() => {
     const canvas = wCanvasRef.current;
@@ -374,6 +422,17 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
         </label>
       </div>
       {showConformalGrid && !conformalGridResult.ok && <p style={{ color: "var(--danger)" }}>{conformalGridResult.message}</p>}
+
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label style={{ color: "#16a34a" }}>
+          <input type="checkbox" checked={showZeros} onChange={(e) => graph.set(ids.showZeros, e.target.checked)} /> show zeros of f(z)
+        </label>
+        <label style={{ color: "#dc2626" }}>
+          <input type="checkbox" checked={showPoles} onChange={(e) => graph.set(ids.showPoles, e.target.checked)} /> show poles of f(z)
+        </label>
+      </div>
+      {showZeros && !zerosResult.ok && <p style={{ color: "var(--danger)" }}>{zerosResult.message}</p>}
+      {showPoles && !polesResult.ok && <p style={{ color: "var(--danger)" }}>{polesResult.message}</p>}
 
       <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
         <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />

@@ -74,7 +74,7 @@ test("migrateSavedGraphRecord leaves an explicit 'complex' kind untouched", () =
     createdAt: 1700000003000,
     kind: "complex" as const,
     state: {
-      v: 2 as const,
+      v: 3 as const,
       exprText: "z^2 + 1",
       probeRe: "1",
       probeIm: "1",
@@ -83,6 +83,8 @@ test("migrateSavedGraphRecord leaves an explicit 'complex' kind untouched", () =
       showConformalGrid: false,
       conformalGridType: "rectangular" as const,
       conformalGridSpacing: "0.5",
+      showZeros: false,
+      showPoles: false,
     },
   };
   const migrated = migrateSavedGraphRecord(record);

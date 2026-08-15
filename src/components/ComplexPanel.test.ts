@@ -24,9 +24,11 @@ test("getCurrentComplexState reads back exactly what was written to each of the 
   graph.set(ids.showConformalGrid, true);
   graph.set(ids.conformalGridType, "polar");
   graph.set(ids.conformalGridSpacing, "0.25");
+  graph.set(ids.showZeros, true);
+  graph.set(ids.showPoles, false);
 
   assert.deepEqual(getCurrentComplexState(graph, ids), {
-    v: 2,
+    v: 3,
     exprText: "z^3 - 1",
     probeRe: "2",
     probeIm: "-1",
@@ -35,6 +37,8 @@ test("getCurrentComplexState reads back exactly what was written to each of the 
     showConformalGrid: true,
     conformalGridType: "polar",
     conformalGridSpacing: "0.25",
+    showZeros: true,
+    showPoles: false,
   });
 });
 

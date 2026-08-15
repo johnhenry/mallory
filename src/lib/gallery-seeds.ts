@@ -57,7 +57,7 @@ export const GALLERY_SEEDS: GallerySeed[] = [
     kind: "complex",
     createdAt: 1700000001000,
     state: {
-      v: 2,
+      v: 3,
       exprText: "z^2 + 1",
       probeRe: "1",
       probeIm: "1",
@@ -66,6 +66,8 @@ export const GALLERY_SEEDS: GallerySeed[] = [
       showConformalGrid: false,
       conformalGridType: "rectangular",
       conformalGridSpacing: "0.5",
+      showZeros: false,
+      showPoles: false,
     },
   },
   {
