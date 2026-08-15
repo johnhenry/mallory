@@ -70,6 +70,8 @@ export interface NotebookTensorBlockStateV1 {
   type: "tensor";
   source: string;
   op: TensorOpType;
+  /** Read only by ops in `TENSOR_OPS_WITH_ARG` (pad's border width, repeat's row count). Optional (not a schema version bump) -- an additive field defaulting to 1 downstream, same convention StatisticsPanel's own inference fields already use for a reload-safe default rather than forcing every existing saved tensor block through a migration. */
+  opArg?: number;
 }
 
 export type NotebookBlockStateV1 =
@@ -157,7 +159,10 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
   if (b.type === "statistics") return isStatisticsStateV1(b.state);
   if (b.type === "systems") return isSystemStateV1(b.state);
   if (b.type === "geometry") return isGeometryStateV1(b.state);
-  if (b.type === "tensor") return typeof b.source === "string" && typeof b.op === "string" && b.op in TENSOR_OP_LABELS;
+  if (b.type === "tensor") {
+    if (typeof b.source !== "string" || typeof b.op !== "string" || !(b.op in TENSOR_OP_LABELS)) return false;
+    return b.opArg === undefined || typeof b.opArg === "number";
+  }
   return false;
 }
 

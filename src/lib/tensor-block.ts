@@ -1,6 +1,6 @@
 import { Tensor } from "mallory-tensor-core";
 
-export type TensorOpType = "none" | "abs" | "neg" | "exp" | "sqrt" | "clip01" | "transpose" | "fliplr" | "flipud" | "roll";
+export type TensorOpType = "none" | "abs" | "neg" | "exp" | "sqrt" | "clip01" | "transpose" | "fliplr" | "flipud" | "roll" | "pad" | "repeat";
 
 export const TENSOR_OP_LABELS: Record<TensorOpType, string> = {
   none: "none",
@@ -13,7 +13,12 @@ export const TENSOR_OP_LABELS: Record<TensorOpType, string> = {
   fliplr: "flip left-right",
   flipud: "flip up-down",
   roll: "roll right by 1",
+  pad: "pad border with 0s",
+  repeat: "repeat rows",
 };
+
+/** Ops from `TENSOR_OP_LABELS` that read `arg` (the "Also remaining from item 1's original sketch: pad/repeat/split ops (parameterized, need arg inputs...)" line from issue #35) -- every other op takes none, matching the original v1 no-arg op picker. `split` isn't included: unlike every other op it returns MULTIPLE tensors, a genuinely different UI shape (which piece to display) deserving its own design rather than forcing it through this single-grid-in-single-grid-out picker. */
+export const TENSOR_OPS_WITH_ARG: ReadonlySet<TensorOpType> = new Set(["pad", "repeat"]);
 
 const MAX_DIM = 16;
 
@@ -71,8 +76,14 @@ function tensorToGrid(tensor: Tensor): number[][] {
  * family domain issues surface as NaN cells in the rendered grid rather
  * than throwing -- visible, honest, and exactly what the library itself
  * produces.
+ *
+ * `arg` is only read by `pad`/`repeat` (see `TENSOR_OPS_WITH_ARG`) -- a
+ * non-negative integer for `pad` (border width on all four sides, via a
+ * `[[arg,arg],[arg,arg]]` padding spec covering both axes of the 2D grid)
+ * and a positive integer for `repeat` (per-row repeat count along axis 0,
+ * NumPy `repeat` semantics -- each row duplicated in place, not tiled).
  */
-export function applyTensorOp(grid: readonly (readonly number[])[], op: TensorOpType): number[][] {
+export function applyTensorOp(grid: readonly (readonly number[])[], op: TensorOpType, arg = 1): number[][] {
   const tensor = gridToTensor(grid);
   switch (op) {
     case "none":
@@ -95,6 +106,17 @@ export function applyTensorOp(grid: readonly (readonly number[])[], op: TensorOp
       return tensorToGrid(tensor.flip(0));
     case "roll":
       return tensorToGrid(tensor.roll(1, { axis: 1 }));
+    case "pad": {
+      const width = Math.max(0, Math.trunc(arg));
+      return tensorToGrid(
+        tensor.pad([
+          [width, width],
+          [width, width],
+        ]),
+      );
+    }
+    case "repeat":
+      return tensorToGrid(tensor.repeat(Math.max(1, Math.trunc(arg)), { axis: 0 }));
   }
 }
 

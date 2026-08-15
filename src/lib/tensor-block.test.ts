@@ -65,6 +65,52 @@ test('applyTensorOp: "none" round-trips the grid unchanged', () => {
   assert.deepEqual(applyTensorOp(grid, "none"), grid);
 });
 
+test("applyTensorOp: pad borders a 2x3 grid with `arg` zeros on all four sides, matching mallory-tensor-core's own pad() directly", () => {
+  const grid = [
+    [1, 2, 3],
+    [4, 5, 6],
+  ];
+  assert.deepEqual(applyTensorOp(grid, "pad", 1), [
+    [0, 0, 0, 0, 0],
+    [0, 1, 2, 3, 0],
+    [0, 4, 5, 6, 0],
+    [0, 0, 0, 0, 0],
+  ]);
+});
+
+test("applyTensorOp: pad with arg=0 is a no-op (border width zero)", () => {
+  const grid = [[1, 2]];
+  assert.deepEqual(applyTensorOp(grid, "pad", 0), grid);
+});
+
+test("applyTensorOp: pad clamps a negative/fractional arg to a non-negative integer border width", () => {
+  const grid = [[1, 2]];
+  assert.deepEqual(applyTensorOp(grid, "pad", -3), grid);
+  assert.deepEqual(applyTensorOp(grid, "pad", 1.9), [
+    [0, 0, 0, 0],
+    [0, 1, 2, 0],
+    [0, 0, 0, 0],
+  ]);
+});
+
+test("applyTensorOp: repeat duplicates each row `arg` times in place along axis 0 (NumPy repeat, not tile)", () => {
+  const grid = [
+    [1, 2, 3],
+    [4, 5, 6],
+  ];
+  assert.deepEqual(applyTensorOp(grid, "repeat", 2), [
+    [1, 2, 3],
+    [1, 2, 3],
+    [4, 5, 6],
+    [4, 5, 6],
+  ]);
+});
+
+test("applyTensorOp: repeat clamps a sub-1 arg to a count of 1 (identity)", () => {
+  const grid = [[1, 2]];
+  assert.deepEqual(applyTensorOp(grid, "repeat", 0), grid);
+});
+
 test("summarizeTensor: shape and min/max/mean/sum via the library's own reductions, hand-checked", () => {
   const summary = summarizeTensor([
     [1, 2, 3],
