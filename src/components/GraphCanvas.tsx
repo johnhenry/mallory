@@ -1,5 +1,6 @@
 import { Symbolic, type DifferentiationStep, type Expr, type Path2D } from "mallory-math";
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIds, TIME_CELL } from "../lib/cell-ids.ts";
@@ -11,6 +12,7 @@ import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
 import { DEFAULT_GRAPH_STATE, decodeGraphState, encodeGraphState, type GraphState } from "../lib/graph-state.ts";
 import { evaluateExactAt } from "../lib/exact-eval.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
+import { resolveNavigationCommand } from "../lib/nav-sections.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { drawFilledArea, drawPath, drawPoint, drawRegionMask, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { sampleExpr, sampleExprAdaptive, sampleRegionMask } from "../lib/sample-function.ts";
@@ -360,6 +362,7 @@ export function GraphCanvas({
   const viewport = DEFAULT_GRAPH_STATE.viewport;
   const ids = cellIds(cellId);
   const graph = useExpressionGraph(cellId, defaultSource, viewport, externalGraph);
+  const navigate = useNavigate();
   // Namespaced by cellId (not a flat "graphing") so two GraphCanvas panes
   // sharing one CellGraph -- LinkedGraphPanes/Linked3DView, and now the
   // Compare tab -- don't collide on tool names: a second registerTool call
@@ -508,10 +511,23 @@ export function GraphCanvas({
   // Phase 10 (rule-based MVP): a chat message resolves to exactly the same
   // CellGraph operation a human would trigger through the UI -- there's no
   // separate "chat state" to drift out of sync with direct manipulation.
+  //
+  // Navigation phrasings ("go to statistics", "open the 3D view") are
+  // checked FIRST, before resolveChatCommand -- issue #46's "routing
+  // layer" item -- since they're a router action (leaving this panel
+  // entirely), not a CellGraph mutation resolveChatCommand's
+  // ChatCommandContext has no way to express.
   function handleChatSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const input = chatInput.trim();
     if (!input) return;
+    const navPath = resolveNavigationCommand(input);
+    if (navPath) {
+      setChatLog((log) => [...log, { input, ok: true, message: `Navigating to ${navPath}…` }]);
+      setChatInput("");
+      navigate({ to: navPath });
+      return;
+    }
     const ctx: ChatCommandContext = { graph, ids, freeVars, setSource, setMode, setPlaying, setLoop, setSpeed };
     const result = resolveChatCommand(input, ctx);
     setChatLog((log) => [
