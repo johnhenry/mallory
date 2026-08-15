@@ -27,6 +27,13 @@ export interface SignalStateV2 {
   minAmplitude?: string;
   minSpacingHz?: string;
   minProminence?: string;
+  /**
+   * Cross-correlation lag-finder (issue #31's "extras" item) -- optional for
+   * the same reason as the peak-finding fields above: an old encoded URL
+   * fragment from before this existed should still decode.
+   */
+  showCorrelation?: boolean;
+  exprTextB?: string;
 }
 
 export type SignalState = SignalStateV2;
@@ -42,6 +49,11 @@ export const DEFAULT_SIGNAL_STATE: SignalState = {
   minAmplitude: "0",
   minSpacingHz: "0",
   minProminence: "0",
+  showCorrelation: false,
+  // The same waveform as the default f(t), delayed by 0.05s -- a
+  // ready-made demo where the cross-correlation's detected lag should read
+  // back close to +0.05s with zero manual tuning.
+  exprTextB: "sin(2*pi*5*(t-0.05)) + 0.5*sin(2*pi*12*(t-0.05))",
 };
 
 export function encodeSignalState(state: SignalState): string {
@@ -81,7 +93,8 @@ export function isSignalStateV2(value: unknown): value is SignalStateV2 {
   if (v.v !== 2 || !hasV1Fields(v)) return false;
   if (typeof v.nperseg !== "string" || typeof v.noverlap !== "string") return false;
   if (v.showPeaks !== undefined && typeof v.showPeaks !== "boolean") return false;
-  const optionalStringFields = ["minAmplitude", "minSpacingHz", "minProminence"] as const;
+  if (v.showCorrelation !== undefined && typeof v.showCorrelation !== "boolean") return false;
+  const optionalStringFields = ["minAmplitude", "minSpacingHz", "minProminence", "exprTextB"] as const;
   return optionalStringFields.every((f) => v[f] === undefined || typeof v[f] === "string");
 }
 

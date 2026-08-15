@@ -59,6 +59,18 @@ test("decodeSignalState: a pre-#31 encoded fragment (no peak-finding fields) dec
   assert.equal(decoded?.showPeaks, undefined);
 });
 
+test("isSignalStateV2: accepts a v2 state missing the cross-correlation fields entirely (an old encoded URL hash from before that feature existed)", () => {
+  const preCorrelationState = { v: 2, exprText: "sin(t)", sampleRate: "64", duration: "1", nperseg: "16", noverlap: "8" };
+  assert.equal(isSignalStateV2(preCorrelationState), true);
+});
+
+test("isSignalStateV2: rejects a cross-correlation field with the wrong type when present", () => {
+  const badShowCorrelation = { ...DEFAULT_SIGNAL_STATE, showCorrelation: "yes" };
+  assert.equal(isSignalStateV2(badShowCorrelation), false);
+  const badExprTextB = { ...DEFAULT_SIGNAL_STATE, exprTextB: 4 };
+  assert.equal(isSignalStateV2(badExprTextB), false);
+});
+
 test("encodeSignalState/decodeSignalState: round-trips the full state including the new peak-finding fields", () => {
   const state = { ...DEFAULT_SIGNAL_STATE, showPeaks: true, minAmplitude: "0.5", minSpacingHz: "2", minProminence: "0.1" };
   const decoded = decodeSignalState(encodeSignalState(state));

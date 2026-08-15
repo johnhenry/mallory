@@ -14,6 +14,7 @@ import {
   type SpectrumPeak,
   type Waveform,
 } from "../lib/signal-waveform.ts";
+import { crossCorrelate, type CorrelationResult } from "../lib/signal-correlation.ts";
 import { drawPoint, drawPolyline } from "../lib/render-path.ts";
 import { polylineToSvgDocument } from "../lib/svg-export.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -49,12 +50,24 @@ export function spectrumPlot(spectrum: AmplitudeSpectrum): PlotSeries {
   };
 }
 
+/** Shared by the Canvas2D draw effect and the SVG export getter, so the viewport math can't drift between the two. */
+export function correlationPlot(correlation: CorrelationResult): PlotSeries {
+  const { lags, values } = correlation;
+  const maxAbsValue = Math.max(1e-9, ...values.map((v) => Math.abs(v)));
+  return {
+    points: lags.map((lag, i) => ({ x: lag, y: values[i]! })),
+    viewport: { xMin: lags[0]!, xMax: lags[lags.length - 1]!, yMin: -maxAbsValue * 1.1, yMax: maxAbsValue * 1.1 },
+  };
+}
+
 const WAVEFORM_WIDTH = 640;
 const WAVEFORM_HEIGHT = 220;
 const SPECTRUM_WIDTH = 640;
 const SPECTRUM_HEIGHT = 220;
 const SPECTROGRAM_WIDTH = 640;
 const SPECTROGRAM_HEIGHT = 260;
+const CORRELATION_WIDTH = 640;
+const CORRELATION_HEIGHT = 200;
 
 function seedSignalState(graph: CellGraph, ids: CellIdsSignal, state: SignalState): void {
   graph.set(ids.exprText, state.exprText);
@@ -66,6 +79,8 @@ function seedSignalState(graph: CellGraph, ids: CellIdsSignal, state: SignalStat
   graph.set(ids.minAmplitude, state.minAmplitude ?? DEFAULT_SIGNAL_STATE.minAmplitude);
   graph.set(ids.minSpacingHz, state.minSpacingHz ?? DEFAULT_SIGNAL_STATE.minSpacingHz);
   graph.set(ids.minProminence, state.minProminence ?? DEFAULT_SIGNAL_STATE.minProminence);
+  graph.set(ids.showCorrelation, state.showCorrelation ?? DEFAULT_SIGNAL_STATE.showCorrelation);
+  graph.set(ids.exprTextB, state.exprTextB ?? DEFAULT_SIGNAL_STATE.exprTextB);
 }
 
 function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalState {
@@ -80,6 +95,8 @@ function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalStat
     minAmplitude: graph.get<string>(ids.minAmplitude),
     minSpacingHz: graph.get<string>(ids.minSpacingHz),
     minProminence: graph.get<string>(ids.minProminence),
+    showCorrelation: graph.get<boolean>(ids.showCorrelation),
+    exprTextB: graph.get<string>(ids.exprTextB),
   };
 }
 
@@ -155,6 +172,30 @@ function useSignalGraph(cellId: string): CellGraph {
       }
     });
 
+    graph.define(ids.waveformBResult, (): Result<Waveform> => {
+      try {
+        const exprTextB = graph.get<string>(ids.exprTextB);
+        const sampleRate = Number(graph.get<string>(ids.sampleRate));
+        const duration = Number(graph.get<string>(ids.duration));
+        if (Number.isNaN(sampleRate) || Number.isNaN(duration)) throw new Error("Sample rate and duration must both be numbers.");
+        return { ok: true, value: sampleWaveform(exprTextB, sampleRate, duration) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.correlationResult, (): Result<CorrelationResult> => {
+      const waveformA = graph.get<Result<Waveform>>(ids.waveformResult);
+      if (!waveformA.ok) return waveformA;
+      const waveformB = graph.get<Result<Waveform>>(ids.waveformBResult);
+      if (!waveformB.ok) return waveformB;
+      try {
+        return { ok: true, value: crossCorrelate(waveformA.value, waveformB.value) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
     ref.current = graph;
   }
   return ref.current;
@@ -174,6 +215,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const spectrogramCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const correlationCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const exprText = useCell<string>(graph, ids.exprText);
   const sampleRate = useCell<string>(graph, ids.sampleRate);
@@ -188,8 +230,20 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const minSpacingHz = useCell<string>(graph, ids.minSpacingHz);
   const minProminence = useCell<string>(graph, ids.minProminence);
   const peaksResult = useCell<Result<SpectrumPeak[]>>(graph, ids.peaksResult);
+  const showCorrelation = useCell<boolean>(graph, ids.showCorrelation);
+  const exprTextB = useCell<string>(graph, ids.exprTextB);
+  const correlationResult = useCell<Result<CorrelationResult>>(graph, ids.correlationResult);
 
   const [exprInput, setExprInput] = useState(exprText);
+  const [exprInputB, setExprInputB] = useState(exprTextB);
+  useEffect(() => {
+    setExprInputB(exprTextB);
+  }, [exprTextB]);
+
+  function updateExprTextB(value: string) {
+    setExprInputB(value);
+    graph.set(ids.exprTextB, resolveNaturalLanguageQuery(value, "t") ?? value);
+  }
   // Keeps the input box in sync when exprText changes for a reason other
   // than typing in this box -- e.g. URL-hash hydration -- mirrors
   // GraphCanvas/TaylorPanel's identically-reasoned effect.
@@ -247,6 +301,26 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     if (!spectrogramResult.ok) return;
     drawSpectrogram(ctx, spectrogramResult.value, SPECTROGRAM_WIDTH, SPECTROGRAM_HEIGHT);
   }, [spectrogramResult]);
+
+  useEffect(() => {
+    const canvas = correlationCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, CORRELATION_WIDTH, CORRELATION_HEIGHT);
+    if (!showCorrelation || !correlationResult.ok) return;
+    const { points, viewport } = correlationPlot(correlationResult.value);
+    drawPolyline(ctx, points, viewport, CORRELATION_WIDTH, CORRELATION_HEIGHT, "#7c3aed");
+    drawPoint(
+      ctx,
+      { x: correlationResult.value.peakLagSeconds, y: correlationResult.value.peakValue },
+      viewport,
+      CORRELATION_WIDTH,
+      CORRELATION_HEIGHT,
+      5,
+      "#16a34a",
+    );
+  }, [showCorrelation, correlationResult]);
 
   return (
     <div>
@@ -401,6 +475,48 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => spectrogramCanvasRef.current} label="signal-spectrogram" />
       </div>
+
+      <h3>Cross-correlation</h3>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label>
+          <input type="checkbox" checked={showCorrelation} onChange={(e) => graph.set(ids.showCorrelation, e.target.checked)} /> Find lag vs. a second
+          signal
+        </label>
+        {showCorrelation && (
+          <label>
+            g(t) ={" "}
+            <input value={exprInputB} onChange={(e) => updateExprTextB(e.target.value)} style={{ font: "inherit", width: "28ch" }} />
+          </label>
+        )}
+      </div>
+      {showCorrelation && (
+        <>
+          {!correlationResult.ok && <p style={{ color: "var(--danger)" }}>{correlationResult.message}</p>}
+          {correlationResult.ok && (
+            <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+              Best-fit lag: g(t) is {Math.abs(correlationResult.value.peakLagSeconds).toFixed(4)}s{" "}
+              {correlationResult.value.peakLagSeconds >= 0 ? "behind" : "ahead of"} f(t).
+            </p>
+          )}
+          <canvas
+            ref={correlationCanvasRef}
+            width={CORRELATION_WIDTH}
+            height={CORRELATION_HEIGHT}
+            style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
+          />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => correlationCanvasRef.current} label="signal-correlation" />{" "}
+            <SvgExportButton
+              getSvg={() => {
+                if (!correlationResult.ok) return null;
+                const { points, viewport } = correlationPlot(correlationResult.value);
+                return polylineToSvgDocument(points, viewport, CORRELATION_WIDTH, CORRELATION_HEIGHT, "#7c3aed");
+              }}
+              label="signal-correlation"
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }
