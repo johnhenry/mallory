@@ -55,6 +55,11 @@ const NAV_ITEMS: Array<{ to: string; label: string; icon: string }> = [
     icon: '<rect x="1.8" y="2.5" width="12.4" height="11" rx="1.2"/><circle cx="6" cy="6" r="1.3" fill="currentColor" stroke="none"/><path d="M2.5 12 6.5 8l2.5 2.5 2-2 2.5 2.5" stroke-linecap="round" stroke-linejoin="round"/>',
   },
   {
+    to: "/ml",
+    label: "ML",
+    icon: '<circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="3.5" r="1.4"/><circle cx="8" cy="12.5" r="1.4"/><circle cx="13" cy="8" r="1.4"/><path d="M4.3 7.3 6.8 4.6M4.3 8.7l2.5 2.9M9.2 4.4 11.8 7M9.2 11.6l2.6-2.7" stroke-linecap="round"/>',
+  },
+  {
     to: "/practice",
     label: "Practice",
     icon: '<path d="M8 1.5 9.6 4.9l3.7.5-2.7 2.6.6 3.7L8 10.1l-3.2 1.6.6-3.7-2.7-2.6 3.7-.5L8 1.5Z" stroke-linejoin="round"/><path d="M6 13.5h4" stroke-linecap="round"/>',

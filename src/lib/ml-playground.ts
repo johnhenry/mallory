@@ -1,0 +1,194 @@
+import { nn, optim, trainer, variable } from "mallory-tensor-autograd";
+import { Rng, Tensor } from "mallory-tensor-core";
+
+export type DatasetType = "xor" | "moons" | "rings";
+
+export interface LabeledPoint {
+  x: number;
+  y: number;
+  label: 0 | 1;
+}
+
+/** Box-Muller from two seeded uniforms -- deterministic gaussian noise without needing a tensor-shaped sampler for a handful of scalar draws. */
+function gaussian(rng: Rng): number {
+  const u1 = Math.max(rng.nextFloat(), 1e-12);
+  const u2 = rng.nextFloat();
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+/**
+ * Seeded toy datasets (issue #34's XOR / two-moons, plus a rings set):
+ * `pointsPerClass` points per label, deterministic for a given seed via
+ * tensor-core's `Rng` (the same PCG32 the Monte Carlo panel already uses).
+ * `noise` is the gaussian jitter's standard deviation -- 0 gives exactly
+ * the underlying geometry (the tests pin that: XOR's four cluster centers,
+ * rings' strict radius separation).
+ */
+export function generateDataset(type: DatasetType, pointsPerClass: number, seed: number, noise = 0.25): LabeledPoint[] {
+  if (!Number.isInteger(pointsPerClass) || pointsPerClass <= 0 || pointsPerClass > 500) {
+    throw new Error("Points per class must be a positive integer up to 500.");
+  }
+  const rng = new Rng(seed);
+  const points: LabeledPoint[] = [];
+  switch (type) {
+    case "xor": {
+      // Four gaussian clusters at (±1.5, ±1.5); label = XOR of the center signs.
+      const centers: Array<[number, number, 0 | 1]> = [
+        [1.5, 1.5, 0],
+        [-1.5, -1.5, 0],
+        [1.5, -1.5, 1],
+        [-1.5, 1.5, 1],
+      ];
+      // pointsPerClass per LABEL -- each label owns two clusters, alternated.
+      for (let i = 0; i < pointsPerClass * 2; i++) {
+        const [cx, cy, label] = centers[i % 4]!;
+        points.push({ x: cx + gaussian(rng) * noise, y: cy + gaussian(rng) * noise, label });
+      }
+      break;
+    }
+    case "moons": {
+      for (let i = 0; i < pointsPerClass; i++) {
+        const t = (i / Math.max(1, pointsPerClass - 1)) * Math.PI;
+        points.push({ x: 2 * Math.cos(t) - 1 + gaussian(rng) * noise, y: 2 * Math.sin(t) - 0.5 + gaussian(rng) * noise, label: 0 });
+        points.push({ x: 2 - 2 * Math.cos(t) - 1 + gaussian(rng) * noise, y: 0.5 - 2 * Math.sin(t) + 0.5 + gaussian(rng) * noise, label: 1 });
+      }
+      break;
+    }
+    case "rings": {
+      for (let i = 0; i < pointsPerClass; i++) {
+        const theta0 = rng.nextFloat() * 2 * Math.PI;
+        const r0 = 0.7 * Math.sqrt(rng.nextFloat());
+        points.push({ x: r0 * Math.cos(theta0) + gaussian(rng) * noise * 0.3, y: r0 * Math.sin(theta0) + gaussian(rng) * noise * 0.3, label: 0 });
+        const theta1 = rng.nextFloat() * 2 * Math.PI;
+        const r1 = 2 + rng.nextFloat() * 0.4;
+        points.push({ x: r1 * Math.cos(theta1) + gaussian(rng) * noise * 0.3, y: r1 * Math.sin(theta1) + gaussian(rng) * noise * 0.3, label: 1 });
+      }
+      break;
+    }
+  }
+  return points;
+}
+
+/**
+ * A 2 -> hidden -> 1 MLP with a ReLU between -- composed from two
+ * `nn.Linear` layers as a `Module` subclass, since the published nn
+ * namespace has no activation *Module* for `Sequential` to chain (ReLU
+ * exists as a `Variable` method, applied functionally in `forward`).
+ * `Module.parameters()`'s reflection walk finds both layers' weights.
+ * Seeded init via `Linear`'s own `rng` option, so training is fully
+ * deterministic end to end.
+ */
+export class TinyMlp extends nn.Module {
+  readonly l1: InstanceType<typeof nn.Linear>;
+  readonly l2: InstanceType<typeof nn.Linear>;
+
+  constructor(hidden: number, seed: number) {
+    super();
+    if (!Number.isInteger(hidden) || hidden <= 0 || hidden > 64) throw new Error("Hidden units must be a positive integer up to 64.");
+    const rng = new Rng(seed);
+    this.l1 = new nn.Linear(2, hidden, { rng });
+    this.l2 = new nn.Linear(hidden, 1, { rng });
+  }
+
+  forward(x: ReturnType<typeof variable>): ReturnType<typeof variable> {
+    return this.l2.forward(this.l1.forward(x).relu());
+  }
+}
+
+export function datasetToBatch(points: readonly LabeledPoint[]): { x: Tensor; y: Tensor } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const p of points) {
+    xs.push(p.x, p.y);
+    ys.push(p.label);
+  }
+  return {
+    x: Tensor.from(xs, { dtype: "f64" }).reshape([points.length, 2]),
+    y: Tensor.from(ys, { dtype: "f64" }).reshape([points.length, 1]),
+  };
+}
+
+type LossVariable = ReturnType<typeof variable>;
+
+/**
+ * Numerically stable binary cross-entropy from logits -- a workaround for a
+ * real upstream bug found while building this panel: `nn.binaryCrossEntropy`
+ * computes `log(sigmoid(z))`/`log(1-sigmoid(z))` directly, and once |z|
+ * exceeds ~37, f64 `sigmoid` saturates to exactly 1 (or 0), so the
+ * "correct" side's term becomes `0 * log(0) = NaN` -- the loss NaNs
+ * PRECISELY BECAUSE the classifier converged (reproduced deterministically:
+ * seed 42, moons, 200+~49 epochs). Filed upstream on mallory-plus.
+ *
+ * This uses the standard logits-space identity
+ * `L(z, y) = relu(z) - z*y + log(1 + exp(-|z|))`, with the last term
+ * rewritten as `-log(sigmoid(|z|))` to fit the published Variable op set
+ * (no `exp`/`abs` ops exist; `|z| = relu(z) + relu(-z)`). `sigmoid(|z|)`
+ * is always >= 0.5, so its log never sees 0 for ANY logit magnitude.
+ * Verified equal to `nn.binaryCrossEntropy` to ~1e-12 in the non-saturated
+ * regime, and finite (where upstream NaNs) in the saturated one.
+ */
+export function stableBinaryCrossEntropy(logits: LossVariable, target: LossVariable): LossVariable {
+  const absZ = logits.relu().add(logits.mul(-1).relu());
+  const perElement = logits.relu().sub(logits.mul(target)).sub(absZ.sigmoid().log());
+  return perElement.mean();
+}
+
+export interface TrainResult {
+  /** One binary-cross-entropy loss per epoch, in order (trainer.fit's own lossHistory). */
+  lossHistory: number[];
+}
+
+const MAX_EPOCHS = 2000;
+
+/**
+ * Full-batch training via the family's own `trainer.fit` (issue #34's
+ * intended integration, not a bespoke loop): Adam + `binaryCrossEntropy` on
+ * logits, `epochs` steps over the whole dataset. Mutates `model`'s weights
+ * in place -- callers keep the model across calls to continue training.
+ */
+export async function trainModel(model: TinyMlp, points: readonly LabeledPoint[], lr: number, epochs: number): Promise<TrainResult> {
+  if (points.length === 0) throw new Error("Dataset is empty.");
+  if (!Number.isFinite(lr) || lr <= 0) throw new Error("Learning rate must be a positive number.");
+  if (!Number.isInteger(epochs) || epochs <= 0 || epochs > MAX_EPOCHS) throw new Error(`Epochs must be a positive integer up to ${MAX_EPOCHS}.`);
+  const { x, y } = datasetToBatch(points);
+  const fit = trainer.configure({
+    model,
+    optimizer: new optim.Adam(model.parameters(), { lr }),
+    lossFn: stableBinaryCrossEntropy,
+    epochs,
+  });
+  const { lossHistory } = await fit.fit({ x, y });
+  return { lossHistory: [...lossHistory] };
+}
+
+export interface GridDomain {
+  min: number;
+  max: number;
+}
+
+/**
+ * P(label=1) over a `resolution x resolution` grid -- one batched forward
+ * pass (the whole grid as a single [R*R, 2] tensor), sigmoided from logits.
+ * Row index 0 is the domain's MIN y; the caller's renderer decides screen
+ * orientation.
+ */
+export function predictProbabilityGrid(model: TinyMlp, domain: GridDomain, resolution: number): number[][] {
+  if (!Number.isInteger(resolution) || resolution <= 1 || resolution > 200) throw new Error("Resolution must be an integer in [2, 200].");
+  const coords: number[] = [];
+  for (let j = 0; j < resolution; j++) {
+    const y = domain.min + (j / (resolution - 1)) * (domain.max - domain.min);
+    for (let i = 0; i < resolution; i++) {
+      const x = domain.min + (i / (resolution - 1)) * (domain.max - domain.min);
+      coords.push(x, y);
+    }
+  }
+  const input = Tensor.from(coords, { dtype: "f64" }).reshape([resolution * resolution, 2]);
+  const probs = model.forward(variable(input)).sigmoid().value;
+  const grid: number[][] = [];
+  for (let j = 0; j < resolution; j++) {
+    const row: number[] = [];
+    for (let i = 0; i < resolution; i++) row.push(probs.at(j * resolution + i, 0) as number);
+    grid.push(row);
+  }
+  return grid;
+}
