@@ -2,8 +2,9 @@ import { useEffect, useRef } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsImplicit } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
-import { drawImplicitCurve, drawVectorField, type Viewport } from "../lib/render-path.ts";
+import { drawImplicitBoxes, drawImplicitCurve, drawVectorField, type Viewport } from "../lib/render-path.ts";
 import { sampleImplicitCurve, type ImplicitSegment } from "../lib/sample-implicit.ts";
+import { sampleImplicitCurveIntervalBoxes, type ImplicitBox } from "../lib/interval-implicit.ts";
 import { computeContourLevels, type ContourLevel } from "../lib/contour-plot.ts";
 import { sampleGradientField } from "../lib/gradient-field.ts";
 import { equationToImplicitZero } from "../lib/equation-to-zero.ts";
@@ -16,10 +17,24 @@ const HEIGHT = 500;
 const RESOLUTION = 80;
 const CONTOUR_LEVEL_COUNT = 6;
 const GRADIENT_GRID_DENSITY = 12;
+const INTERVAL_MAX_DEPTH = 9;
 
 type SegmentsResult = { ok: true; segments: ImplicitSegment[] } | { ok: false; message: string };
 type ContourResult = { ok: true; levels: ContourLevel[] } | { ok: false; message: string };
 type GradientResult = { ok: true; points: VectorFieldPoint[] } | { ok: false; message: string };
+type IntervalBoxesResult = { ok: true; boxes: ImplicitBox[] } | { ok: false; message: string };
+
+/**
+ * A plain `Number(x) || fallback` silently discards a legitimate "0" bound
+ * (a very natural domain edge, e.g. plotting y=tan(x) from 0 to pi) -- 0 is
+ * falsy in JS, so it fell through to the default instead of being used.
+ * Found while verifying the interval-subdivision overlay (below) against a
+ * pathological case whose natural domain starts at x=0.
+ */
+export function boundOrDefault(value: string, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 /** A blue->red interpolation across level index, so a stack of contour lines reads as a low-to-high ramp. */
 function levelColor(index: number, count: number): string {
@@ -68,6 +83,7 @@ function useImplicitGraph(cellId: string): CellGraph {
 
       graph.set(ids.showContours, false, { auxiliary: true });
       graph.set(ids.showGradient, false, { auxiliary: true });
+      graph.set(ids.showIntervalBoxes, false, { auxiliary: true });
 
       graph.define(
         ids.contourResult,
@@ -112,6 +128,28 @@ function useImplicitGraph(cellId: string): CellGraph {
         },
         { auxiliary: true },
       );
+
+      graph.define(
+        ids.intervalBoxesResult,
+        (): IntervalBoxesResult => {
+          if (!graph.get<boolean>(ids.showIntervalBoxes)) return { ok: true, boxes: [] };
+          try {
+            const expr = graph.get<string>(ids.expr);
+            const xMin = Number(graph.get<string>(ids.xMin));
+            const xMax = Number(graph.get<string>(ids.xMax));
+            const yMin = Number(graph.get<string>(ids.yMin));
+            const yMax = Number(graph.get<string>(ids.yMax));
+            if ([xMin, xMax, yMin, yMax].some(Number.isNaN)) throw new Error("Every domain field must be a number.");
+            return {
+              ok: true,
+              boxes: sampleImplicitCurveIntervalBoxes(expr, { min: xMin, max: xMax }, { min: yMin, max: yMax }, { maxDepth: INTERVAL_MAX_DEPTH }),
+            };
+          } catch (e) {
+            return { ok: false, message: e instanceof Error ? e.message : String(e) };
+          }
+        },
+        { auxiliary: true },
+      );
     }
     ref.current = graph;
   }
@@ -139,18 +177,23 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
   const contourResult = useCell<ContourResult>(graph, ids.contourResult);
   const showGradient = useCell<boolean>(graph, ids.showGradient);
   const gradientResult = useCell<GradientResult>(graph, ids.gradientResult);
+  const showIntervalBoxes = useCell<boolean>(graph, ids.showIntervalBoxes);
+  const intervalBoxesResult = useCell<IntervalBoxesResult>(graph, ids.intervalBoxesResult);
 
   const viewport: Viewport = {
-    xMin: Number(xMin) || -5,
-    xMax: Number(xMax) || 5,
-    yMin: Number(yMin) || -5,
-    yMax: Number(yMax) || 5,
+    xMin: boundOrDefault(xMin, -5),
+    xMax: boundOrDefault(xMax, 5),
+    yMin: boundOrDefault(yMin, -5),
+    yMax: boundOrDefault(yMax, 5),
   };
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    if (showIntervalBoxes && intervalBoxesResult.ok) {
+      drawImplicitBoxes(ctx, intervalBoxesResult.boxes, viewport, WIDTH, HEIGHT);
+    }
     if (segments.ok) drawImplicitCurve(ctx, segments.segments, viewport, WIDTH, HEIGHT);
     if (showContours && contourResult.ok) {
       contourResult.levels.forEach((level, i) => {
@@ -161,7 +204,7 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
       drawVectorField(ctx, gradientResult.points, viewport, WIDTH, HEIGHT);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments, xMin, xMax, yMin, yMax, showContours, contourResult, showGradient, gradientResult]);
+  }, [segments, xMin, xMax, yMin, yMax, showContours, contourResult, showGradient, gradientResult, showIntervalBoxes, intervalBoxesResult]);
 
   return (
     <div>
@@ -196,9 +239,18 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
           <input type="checkbox" checked={showGradient} onChange={(e) => graph.set(ids.showGradient, e.target.checked)} /> gradient
           field
         </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={showIntervalBoxes}
+            onChange={(e) => graph.set(ids.showIntervalBoxes, e.target.checked)}
+          />{" "}
+          robust mode (interval subdivision)
+        </label>
       </div>
       {showContours && !contourResult.ok && <p style={{ color: "var(--danger)" }}>{contourResult.message}</p>}
       {showGradient && !gradientResult.ok && <p style={{ color: "var(--danger)" }}>{gradientResult.message}</p>}
+      {showIntervalBoxes && !intervalBoxesResult.ok && <p style={{ color: "var(--danger)" }}>{intervalBoxesResult.message}</p>}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="implicit" />

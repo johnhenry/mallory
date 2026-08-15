@@ -1,4 +1,5 @@
 import type { Path2D as MalloryPath } from "mallory-math";
+import type { ImplicitBox } from "./interval-implicit.ts";
 import type { ImplicitSegment } from "./sample-implicit.ts";
 import { toScreenX, toScreenY, type Viewport } from "./viewport.ts";
 
@@ -27,6 +28,32 @@ export function drawImplicitCurve(
     ctx.lineTo(toScreenX(s.x2, viewport, width), toScreenY(s.y2, viewport, height));
   }
   ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Draw an interval-subdivision guaranteed-coverage enclosure (issue #21,
+ * item 1's `sampleImplicitCurveIntervalBoxes`): each leaf box as a filled
+ * translucent rectangle, so the overlay reads as a "thickened" curve
+ * hugging every branch the marching-squares trace found (or missed).
+ */
+export function drawImplicitBoxes(
+  ctx: CanvasRenderingContext2D,
+  boxes: ImplicitBox[],
+  viewport: Viewport,
+  width: number,
+  height: number,
+  color = "rgba(22, 163, 74, 0.5)",
+): void {
+  ctx.save();
+  ctx.fillStyle = color;
+  for (const b of boxes) {
+    const sx1 = toScreenX(b.xMin, viewport, width);
+    const sx2 = toScreenX(b.xMax, viewport, width);
+    const sy1 = toScreenY(b.yMax, viewport, height); // data-space y is flipped vs. screen-space y
+    const sy2 = toScreenY(b.yMin, viewport, height);
+    ctx.fillRect(sx1, sy1, sx2 - sx1, sy2 - sy1);
+  }
   ctx.restore();
 }
 
