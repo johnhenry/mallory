@@ -358,6 +358,23 @@ export function cellIdsImageFrequency(cellId: string) {
 
 export type CellIdsImageFrequency = ReturnType<typeof cellIdsImageFrequency>;
 
+export function cellIdsGradientDescent(cellId: string) {
+  return {
+    exprText: `gdExprText:${cellId}`,
+    startX: `gdStartX:${cellId}`,
+    startY: `gdStartY:${cellId}`,
+    lr: `gdLr:${cellId}`,
+    steps: `gdSteps:${cellId}`,
+    showSgd: `gdShowSgd:${cellId}`,
+    showAdam: `gdShowAdam:${cellId}`,
+    showRmsprop: `gdShowRmsprop:${cellId}`,
+    contoursResult: `gdContoursResult:${cellId}`,
+    descentResults: `gdDescentResults:${cellId}`,
+  };
+}
+
+export type CellIdsGradientDescent = ReturnType<typeof cellIdsGradientDescent>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way
