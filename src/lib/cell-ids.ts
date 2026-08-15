@@ -417,6 +417,7 @@ export function cellIdsImageFrequency(cellId: string) {
     wedgeAngle: `imageFreqWedgeAngle:${cellId}`,
     wedgeWidth: `imageFreqWedgeWidth:${cellId}`,
     result: `imageFreqResult:${cellId}`,
+    uploadedGrid: `imageFreqUploadedGrid:${cellId}`,
   };
 }
 

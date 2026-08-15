@@ -2,12 +2,14 @@ import { Tensor } from "mallory-tensor-core";
 import { normalize, resize } from "mallory-image";
 import { ComplexTensor, fft2, fftshift, ifft2, ifftshift } from "mallory-fft";
 
-export type PatternType = "checkerboard" | "stripes" | "circle" | "gradient" | "moire";
+export type PatternType = "checkerboard" | "stripes" | "circle" | "gradient" | "moire" | "upload";
 
 /**
  * Generates a `size x size` grayscale (0-255) test pattern -- the "or pick a
- * built-in pattern" alternative to file upload (issue #32's item 1; file
- * upload itself is deferred, see this module's own doc comment for why).
+ * built-in pattern" alternative to file upload. `"upload"` is a valid
+ * `PatternType` but not handled here -- the panel reads the uploaded grid
+ * (via `rgbaToGrayscaleGrid`) from its own cell instead when that pattern
+ * is selected, since this function has no file to read from.
  */
 export function generatePattern(type: PatternType, size: number): number[][] {
   if (size <= 0) throw new Error(`size must be positive -- got ${size}.`);
@@ -43,8 +45,33 @@ export function generatePattern(type: PatternType, size: number): number[][] {
           // issue #32 asked for specifically to exercise `notch`.
           value = 128 + 63.75 * Math.sin((2 * Math.PI * x) / 8) + 63.75 * Math.sin((2 * Math.PI * x) / 16);
           break;
+        case "upload":
+          throw new Error('generatePattern does not handle "upload" -- the caller must read the uploaded grid instead.');
       }
       row.push(value);
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+
+/**
+ * RGB-to-grayscale conversion for an uploaded image (issue #32's remaining
+ * scope item -- `generatePattern`'s built-in patterns never needed this
+ * since they're already single-channel). Standard ITU-R BT.601 luma
+ * weights (the same ones used by most image libraries' default grayscale
+ * conversion), applied to a canvas 2D context's `ImageData.data` (RGBA,
+ * `Uint8ClampedArray`). Alpha is ignored -- the frequency-domain pipeline
+ * has no notion of transparency, matching `generatePattern`'s own opaque
+ * 0-255 grid.
+ */
+export function rgbaToGrayscaleGrid(data: Uint8ClampedArray, width: number, height: number): number[][] {
+  const grid: number[][] = [];
+  for (let y = 0; y < height; y++) {
+    const row: number[] = [];
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      row.push(0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!);
     }
     grid.push(row);
   }
@@ -163,11 +190,11 @@ export interface FrequencyResult {
  * the centered magnitude spectrum, a parametric mask, then `ifftshift` +
  * `ifft2` back to the image domain.
  *
- * `pixels` is already single-channel grayscale (0-255) -- this module
- * doesn't do RGB-to-grayscale conversion itself since the only producers
- * wired up in this v1 (`generatePattern`'s built-in patterns) are already
- * grayscale; that conversion is real but small, deferred alongside file
- * upload (see the module doc comment).
+ * `pixels` must already be single-channel grayscale (0-255) -- this
+ * function itself does no RGB-to-grayscale conversion. `generatePattern`'s
+ * built-in patterns are already grayscale; an uploaded image's RGBA pixels
+ * go through `rgbaToGrayscaleGrid` first (issue #32's remaining scope
+ * item) before reaching here.
  */
 export function analyzeImageFrequency(
   pixels: readonly (readonly number[])[],

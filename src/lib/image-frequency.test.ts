@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzeImageFrequency, buildMask, drawGrayscaleGrid, generatePattern } from "./image-frequency.ts";
+import { analyzeImageFrequency, buildMask, drawGrayscaleGrid, generatePattern, rgbaToGrayscaleGrid } from "./image-frequency.ts";
 
 test("generatePattern: gradient spans exactly 0..255 left to right", () => {
   const grid = generatePattern("gradient", 5);
@@ -27,6 +27,32 @@ test("generatePattern: moire sums two vertical gratings (period 8 and 16), hand-
   for (const x of [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16]) {
     assert.ok(Math.abs((grid[0]?.[x] as number) - expected(x)) < 1e-9, `x=${x}`);
     assert.equal(grid[0]?.[x], grid[7]?.[x], `x=${x} should be constant down each column`);
+  }
+});
+
+test('generatePattern: "upload" is a valid PatternType but generatePattern itself refuses to handle it (the caller must read the uploaded grid instead)', () => {
+  assert.throws(() => generatePattern("upload", 32), /does not handle "upload"/);
+});
+
+test("rgbaToGrayscaleGrid: hand-computed against ITU-R BT.601 luma weights (0.299R + 0.587G + 0.114B) for pure red/green/blue/white pixels", () => {
+  // 2x2 RGBA: (255,0,0) (0,255,0) / (0,0,255) (255,255,255), all alpha 255 (ignored).
+  const data = new Uint8ClampedArray([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255]);
+  const grid = rgbaToGrayscaleGrid(data, 2, 2);
+  assert.equal(grid.length, 2);
+  assert.equal(grid[0]?.length, 2);
+  assert.ok(Math.abs(grid[0]![0]! - 0.299 * 255) < 1e-9, `red: ${grid[0]![0]}`);
+  assert.ok(Math.abs(grid[0]![1]! - 0.587 * 255) < 1e-9, `green: ${grid[0]![1]}`);
+  assert.ok(Math.abs(grid[1]![0]! - 0.114 * 255) < 1e-9, `blue: ${grid[1]![0]}`);
+  assert.ok(Math.abs(grid[1]![1]! - 255) < 1e-9, `white: ${grid[1]![1]}`);
+});
+
+test("rgbaToGrayscaleGrid: an all-zero (black, fully transparent) image gives an all-zero grid of the right shape", () => {
+  const data = new Uint8ClampedArray(3 * 2 * 4);
+  const grid = rgbaToGrayscaleGrid(data, 3, 2);
+  assert.equal(grid.length, 2);
+  for (const row of grid) {
+    assert.equal(row.length, 3);
+    for (const v of row) assert.equal(v, 0);
   }
 });
 

@@ -11,6 +11,7 @@ import {
   analyzeImageFrequency,
   drawGrayscaleGrid,
   generatePattern,
+  rgbaToGrayscaleGrid,
   type FrequencyResult,
   type MaskType,
   type PatternType,
@@ -29,6 +30,7 @@ const PATTERN_LABELS: Record<PatternType, string> = {
   circle: "Circle",
   gradient: "Gradient",
   moire: "Moire (two gratings)",
+  upload: "Upload an image",
 };
 
 const MASK_LABELS: Record<MaskType, string> = {
@@ -70,6 +72,13 @@ function useImageFrequencyGraph(cellId: string): CellGraph {
     const ids = cellIdsImageFrequency(cellId);
     const decoded = typeof window !== "undefined" ? decodeImageFrequencyState(window.location.hash.slice(1)) : null;
     seedState(graph, ids, decoded ?? DEFAULT_IMAGE_FREQUENCY_STATE);
+    // The uploaded grid can't live in the URL hash (arbitrary image size),
+    // so it's a plain auxiliary cell -- excluded from getCurrentState/
+    // seedState -- rather than part of the persisted schema, mirroring
+    // GradientDescentPanel's surfaceMesh / MlPlaygroundPanel's
+    // drawnPoints. Reselecting "Upload an image" after a reload shows the
+    // upload prompt again rather than restoring the old image.
+    if (!graph.has(ids.uploadedGrid)) graph.set(ids.uploadedGrid, null as number[][] | null, { auxiliary: true });
 
     graph.define(ids.result, (): Result<FrequencyResult> => {
       try {
@@ -83,7 +92,14 @@ function useImageFrequencyGraph(cellId: string): CellGraph {
         if ([size, radius, radius2, wedgeAngle, wedgeWidth].some(Number.isNaN)) {
           throw new Error("Size, radii, and wedge angle/width must all be numbers.");
         }
-        const source = generatePattern(pattern, size);
+        let source: number[][];
+        if (pattern === "upload") {
+          const uploaded = graph.get<number[][] | null>(ids.uploadedGrid);
+          if (!uploaded) throw new Error("Choose an image file to upload first.");
+          source = uploaded;
+        } else {
+          source = generatePattern(pattern, size);
+        }
         return { ok: true, value: analyzeImageFrequency(source, size, maskType, radius, radius2, wedgeAngle, wedgeWidth) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -123,6 +139,48 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
   const wedgeAngle = useCell<string>(graph, ids.wedgeAngle);
   const wedgeWidth = useCell<string>(graph, ids.wedgeWidth);
   const result = useCell<Result<FrequencyResult>>(graph, ids.result);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Decodes an uploaded image entirely client-side (drawImage + getImageData
+  // -- the first image-decode-into-canvas code in this codebase; no server
+  // round-trip, mirroring DataImportPanel's client-only CSV read) into a
+  // grayscale grid via rgbaToGrayscaleGrid, then feeds it into the same
+  // uploadedGrid cell the result pipeline reads when pattern === "upload".
+  function handleFile(file: File | undefined) {
+    if (!file) return;
+    setUploadError(null);
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        setUploadError("Couldn't get a 2D canvas context to decode the image.");
+        return;
+      }
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      graph.set(ids.uploadedGrid, rgbaToGrayscaleGrid(imageData.data, canvas.width, canvas.height));
+      graph.set(ids.pattern, "upload");
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      setUploadError("Couldn't load that file as an image.");
+    };
+    img.src = url;
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    handleFile(e.dataTransfer.files[0]);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+  }
 
   useEffect(() => {
     function writeUrl() {
@@ -169,6 +227,28 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
           </select>
         </label>
       </div>
+      {pattern === "upload" && (
+        <div
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          style={{
+            margin: "0.25rem 0",
+            padding: "0.75rem",
+            border: "2px dashed var(--border)",
+            borderRadius: "4px",
+            display: "flex",
+            gap: "0.75rem",
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag an image here, or</span>
+          <label style={{ fontSize: "0.9rem" }}>
+            choose a file: <input type="file" accept="image/*" onChange={(e) => handleFile(e.target.files?.[0])} />
+          </label>
+        </div>
+      )}
+      {uploadError && <p style={{ color: "var(--danger)" }}>{uploadError}</p>}
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <label>
           mask:{" "}
