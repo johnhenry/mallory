@@ -51,6 +51,11 @@ test("generateDataset: rejects a non-positive or over-cap points count", () => {
   assert.throws(() => generateDataset("xor", 501, 1), /positive integer/);
 });
 
+test('generateDataset: "drawn" always returns an empty array, regardless of pointsPerClass/seed -- its points come from user clicks (a separate cell), not procedural generation', () => {
+  assert.deepEqual(generateDataset("drawn", 30, 9), []);
+  assert.deepEqual(generateDataset("drawn", 1, 1, 0), []);
+});
+
 test("datasetToBatch: shapes are [N,2] and [N,1], values in point order", () => {
   const { x, y } = datasetToBatch([
     { x: 1, y: 2, label: 0 },
