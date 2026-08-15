@@ -10,6 +10,7 @@ import { attemptOdeClosedForm, type OdeClosedFormAttempt, sampleOdeSolution, sam
 import { DEFAULT_ODE_STATE, decodeOdeState, encodeOdeState, type OdeState } from "../lib/ode-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -141,6 +142,19 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
   const slopeField = useCell<SlopeFieldResult>(graph, ids.slopeField);
   const closedForm = useCell<OdeClosedFormAttempt>(graph, ids.closedForm);
 
+  // Standalone only (issue #43, same enabled:syncUrl pattern as #121/#122):
+  // a notebook-embedded instance shares its graph with NotebookPanel's own
+  // useUndoHistory, so a second independent history here would double-fire
+  // on Ctrl+Z.
+  const history = useUndoHistory(
+    graph,
+    () => getCurrentOdeState(graph, ids),
+    (state) => seedOdeState(graph, ids, state),
+    250,
+    undefined,
+    syncUrl,
+  );
+
   const [exprInput, setExprInput] = useState(expr);
   // Keeps the input box in sync when `ids.expr` changes for a reason other
   // than typing in this same box -- e.g. URL-hash hydration seeding it
@@ -260,6 +274,12 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
             Save to gallery
+          </button>{" "}
+          <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
+            ↩ Undo
+          </button>{" "}
+          <button type="button" onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z / Cmd+Y)">
+            ↪ Redo
           </button>
           {saveStatus && (
             <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>
