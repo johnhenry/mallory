@@ -131,6 +131,21 @@ export function drawRegionMask(
 }
 
 /**
+ * Converts a `0xRRGGBB` numeric color (this app's convention for a curve's
+ * own color, e.g. `ExpressionRow`'s `ids.color`) to a translucent CSS
+ * `rgba(...)` string -- issue #51's per-row area-under-curve shading:
+ * `drawFilledArea` fills in each row's OWN color rather than one fixed
+ * blue, so two overlapping shaded regions stay visually distinguishable
+ * instead of blending into an indistinguishable double-blue wash.
+ */
+export function hexToRgba(hex: number, alpha: number): string {
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/**
  * Draw the area between a (possibly gap-broken) curve and y=0, one closed
  * fill polygon per contiguous run -- each `moveTo`-delimited segment from
  * `sampleExpr`'s gap-tolerant sampling gets its own polygon, so a

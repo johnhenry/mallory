@@ -401,12 +401,14 @@ export const EXPRESSION_LIST_CELL = "expressionList";
  * Cell-id namespacing for one row on a shared multi-expression canvas
  * (GraphCanvasMulti.tsx/ExpressionRow.tsx) -- deliberately a smaller set
  * than `cellIds`: v1 covers the curve itself, its color/visibility,
- * free-variable sliders, and now an optional f' overlay curve (sharing the
- * row's own color, dashed), but not yet the single-pane `GraphCanvas`'s
- * point-drag/exact-mode/step-by-step-differentiation-trace/area/region-
- * shading/finite-structure features, which stay single-expression-only for
- * now (porting each to a multi-curve-aware form is follow-on work, not this
- * pass).
+ * free-variable sliders, an optional f' overlay curve (sharing the row's
+ * own color, dashed), and now (issue #51) per-row area-under-curve
+ * shading, but not yet the single-pane `GraphCanvas`'s point-drag/step-by-
+ * step-differentiation-trace/region-shading/finite-structure features,
+ * which stay single-expression-only for now (porting each to a multi-
+ * curve-aware form is follow-on work, not this pass). Exact-mode evaluation
+ * (#107) is shared across the whole panel instead of per-row, so it lives
+ * on GraphCanvasMulti's own MODE_CELL, not here.
  */
 export function cellIdsMultiRow(cellId: string) {
   return {
@@ -428,6 +430,12 @@ export function cellIdsMultiRow(cellId: string) {
     showDerivative: `multiShowDerivative:${cellId}`,
     /** The sampled f' curve (same color as `path`, drawn dashed), or null while `showDerivative` is off. Falls back to the last good sample on a mid-typing parse error, like `path` does. */
     derivativePath: `multiDerivativePath:${cellId}`,
+    /** Whether this row's area-under-curve shading (issue #51) is toggled on. Per-row, unlike GraphCanvas's single shared area -- each curve gets its own bounds/fill. */
+    showArea: `multiShowArea:${cellId}`,
+    areaLower: `multiAreaLower:${cellId}`,
+    areaUpper: `multiAreaUpper:${cellId}`,
+    /** `{value, path} | null` -- null while `showArea` is off, matching `derivativePath`'s "off costs nothing" convention. */
+    area: `multiArea:${cellId}`,
     param: (name: string) => `multiParam:${cellId}:${name}`,
   };
 }
