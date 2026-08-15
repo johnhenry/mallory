@@ -27,6 +27,12 @@ npm install
 npm run dev
 ```
 
+See **[docs/COOKBOOK.md](docs/COOKBOOK.md)** for runnable examples of the
+reusable pieces in `src/lib/` (`CellGraph`, the sampler layer, the graph-
+theory/matrix/NL-query/interval-arithmetic bridges) -- every example there
+is executed in CI (`src/lib/cookbook.test.ts`), so it can't silently drift
+out of date with the code.
+
 ## Deployment
 
 Deployed to Dokku at `mallory-graph.johnhenry.me` via Nixpacks. Push to `main`
