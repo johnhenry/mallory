@@ -136,6 +136,56 @@ test("TinyMlp: rejects a non-positive or over-cap hidden size", () => {
   assert.throws(() => new TinyMlp(100, 1), /Hidden units/);
 });
 
+test("TinyMlp: rejects an out-of-[0,1) dropout rate", () => {
+  assert.throws(() => new TinyMlp(4, 1, -0.1), /Dropout rate/);
+  assert.throws(() => new TinyMlp(4, 1, 1), /Dropout rate/);
+});
+
+test("TinyMlp: defaults to training mode; dropout rate 0 (the default) never touches the forward pass regardless of mode", async () => {
+  const { Tensor } = await import("mallory-tensor-core");
+  const model = new TinyMlp(4, 1);
+  assert.equal(model.training, true);
+  const input = variable(Tensor.from([1, -1], { dtype: "f64" }).reshape([1, 2]));
+  const trainingOutput = model.forward(input).value.at(0, 0);
+  model.eval();
+  assert.equal(model.training, false);
+  const evalOutput = model.forward(input).value.at(0, 0);
+  assert.equal(trainingOutput, evalOutput);
+});
+
+test("TinyMlp.forward: eval mode always matches the plain (dropout-free) computation; training mode with a large dropout rate almost never does", async () => {
+  const { Tensor } = await import("mallory-tensor-core");
+  // hidden=20 so a stochastic dropout mask coincidentally reproducing the
+  // all-kept mask (the only way training-mode output could equal eval-mode
+  // output) has probability 0.5^20 ~= 1e-6 -- negligible flake risk.
+  const model = new TinyMlp(20, 3, 0.5);
+  const l1Weight = model.l1.weight.value;
+  const l1Bias = model.l1.bias!.value;
+  const l2Weight = model.l2.weight.value;
+  const l2Bias = model.l2.bias!.value;
+  const input = variable(Tensor.from([0.7, -0.3], { dtype: "f64" }).reshape([1, 2]));
+
+  // Plain computation with no dropout layer at all -- the ground truth eval-mode should match exactly.
+  // nn.Linear.forward is x.matmul(weight).add(bias) with weight shape [inFeatures, outFeatures].
+  const plainHidden = input.matmul(variable(l1Weight)).add(variable(l1Bias)).relu();
+  const plainOutput = plainHidden.matmul(variable(l2Weight)).add(variable(l2Bias)).value.at(0, 0);
+
+  model.eval();
+  const evalOutput = model.forward(input).value.at(0, 0);
+  assert.ok(Math.abs((evalOutput as number) - (plainOutput as number)) < 1e-9, "eval mode must exactly match the dropout-free computation");
+
+  model.train();
+  const trainingOutput = model.forward(input).value.at(0, 0);
+  assert.notEqual(trainingOutput, plainOutput, "training mode with p=0.5 across 20 units should not coincidentally match the all-kept case");
+});
+
+test("predictProbabilityGrid: switches the model to eval mode for inference and restores the prior training flag afterward", () => {
+  const model = new TinyMlp(4, 1, 0.5);
+  model.training = true;
+  predictProbabilityGrid(model, { min: -2, max: 2 }, 3);
+  assert.equal(model.training, true, "predictProbabilityGrid must restore the model's training flag, not leave it in eval mode");
+});
+
 test("stableBinaryCrossEntropy: matches nn.binaryCrossEntropy to 1e-12 in the non-saturated regime", () => {
   const z = variable(Tensor.from([0.5, -1.2, 2.0, -0.3], { dtype: "f64" }).reshape([4, 1]));
   const y = variable(Tensor.from([1, 0, 1, 0], { dtype: "f64" }).reshape([4, 1]));

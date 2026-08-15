@@ -44,11 +44,12 @@ function seedState(graph: CellGraph, ids: CellIdsMlPlayground, state: MlPlaygrou
   graph.set(ids.hidden, state.hidden);
   graph.set(ids.lr, state.lr);
   graph.set(ids.epochs, state.epochs);
+  graph.set(ids.dropout, state.dropout);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsMlPlayground): MlPlaygroundState {
   return {
-    v: 1,
+    v: 2,
     dataset: graph.get<DatasetType>(ids.dataset),
     pointsPerClass: graph.get<string>(ids.pointsPerClass),
     dataSeed: graph.get<string>(ids.dataSeed),
@@ -56,6 +57,7 @@ function getCurrentState(graph: CellGraph, ids: CellIdsMlPlayground): MlPlaygrou
     hidden: graph.get<string>(ids.hidden),
     lr: graph.get<string>(ids.lr),
     epochs: graph.get<string>(ids.epochs),
+    dropout: graph.get<string>(ids.dropout),
   };
 }
 
@@ -125,6 +127,7 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
   const hidden = useCell<string>(graph, ids.hidden);
   const lr = useCell<string>(graph, ids.lr);
   const epochs = useCell<string>(graph, ids.epochs);
+  const dropout = useCell<string>(graph, ids.dropout);
   const pointsResult = useCell<Result<LabeledPoint[]>>(graph, ids.points);
 
   const [lossHistory, setLossHistory] = useState<number[]>([]);
@@ -133,10 +136,12 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
   const [training, setTraining] = useState(false);
   const [totalEpochs, setTotalEpochs] = useState(0);
 
-  // Changing the architecture or its seed invalidates the current weights --
-  // the next Train starts from a fresh seeded init rather than silently
-  // continuing a model whose config no longer matches the inputs.
-  const modelKey = useMemo(() => `${hidden}:${modelSeed}`, [hidden, modelSeed]);
+  // Changing the architecture, its seed, or the dropout rate invalidates the
+  // current weights -- the next Train starts from a fresh seeded init rather
+  // than silently continuing a model whose config no longer matches the
+  // inputs (a dropout-rate change in particular would otherwise leave the
+  // old model's `nn.Dropout` layer stale, still using the previous rate).
+  const modelKey = useMemo(() => `${hidden}:${modelSeed}:${dropout}`, [hidden, modelSeed, dropout]);
   useEffect(() => {
     modelRef.current = null;
     setLossHistory([]);
@@ -159,7 +164,7 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
     setTrainError(null);
     try {
       if (!modelRef.current) {
-        modelRef.current = new TinyMlp(Number(hidden), Number(modelSeed));
+        modelRef.current = new TinyMlp(Number(hidden), Number(modelSeed), Number(dropout));
       }
       const result = await trainModel(modelRef.current, pointsResult.value, Number(lr), Number(epochs));
       setLossHistory((prev) => [...prev, ...result.lossHistory]);
@@ -279,6 +284,18 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
             value={epochs}
             onChange={(e) => graph.set(ids.epochs, e.target.value)}
             style={{ font: "inherit", width: "7ch" }}
+          />
+        </label>
+        <label>
+          dropout:{" "}
+          <input
+            type="number"
+            min={0}
+            max={0.9}
+            step={0.05}
+            value={dropout}
+            onChange={(e) => graph.set(ids.dropout, e.target.value)}
+            style={{ font: "inherit", width: "6ch" }}
           />
         </label>
         <button type="button" onClick={handleTrain} disabled={training || !pointsResult.ok}>
