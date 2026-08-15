@@ -6,7 +6,14 @@ import { ImplicitPanel } from "~/components/ImplicitPanel.tsx";
 import { LinkedGraphPanes } from "~/components/LinkedGraphPanes.tsx";
 import { ParametricPanel } from "~/components/ParametricPanel.tsx";
 
+interface GraphingSearch {
+  tab?: string;
+}
+
 export const Route = createFileRoute("/_app/graphing")({
+  validateSearch: (search: Record<string, unknown>): GraphingSearch => ({
+    tab: typeof search.tab === "string" ? search.tab : undefined,
+  }),
   component: GraphingPage,
 });
 
@@ -20,12 +27,13 @@ function GraphingPage() {
       </div>
       <CategoryTabs
         prefix="graphing"
+        syncSearchParam="tab"
         tabs={[
-          { label: "Multi-expression", render: () => <GraphCanvasMulti /> },
-          { label: "Implicit", render: () => <ImplicitPanel /> },
-          { label: "Parametric & Polar", render: () => <ParametricPanel /> },
-          { label: "Complex plane", render: () => <ComplexPanel /> },
-          { label: "Compare", render: () => <LinkedGraphPanes /> },
+          { label: "Multi-expression", key: "multi", render: () => <GraphCanvasMulti /> },
+          { label: "Implicit", key: "implicit", render: () => <ImplicitPanel /> },
+          { label: "Parametric & Polar", key: "parametric", render: () => <ParametricPanel /> },
+          { label: "Complex plane", key: "complex", render: () => <ComplexPanel /> },
+          { label: "Compare", key: "compare", render: () => <LinkedGraphPanes /> },
         ]}
       />
     </div>

@@ -1,4 +1,5 @@
 import { ComplexNumber, Symbolic, type Expr } from "mallory-math";
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsComplex, type CellIdsComplex } from "../lib/cell-ids.ts";
@@ -16,6 +17,7 @@ import { nthRootsOfUnity } from "../lib/roots-of-unity.ts";
 import { autoFitViewport, mapGridLines, polarGridLines, rectangularGridLines, type MappedLine } from "../lib/conformal-grid.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { drawPolyline, drawScatter } from "../lib/render-path.ts";
+import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import type { Viewport } from "../lib/viewport.ts";
@@ -37,7 +39,7 @@ function seedComplexState(graph: CellGraph, ids: CellIdsComplex, state: ComplexS
   graph.set(ids.conformalGridSpacing, state.conformalGridSpacing);
 }
 
-function getCurrentComplexState(graph: CellGraph, ids: CellIdsComplex): ComplexState {
+export function getCurrentComplexState(graph: CellGraph, ids: CellIdsComplex): ComplexState {
   return {
     v: 2,
     exprText: graph.get<string>(ids.exprText),
@@ -161,6 +163,21 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
   const conformalGridType = useCell<ConformalGridType>(graph, ids.conformalGridType);
   const conformalGridSpacing = useCell<string>(graph, ids.conformalGridSpacing);
   const conformalGridResult = useCell<Result<ConformalGridReading>>(graph, ids.conformalGridResult);
+
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const saveGraphFn = useServerFn(saveGraph);
+
+  async function handleSave() {
+    const title = window.prompt("Title for this saved complex-plane setup:", "Untitled");
+    if (title === null) return;
+    setSaveStatus("Saving…");
+    try {
+      await saveGraphFn({ data: { title, kind: "complex", state: getCurrentComplexState(graph, ids) } });
+      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+    } catch (e) {
+      setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   const [exprInput, setExprInput] = useState(exprText);
   // Keeps the input box in sync when exprText changes for a reason other
@@ -318,6 +335,13 @@ export function ComplexPanel({ cellId = "complex-1" }: { cellId?: string } = {})
       ) : (
         <p style={{ color: "var(--danger)" }}>{probeResult.message}</p>
       )}
+
+      <div style={{ margin: "0.5rem 0" }}>
+        <button type="button" onClick={handleSave}>
+          Save to gallery
+        </button>
+      </div>
+      {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{saveStatus}</p>}
     </div>
   );
 }

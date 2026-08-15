@@ -14,6 +14,7 @@
  * graphs keep working unchanged.
  */
 import { createServerFn } from "@tanstack/react-start";
+import type { ComplexState } from "./complex-state.ts";
 import type { GeometryState } from "./geometry-state.ts";
 import type { Linked3DState } from "./linked3d-state.ts";
 import type { MultiGraphState } from "./multi-graph-state.ts";
@@ -33,7 +34,8 @@ export type SavedGraphKind =
   | "ode-system"
   | "regression"
   | "statistics"
-  | "systems";
+  | "systems"
+  | "complex";
 
 export type SavedGraphState =
   | MultiGraphState
@@ -44,7 +46,8 @@ export type SavedGraphState =
   | OdeSystemState
   | RegressionState
   | StatisticsState
-  | SystemState;
+  | SystemState
+  | ComplexState;
 
 export interface SavedGraphSummary {
   id: string;
