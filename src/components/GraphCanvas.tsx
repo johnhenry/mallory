@@ -1,4 +1,4 @@
-import { Rational, Symbolic, type DifferentiationStep, type Expr, type Path2D } from "mallory-math";
+import { Symbolic, type DifferentiationStep, type Expr, type Path2D } from "mallory-math";
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
@@ -9,6 +9,7 @@ import { exprToLatex } from "../lib/expr-to-latex.ts";
 import { integersModuloStructure } from "../lib/finite-structure.ts";
 import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
 import { DEFAULT_GRAPH_STATE, decodeGraphState, encodeGraphState, type GraphState } from "../lib/graph-state.ts";
+import { evaluateExactAt } from "../lib/exact-eval.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { drawFilledArea, drawPath, drawPoint, drawRegionMask, drawScatter, type Viewport } from "../lib/render-path.ts";
@@ -221,22 +222,14 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
       );
 
       // Exact-mode readout: re-evaluates the current handle position over
-      // Rational arithmetic instead of floats. Returns null (not "0.333...")
-      // whenever the expression isn't exactly representable — a `func` node or
-      // a non-integer `pow` exponent — so callers fall back to the float value.
+      // Rational arithmetic instead of floats -- see evaluateExactAt's own
+      // doc comment (shared with GraphCanvasMulti's per-row readout, #51).
       graph.define(
         ids.exact,
         () => {
-          try {
-            const x = graph.get<number>(ids.pointX);
-            const params = graph.get<Record<string, number>>(ids.params);
-            const expr = Symbolic.parse(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
-            const env: Record<string, Rational> = { [AXIS_VARIABLE]: Rational.fromNumber(x) };
-            for (const [name, value] of Object.entries(params)) env[name] = Rational.fromNumber(value);
-            return Symbolic.evaluateExact(expr, env).toString();
-          } catch {
-            return null;
-          }
+          const x = graph.get<number>(ids.pointX);
+          const params = graph.get<Record<string, number>>(ids.params);
+          return evaluateExactAt(graph.get<string>(ids.expr), x, params, AXIS_VARIABLE);
         },
         { auxiliary: true },
       );

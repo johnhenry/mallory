@@ -18,6 +18,8 @@ export interface MultiGraphStateV1 {
   viewport: { xMin: number; xMax: number; yMin: number; yMax: number };
   /** Optional so a fragment encoded before annotations existed still decodes -- treated as []. */
   annotations?: MultiGraphAnnotation[];
+  /** Optional so a fragment encoded before exact-mode existed still decodes -- treated as "float" (issue #51). */
+  mode?: "float" | "exact";
 }
 
 export type MultiGraphState = MultiGraphStateV1;
@@ -30,6 +32,7 @@ export const DEFAULT_MULTI_GRAPH_STATE: MultiGraphState = {
   ],
   viewport: { xMin: -10, xMax: 10, yMin: -10, yMax: 10 },
   annotations: [],
+  mode: "float",
 };
 
 export function encodeMultiGraphState(state: MultiGraphState): string {
@@ -51,6 +54,7 @@ function isMultiGraphStateV1(value: unknown): value is MultiGraphStateV1 {
   const v = value as Record<string, unknown>;
   if (v.v !== 1 || typeof v.viewport !== "object" || v.viewport === null || !Array.isArray(v.rows)) return false;
   if (v.annotations !== undefined && !Array.isArray(v.annotations)) return false;
+  if (v.mode !== undefined && v.mode !== "float" && v.mode !== "exact") return false;
   const annotationsValid = (v.annotations as unknown[] | undefined ?? []).every((a) => {
     if (typeof a !== "object" || a === null) return false;
     const note = a as Record<string, unknown>;

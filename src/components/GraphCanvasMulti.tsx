@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { type PointerEvent, useEffect, useRef, useState, type WheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, EXPRESSION_LIST_CELL, VIEWPORT_CELL } from "../lib/cell-ids.ts";
+import { evaluateExactAt } from "../lib/exact-eval.ts";
 import {
   DEFAULT_MULTI_GRAPH_STATE,
   decodeMultiGraphState,
@@ -48,6 +49,15 @@ const INTERSECTIONS_CELL = "intersections";
 // screen-space-nearest-match reasoning.
 const POINT_READOUT_CELL = "pointReadout";
 
+// Float/exact evaluation mode (issue #51's first parity item, porting
+// GraphCanvas's own mode toggle): shared across every row, unlike a
+// per-row setting, matching the ticket's own framing. A CellGraph cell
+// (not plain React state, unlike annotating/readingPoint's ephemeral UI
+// toggles) specifically so it rides the existing subscribeAll-driven
+// writeUrl effect for free and round-trips through multi-graph-state.ts,
+// the same way GraphCanvas's own mode persists to ITS URL state.
+const MODE_CELL = "mode";
+
 // The in-progress viewport during an active pan/zoom gesture, or null when
 // idle -- issue #52's debounced-refinement fix. `VIEWPORT_CELL` is the
 // "committed, sampled" viewport every row's ids.path depends on (still only
@@ -89,6 +99,7 @@ function getCurrentMultiGraphState(graph: CellGraph): MultiGraphState {
     rows,
     viewport: graph.get<Viewport>(VIEWPORT_CELL),
     annotations: graph.get<MultiGraphAnnotation[]>(ANNOTATIONS_CELL),
+    mode: graph.get<"float" | "exact">(MODE_CELL),
   };
 }
 
@@ -125,6 +136,7 @@ function restoreMultiGraphState(graph: CellGraph, state: MultiGraphState): void 
   graph.set(VIEWPORT_CELL, state.viewport);
   graph.set<Viewport | null>(LIVE_VIEWPORT_CELL, null);
   graph.set(ANNOTATIONS_CELL, state.annotations ?? []);
+  graph.set(MODE_CELL, state.mode ?? "float");
   graph.set(EXPRESSION_LIST_CELL, newIds);
   for (const id of oldIds) {
     const ids = cellIdsMultiRow(id);
@@ -170,6 +182,7 @@ function useMultiGraph(): CellGraph {
     graph.set(EXPRESSION_LIST_CELL, initialIds, { auxiliary: true });
     graph.set(ANNOTATIONS_CELL, state.annotations ?? [], { auxiliary: true });
     graph.set(POINT_READOUT_CELL, null, { auxiliary: true });
+    graph.set<"float" | "exact">(MODE_CELL, state.mode ?? "float", { auxiliary: true });
 
     graph.define(
       INTERSECTIONS_CELL,
@@ -212,6 +225,7 @@ export function GraphCanvasMulti() {
   const rowIds = useCell<string[]>(graph, EXPRESSION_LIST_CELL);
   const annotations = useCell<MultiGraphAnnotation[]>(graph, ANNOTATIONS_CELL);
   const pointReadout = useCell<PointReadout | null>(graph, POINT_READOUT_CELL);
+  const mode = useCell<"float" | "exact">(graph, MODE_CELL);
   const history = useUndoHistory(
     graph,
     () => getCurrentMultiGraphState(graph),
@@ -673,6 +687,14 @@ export function GraphCanvasMulti() {
         Drag the canvas to pan, scroll to zoom.
       </p>
       {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{saveStatus}</p>}
+      <div role="radiogroup" aria-label="Arithmetic mode" style={{ margin: "0.25rem 0" }}>
+        <label>
+          <input type="radio" name="multi-mode" checked={mode === "float"} onChange={() => graph.set(MODE_CELL, "float")} /> Float
+        </label>{" "}
+        <label>
+          <input type="radio" name="multi-mode" checked={mode === "exact"} onChange={() => graph.set(MODE_CELL, "exact")} /> Exact
+        </label>
+      </div>
       <div>
         <canvas
           ref={canvasRef}
@@ -690,12 +712,24 @@ export function GraphCanvasMulti() {
           onWheel={handleCanvasWheel}
         />
       </div>
-      {pointReadout && (
-        <p style={{ margin: "0.25rem 0" }}>
-          <span style={{ color: `#${pointReadout.color.toString(16).padStart(6, "0")}` }}>●</span>{" "}
-          {graph.get<string>(cellIdsMultiRow(pointReadout.rowId).expr)}: f({pointReadout.x.toFixed(4)}) = {pointReadout.y.toFixed(4)}
-        </p>
-      )}
+      {pointReadout &&
+        (() => {
+          const rowIds = cellIdsMultiRow(pointReadout.rowId);
+          const source = graph.get<string>(rowIds.expr);
+          // Exact-mode readout (issue #51, porting GraphCanvas's own mode):
+          // re-evaluates the SELECTED row's own expression/params over
+          // Rational arithmetic -- computed here on demand (only the one
+          // row a click actually landed on needs it), not as a per-row
+          // reactive cell every row would otherwise carry uselessly.
+          const params = graph.hasValue(rowIds.params) ? graph.get<Record<string, number>>(rowIds.params) : {};
+          const exact = mode === "exact" ? evaluateExactAt(source, pointReadout.x, params) : null;
+          return (
+            <p style={{ margin: "0.25rem 0" }}>
+              <span style={{ color: `#${pointReadout.color.toString(16).padStart(6, "0")}` }}>●</span> {source}: f(
+              {pointReadout.x.toFixed(4)}) = {mode === "exact" ? (exact ?? `${pointReadout.y.toFixed(4)} (not exact)`) : pointReadout.y.toFixed(4)}
+            </p>
+          );
+        })()}
       {readoutMissed && !pointReadout && (
         <p style={{ margin: "0.25rem 0", color: "var(--muted)", fontSize: "0.85rem" }}>No curve close enough to that point.</p>
       )}
