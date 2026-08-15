@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
+import { cayleyTableCanvasSize, drawCayleyTable } from "../lib/cayley-table-render.ts";
 import { cellIdsDiscrete, type CellIdsDiscrete } from "../lib/cell-ids.ts";
 import {
   buildGroupInfo,
@@ -15,6 +16,7 @@ import {
 import { DEFAULT_DISCRETE_STATE, decodeDiscreteState, encodeDiscreteState, type DiscreteState } from "../lib/discrete-state.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -147,6 +149,7 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
   const graph = useDiscreteGraph(cellId);
   useCellGraphTools(`data_discrete_${cellId}`, graph);
   const ids = cellIdsDiscrete(cellId);
+  const cayleyCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const groupKind = useCell<GroupKind>(graph, ids.groupKind);
   const groupN = useCell<string>(graph, ids.groupN);
@@ -167,6 +170,21 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
     return graph.subscribeAll(writeUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
+
+  // Keeps a hidden canvas mirror of the visible HTML <CayleyTable> in sync,
+  // purely so PngExportButton has a <canvas> to hand to canvas.toBlob() --
+  // an HTML <table> has no such thing (issue #45 item 3). Sized fresh each
+  // draw since the table's dimensions change with the group's order (n).
+  useEffect(() => {
+    const canvas = cayleyCanvasRef.current;
+    if (!canvas || !groupInfo.ok) return;
+    const { width, height } = cayleyTableCanvasSize(groupInfo.value);
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    drawCayleyTable(ctx, groupInfo.value);
+  }, [groupInfo]);
 
   return (
     <div>
@@ -198,6 +216,10 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
           </p>
           <div style={{ overflowX: "auto" }}>
             <CayleyTable info={groupInfo.value} />
+          </div>
+          <canvas ref={cayleyCanvasRef} style={{ display: "none" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => cayleyCanvasRef.current} label="cayley-table" />
           </div>
         </div>
       ) : (
