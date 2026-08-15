@@ -1,18 +1,37 @@
 /**
  * Server-only save/gallery store for GraphCanvasMulti AND NotebookPanel
- * sessions -- a minimal "publish" primitive from the research roadmap (not
- * real-time collaboration or a full community platform, just
- * save-and-list-and-reopen). A plain JSON file under `data/`, mirroring
- * export-video.ts's "single Dokku process, no real queue/DB infra needed
- * yet" reasoning -- good enough for one app instance, not a
- * multi-instance-safe store.
+ * sessions (and every other panel that's wired up a "Save to gallery"
+ * button since) -- a minimal "publish" primitive from the research
+ * roadmap (not real-time collaboration or a full community platform, just
+ * save-and-list-and-reopen).
  *
- * One shared store for both kinds (rather than a second parallel gallery):
- * a `kind` discriminant on each record says which state shape/encoder it
- * needs. Records saved before `kind` existed have no such field -- treated
- * as `"multi"` (the only kind that existed then) throughout, so old saved
- * graphs keep working unchanged.
+ * Backed by `node:sqlite` (issue #44 item 1) -- a single `saved_graphs`
+ * table under `data/saved-graphs.sqlite`, replacing the previous plain
+ * `data/saved-graphs.json` read-modify-write file (which raced under
+ * concurrent writes and required parsing the entire store just to list
+ * summaries). `node:sqlite` needs no native dependency to fight Nixpacks
+ * over -- it's been unflagged since Node 22.13.0/23.4.0 (this app's CI
+ * matrix runs 22.x/24.x, both well past that). Still single-Dokku-
+ * process, not a multi-instance-safe store -- same scope as before, just
+ * a better-behaved single-process store.
+ *
+ * On first boot, if the legacy `data/saved-graphs.json` file is present,
+ * every record in it is migrated into the new table (via
+ * `migrateJsonRecordsIntoDb`, `INSERT OR IGNORE` so a migration that's
+ * interrupted mid-way and retried on the next boot can't crash on a
+ * duplicate id), then the JSON file is renamed to `.migrated` -- both so
+ * it stops being picked up as "still needs migrating" on the next boot,
+ * and so it's kept around as a plain-text backup rather than deleted
+ * outright.
+ *
+ * One shared table for every kind (rather than a table per kind): a
+ * `kind` discriminant on each record says which state shape/encoder it
+ * needs. Records saved before `kind` existed (pre-dating even the JSON
+ * store's own kind field) have no such value -- treated as `"multi"` (the
+ * only kind that existed then) throughout, so old saved graphs keep
+ * working unchanged.
  */
+import type { DatabaseSync } from "node:sqlite";
 import { createServerFn } from "@tanstack/react-start";
 import type { ComplexState } from "./complex-state.ts";
 import type { GeometryState } from "./geometry-state.ts";
@@ -60,17 +79,13 @@ interface SavedGraphRecord extends SavedGraphSummary {
   state: SavedGraphState;
 }
 
-async function dataFilePath(): Promise<string> {
-  const path = await import("node:path");
-  return path.join(process.cwd(), "data", "saved-graphs.json");
-}
-
 /**
  * Backward compatibility: a record saved before `kind` existed is implicitly
- * "multi", the only kind that existed then -- the on-disk shape may
- * genuinely lack `kind`, unlike `SavedGraphRecord`'s static type. Extracted
- * as a pure function so this migration logic is unit-testable without
- * touching the filesystem or `createServerFn`'s server-only wrapper.
+ * "multi", the only kind that existed then -- the on-disk/legacy-JSON shape
+ * may genuinely lack `kind`, unlike `SavedGraphRecord`'s static type.
+ * Extracted as a pure function so this migration logic is unit-testable
+ * without touching the filesystem or `createServerFn`'s server-only
+ * wrapper.
  */
 export function migrateSavedGraphRecord(
   r: Omit<SavedGraphRecord, "kind"> & { kind?: SavedGraphKind },
@@ -78,55 +93,118 @@ export function migrateSavedGraphRecord(
   return { ...r, kind: r.kind ?? "multi" };
 }
 
-async function readStore(): Promise<SavedGraphRecord[]> {
-  const { promises: fs } = await import("node:fs");
-  try {
-    const raw = await fs.readFile(await dataFilePath(), "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return (parsed as Array<Omit<SavedGraphRecord, "kind"> & { kind?: SavedGraphKind }>).map(migrateSavedGraphRecord);
-  } catch {
-    return [];
+/** Idempotent -- safe to call on every boot, and safe to call more than once against the same `db`. */
+export function ensureSavedGraphsSchema(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS saved_graphs (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      state TEXT NOT NULL
+    )
+  `);
+}
+
+export function insertSavedGraphRecord(db: DatabaseSync, record: SavedGraphRecord): void {
+  db.prepare("INSERT INTO saved_graphs (id, title, kind, created_at, state) VALUES (?, ?, ?, ?, ?)").run(
+    record.id,
+    record.title,
+    record.kind,
+    record.createdAt,
+    JSON.stringify(record.state),
+  );
+}
+
+export function listSavedGraphRecords(db: DatabaseSync): SavedGraphSummary[] {
+  const rows = db.prepare("SELECT id, title, kind, created_at FROM saved_graphs ORDER BY created_at DESC").all() as Array<{
+    id: string;
+    title: string;
+    kind: SavedGraphKind;
+    created_at: number;
+  }>;
+  return rows.map((r) => ({ id: r.id, title: r.title, kind: r.kind, createdAt: r.created_at }));
+}
+
+export function getSavedGraphRecordState(db: DatabaseSync, id: string): SavedGraphState | undefined {
+  const row = db.prepare("SELECT state FROM saved_graphs WHERE id = ?").get(id) as { state: string } | undefined;
+  return row === undefined ? undefined : (JSON.parse(row.state) as SavedGraphState);
+}
+
+export function deleteSavedGraphRecord(db: DatabaseSync, id: string): void {
+  db.prepare("DELETE FROM saved_graphs WHERE id = ?").run(id);
+}
+
+/**
+ * Migrates every record from a parsed legacy JSON array into `db`, via
+ * `migrateSavedGraphRecord` for the same kind-defaulting the old JSON
+ * store itself relied on. `INSERT OR IGNORE` (not a plain `INSERT`) so
+ * re-running this against a JSON file that's already been partially
+ * migrated (e.g. the process crashed between inserting rows and renaming
+ * the JSON file away) can't fail on a duplicate id -- ids are
+ * `crypto.randomUUID()`, so a genuine id collision from two DIFFERENT
+ * records is not a realistic case this needs to guard against.
+ */
+export function migrateJsonRecordsIntoDb(db: DatabaseSync, jsonRecords: unknown[]): void {
+  const insert = db.prepare("INSERT OR IGNORE INTO saved_graphs (id, title, kind, created_at, state) VALUES (?, ?, ?, ?, ?)");
+  for (const raw of jsonRecords) {
+    const record = migrateSavedGraphRecord(raw as Omit<SavedGraphRecord, "kind"> & { kind?: SavedGraphKind });
+    insert.run(record.id, record.title, record.kind, record.createdAt, JSON.stringify(record.state));
   }
 }
 
-async function writeStore(records: SavedGraphRecord[]): Promise<void> {
-  const { promises: fs } = await import("node:fs");
+let dbInstance: DatabaseSync | null = null;
+
+async function getDb(): Promise<DatabaseSync> {
+  if (dbInstance) return dbInstance;
+  const { DatabaseSync: DatabaseSyncCtor } = await import("node:sqlite");
   const path = await import("node:path");
-  const filePath = await dataFilePath();
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(records, null, 2));
+  const { promises: fs } = await import("node:fs");
+  const dataDir = path.join(process.cwd(), "data");
+  await fs.mkdir(dataDir, { recursive: true });
+  const db = new DatabaseSyncCtor(path.join(dataDir, "saved-graphs.sqlite"));
+  ensureSavedGraphsSchema(db);
+
+  const legacyJsonPath = path.join(dataDir, "saved-graphs.json");
+  try {
+    const raw = await fs.readFile(legacyJsonPath, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) migrateJsonRecordsIntoDb(db, parsed);
+    await fs.rename(legacyJsonPath, `${legacyJsonPath}.migrated`);
+  } catch {
+    // No legacy file (already migrated, or a fresh install) -- nothing to do.
+  }
+
+  dbInstance = db;
+  return db;
 }
 
 export const saveGraph = createServerFn({ method: "POST" })
   .validator((data: { title: string; kind: SavedGraphKind; state: SavedGraphState }) => data)
   .handler(async ({ data }): Promise<{ id: string }> => {
-    const records = await readStore();
+    const db = await getDb();
     const id = crypto.randomUUID();
-    records.push({ id, title: data.title.trim() || "Untitled", createdAt: Date.now(), kind: data.kind, state: data.state });
-    await writeStore(records);
+    insertSavedGraphRecord(db, { id, title: data.title.trim() || "Untitled", createdAt: Date.now(), kind: data.kind, state: data.state });
     return { id };
   });
 
 export const listSavedGraphs = createServerFn({ method: "GET" }).handler(async (): Promise<SavedGraphSummary[]> => {
-  const records = await readStore();
-  return records
-    .map(({ id, title, createdAt, kind }) => ({ id, title, createdAt, kind }))
-    .sort((a, b) => b.createdAt - a.createdAt);
+  const db = await getDb();
+  return listSavedGraphRecords(db);
 });
 
 export const getSavedGraph = createServerFn({ method: "GET" })
   .validator((data: { id: string }) => data)
   .handler(async ({ data }): Promise<SavedGraphState> => {
-    const records = await readStore();
-    const record = records.find((r) => r.id === data.id);
-    if (!record) throw new Error("Unknown or deleted saved graph.");
-    return record.state;
+    const db = await getDb();
+    const state = getSavedGraphRecordState(db, data.id);
+    if (state === undefined) throw new Error("Unknown or deleted saved graph.");
+    return state;
   });
 
 export const deleteSavedGraph = createServerFn({ method: "POST" })
   .validator((data: { id: string }) => data)
   .handler(async ({ data }): Promise<void> => {
-    const records = await readStore();
-    await writeStore(records.filter((r) => r.id !== data.id));
+    const db = await getDb();
+    deleteSavedGraphRecord(db, data.id);
   });
