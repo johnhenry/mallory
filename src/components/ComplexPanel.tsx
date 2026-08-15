@@ -17,6 +17,7 @@ import { renderDomainColoring } from "../lib/complex-raster.ts";
 import { nthRootsOfUnity } from "../lib/roots-of-unity.ts";
 import { findComplexZeros, findComplexPoles, type ComplexDomain } from "../lib/complex-roots.ts";
 import { autoFitViewport, mapGridLines, polarGridLines, rectangularGridLines, type MappedLine } from "../lib/conformal-grid.ts";
+import { MathInput } from "./MathInput.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { polylinesToSvgDocument } from "../lib/svg-export.ts";
@@ -287,6 +288,8 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
   }
 
   const [exprInput, setExprInput] = useState(exprText);
+  const [useMathKeyboard, setUseMathKeyboard] = useState(false);
+  const [latexInput, setLatexInput] = useState(() => toLatexOrEmpty(exprText));
   // Keeps the input box in sync when exprText changes for a reason other
   // than typing in this box -- e.g. URL-hash hydration -- mirrors
   // GraphCanvas/TaylorPanel's identically-reasoned effect.
@@ -297,6 +300,33 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
   function updateExprText(value: string) {
     setExprInput(value);
     graph.set(ids.exprText, resolveNaturalLanguageQuery(value, "z") ?? value);
+  }
+
+  // ComplexPanel's own parseResult (line ~107) parses via plain
+  // `Symbolic.parse` with no `preprocessImplicitMultiplication` wrapper --
+  // unlike ExpressionRow's toLatexOrEmpty -- so this mirrors that exactly to
+  // keep the LaTeX preview consistent with what f(z) actually evaluates.
+  function toLatexOrEmpty(source: string): string {
+    try {
+      return Symbolic.toLatex(Symbolic.parse(source));
+    } catch {
+      return "";
+    }
+  }
+
+  // Mirrors ExpressionRow's updateLatex. Deliberately skips
+  // resolveNaturalLanguageQuery -- like ExpressionRow, the math-keyboard path
+  // always produces well-formed expression source, so there's no natural-
+  // language text to resolve.
+  function updateLatex(nextLatex: string) {
+    setLatexInput(nextLatex);
+    try {
+      const source = Symbolic.toString(Symbolic.fromLatex(nextLatex));
+      setExprInput(source);
+      graph.set(ids.exprText, source);
+    } catch {
+      // Leave exprInput/the graph's expression at its last good value.
+    }
   }
 
   useEffect(() => {
@@ -354,10 +384,28 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
         Hue = arg(f(z)), lightness = log-scaled |f(z)| (black at zeros, white at poles, mid-gray at |f(z)|=1).
       </p>
-      <div style={{ margin: "0.25rem 0" }}>
-        <label>
-          f(z) ={" "}
-          <input value={exprInput} onChange={(e) => updateExprText(e.target.value)} style={{ font: "inherit", width: "20ch" }} />
+      <div style={{ margin: "0.25rem 0", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+        {useMathKeyboard ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+            f(z) = <MathInput latex={latexInput} onChange={updateLatex} style={{ minWidth: "10rem", display: "inline-block" }} />
+          </span>
+        ) : (
+          <label>
+            f(z) ={" "}
+            <input value={exprInput} onChange={(e) => updateExprText(e.target.value)} style={{ font: "inherit", width: "20ch" }} />
+          </label>
+        )}
+        <label style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
+          <input
+            type="checkbox"
+            checked={useMathKeyboard}
+            onChange={(e) => {
+              const next = e.target.checked;
+              if (next) setLatexInput(toLatexOrEmpty(exprInput));
+              setUseMathKeyboard(next);
+            }}
+          />{" "}
+          math keyboard
         </label>
       </div>
       {!parseResult.ok && <p style={{ color: "var(--danger)" }}>{parseResult.message}</p>}
