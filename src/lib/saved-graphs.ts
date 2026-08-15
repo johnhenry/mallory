@@ -155,7 +155,8 @@ export function migrateJsonRecordsIntoDb(db: DatabaseSync, jsonRecords: unknown[
 
 let dbInstance: DatabaseSync | null = null;
 
-async function getDb(): Promise<DatabaseSync> {
+/** Exported so short-links.ts (issue #44 item 2) can share this same connection/file for its own `short_links` table, per the issue's own "same SQLite db" suggestion. */
+export async function getGalleryDb(): Promise<DatabaseSync> {
   if (dbInstance) return dbInstance;
   const { DatabaseSync: DatabaseSyncCtor } = await import("node:sqlite");
   const path = await import("node:path");
@@ -182,21 +183,21 @@ async function getDb(): Promise<DatabaseSync> {
 export const saveGraph = createServerFn({ method: "POST" })
   .validator((data: { title: string; kind: SavedGraphKind; state: SavedGraphState }) => data)
   .handler(async ({ data }): Promise<{ id: string }> => {
-    const db = await getDb();
+    const db = await getGalleryDb();
     const id = crypto.randomUUID();
     insertSavedGraphRecord(db, { id, title: data.title.trim() || "Untitled", createdAt: Date.now(), kind: data.kind, state: data.state });
     return { id };
   });
 
 export const listSavedGraphs = createServerFn({ method: "GET" }).handler(async (): Promise<SavedGraphSummary[]> => {
-  const db = await getDb();
+  const db = await getGalleryDb();
   return listSavedGraphRecords(db);
 });
 
 export const getSavedGraph = createServerFn({ method: "GET" })
   .validator((data: { id: string }) => data)
   .handler(async ({ data }): Promise<SavedGraphState> => {
-    const db = await getDb();
+    const db = await getGalleryDb();
     const state = getSavedGraphRecordState(db, data.id);
     if (state === undefined) throw new Error("Unknown or deleted saved graph.");
     return state;
@@ -205,6 +206,6 @@ export const getSavedGraph = createServerFn({ method: "GET" })
 export const deleteSavedGraph = createServerFn({ method: "POST" })
   .validator((data: { id: string }) => data)
   .handler(async ({ data }): Promise<void> => {
-    const db = await getDb();
+    const db = await getGalleryDb();
     deleteSavedGraphRecord(db, data.id);
   });

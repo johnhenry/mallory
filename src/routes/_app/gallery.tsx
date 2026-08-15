@@ -12,6 +12,7 @@ import { encodeRegressionState, type RegressionState } from "~/lib/regression-st
 import { encodeStatisticsState, type StatisticsState } from "~/lib/statistics-state.ts";
 import { encodeSystemState, type SystemState } from "~/lib/system-state.ts";
 import { deleteSavedGraph, getSavedGraph, listSavedGraphs, type SavedGraphKind, type SavedGraphState, type SavedGraphSummary } from "~/lib/saved-graphs.ts";
+import { createShortLink } from "~/lib/short-links.ts";
 
 /** One reopen-href builder per SavedGraphKind -- the tab-hosted kinds (ode/ode-system, regression/statistics/systems) add a `?tab=` search param so CategoryTabs selects the right sibling before that panel's own decoder ever sees the hash (see CategoryTabs.tsx's `syncSearchParam`). */
 const REOPEN_HREF: Record<SavedGraphKind, (state: SavedGraphState) => string> = {
@@ -50,8 +51,10 @@ function GalleryPage() {
   const listSavedGraphsFn = useServerFn(listSavedGraphs);
   const getSavedGraphFn = useServerFn(getSavedGraph);
   const deleteSavedGraphFn = useServerFn(deleteSavedGraph);
+  const createShortLinkFn = useServerFn(createShortLink);
   const [entries, setEntries] = useState<SavedGraphSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shortLinkStatus, setShortLinkStatus] = useState<string | null>(null);
 
   useEffect(() => {
     listSavedGraphsFn()
@@ -74,6 +77,28 @@ function GalleryPage() {
   async function remove(id: string) {
     await deleteSavedGraphFn({ data: { id } });
     setEntries((prev) => prev?.filter((e) => e.id !== id) ?? null);
+  }
+
+  /**
+   * Reuses `REOPEN_HREF` to get the exact same encoded-state hash "open"
+   * already builds (rather than duplicating each state codec's encode
+   * call here), then hands just the hash portion to `createShortLink` --
+   * short-links.ts stores that opaque string verbatim and doesn't need to
+   * know how to encode/decode any particular panel's state shape.
+   */
+  async function copyShortLink(entry: SavedGraphSummary) {
+    setShortLinkStatus("Creating short link…");
+    try {
+      const state = await getSavedGraphFn({ data: { id: entry.id } });
+      const href = REOPEN_HREF[entry.kind](state);
+      const encodedState = href.slice(href.indexOf("#") + 1);
+      const { id } = await createShortLinkFn({ data: { kind: entry.kind, encodedState } });
+      const shortUrl = `${window.location.origin}/s/${id}`;
+      await navigator.clipboard.writeText(shortUrl);
+      setShortLinkStatus(`Copied ${shortUrl} to the clipboard.`);
+    } catch (e) {
+      setShortLinkStatus(`Short link failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   return (
@@ -108,6 +133,9 @@ function GalleryPage() {
                 {entry.kind}
               </span>{" "}
               <span style={{ color: "#5b6b8c", fontSize: "0.85rem" }}>{new Date(entry.createdAt).toLocaleString()}</span>{" "}
+              <button type="button" onClick={() => copyShortLink(entry)} title="Copy a short /s/:id link that redirects here">
+                Copy short link
+              </button>{" "}
               <button type="button" onClick={() => remove(entry.id)}>
                 Delete
               </button>
@@ -115,6 +143,7 @@ function GalleryPage() {
           ))}
         </ul>
       )}
+      {shortLinkStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{shortLinkStatus}</p>}
     </div>
   );
 }
