@@ -70,3 +70,24 @@ test("runGradientDescent: rejects a non-positive lr, a non-integer/over-cap step
   assert.throws(() => runGradientDescent(BOWL, 0, 0, "sgd", 0.1, 5000), /Steps must be a positive integer/);
   assert.throws(() => runGradientDescent(BOWL, Number.NaN, 0, "sgd", 0.1, 10), /Start point must be finite/);
 });
+
+test("runGradientDescent: a StepLR schedule (stepSize=1, gamma=0.5) applies AFTER the optimizer's own step -- the first descent step still uses the unmodified initial lr, the second uses lr halved", () => {
+  const result = runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 2, { stepSize: 1, gamma: 0.5 });
+  assert.equal(result.path.length, 3);
+  // Step 1: unmodified lr=0.1, grad=(6,10) at (4,3) -- same numbers the no-schedule test above hand-computes.
+  assert.equal(result.path[1]?.x, 4 - 0.1 * 6);
+  assert.equal(result.path[1]?.y, 3 - 0.1 * 10);
+  // StepLR.step() fires once after step 1 (n=1, stepSize=1): lr becomes 0.1*0.5 = 0.05.
+  // Step 2: grad at (3.4, 2.0) is (2*(3.4-1), 2*(2.0+2)) = (4.8, 8.0).
+  const x1 = 4 - 0.1 * 6;
+  const y1 = 3 - 0.1 * 10;
+  assert.equal(result.path[2]?.x, x1 - 0.05 * (2 * (x1 - 1)));
+  assert.equal(result.path[2]?.y, y1 - 0.05 * (2 * (y1 + 2)));
+});
+
+test("runGradientDescent: without a schedule, lr never changes -- every step uses the same effective lr as the unscheduled hand-computed test above", () => {
+  const withoutSchedule = runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 2);
+  const withNoopSchedule = runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 2, { stepSize: 1000, gamma: 0.5 });
+  // stepSize=1000 with only 2 steps run means the schedule never actually fires (n never reaches 1000) -- identical path to no schedule at all.
+  assert.deepEqual(withNoopSchedule.path, withoutSchedule.path);
+});
