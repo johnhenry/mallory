@@ -11,7 +11,17 @@ import {
   type MultiGraphAnnotation,
   type MultiGraphState,
 } from "../lib/multi-graph-state.ts";
-import { drawExpressionLayer, drawFilledArea, drawOpenCircles, drawPath, drawPoint, drawScatter, hexToRgba, type Viewport } from "../lib/render-path.ts";
+import {
+  drawExpressionLayer,
+  drawFilledArea,
+  drawOpenCircles,
+  drawPath,
+  drawPoint,
+  drawRegionMask,
+  drawScatter,
+  hexToRgba,
+  type Viewport,
+} from "../lib/render-path.ts";
 import { findNearestPointOnRows, type PointReadout } from "../lib/point-readout.ts";
 import { isCoarsePointer } from "../lib/pointer-media.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -587,10 +597,18 @@ export function GraphCanvasMulti() {
           const path = graph.get<Path2D>(ids.path);
           const visible = graph.get<boolean>(ids.visible);
           if (visible) {
-            // Area shading (issue #51) draws BEFORE the curve stroke below,
-            // same layering GraphCanvas's own single-pane version uses, so
-            // the line renders on top of its own fill instead of being
-            // covered by it.
+            // Region/area shading (issue #51) draw BEFORE the curve stroke
+            // below, same layering GraphCanvas's own single-pane version
+            // uses, so the line renders on top of its own fill instead of
+            // being covered by it. Region mask is null for the vast
+            // majority of rows (only populated when the row's expression is
+            // itself a `cmp` inequality), so this is a no-op for a plain
+            // function row.
+            const regionMask = graph.get<boolean[] | null>(ids.regionMask);
+            if (regionMask) {
+              const color = graph.get<number>(ids.color);
+              drawRegionMask(ctx, regionMask, viewport, WIDTH, HEIGHT, hexToRgba(color, 0.15));
+            }
             const areaResult = graph.get<{ value: number; path: Path2D } | null>(ids.area);
             if (areaResult) {
               const color = graph.get<number>(ids.color);

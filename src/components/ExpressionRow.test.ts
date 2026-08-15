@@ -70,6 +70,31 @@ test("ExpressionRow: the visibility checkbox toggles the row's visible cell", as
   await unmount();
 });
 
+test("ExpressionRow: regionMask stays null for a plain (non-inequality) expression", async () => {
+  const graph = new CellGraph();
+  const ids = seedRow(graph, "row-4", "x^2");
+
+  const { unmount } = await mount(createElement(ExpressionRow, { graph, rowId: "row-4" }));
+  assert.equal(graph.get<boolean[] | null>(ids.regionMask), null);
+  await unmount();
+});
+
+test("ExpressionRow: regionMask is populated for an inequality expression, hand-verified at the domain boundaries", async () => {
+  const graph = new CellGraph();
+  const ids = seedRow(graph, "row-5", "x<0");
+
+  const { unmount } = await mount(createElement(ExpressionRow, { graph, rowId: "row-5" }));
+  const mask = graph.get<boolean[] | null>(ids.regionMask);
+  assert.ok(mask, "expected a populated region mask for an inequality expression");
+  // Viewport is [-5, 5] (see seedRow) -- the first sample is at x=-5 (-5<0
+  // is true), the last sample is at x=5 (5<0 is false), same "sample at
+  // domain.min/domain.max" formula sampleRegionMask's own oracle test
+  // (sample-function.test.ts) verifies against.
+  assert.equal(mask![0], true);
+  assert.equal(mask![mask!.length - 1], false);
+  await unmount();
+});
+
 test("ExpressionRow: clicking remove calls the onRemove callback", async () => {
   const graph = new CellGraph();
   seedRow(graph, "row-3", "cos(x)");
