@@ -10,7 +10,8 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { DEFAULT_REGRESSION_STATE, decodeRegressionState, encodeRegressionState, type RegressionState } from "../lib/regression-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
-import { drawPath, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawPath, drawPoint, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { findOutlierIndices, fitRobustLinear, type RobustLinearFit } from "../lib/robust-regression.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 
@@ -25,6 +26,8 @@ interface RegressionRow {
 }
 
 type FitType = "linear" | "nonlinear";
+type LinearLossMode = "leastSquares" | "huber";
+type HuberFitResult = { ok: true; value: RobustLinearFit } | { ok: false; message: string } | null;
 
 type FitResult =
   | { ok: true; kind: "linear"; slope: number; intercept: number; r: number; points: { x: number; y: number }[] }
@@ -87,6 +90,10 @@ function useRegressionGraph(cellId: string, externalGraph?: CellGraph): CellGrap
     if (!graph.has(ids.rows)) {
       const decoded = !externalGraph && typeof window !== "undefined" ? decodeRegressionState(window.location.hash.slice(1)) : null;
       seedRegressionState(graph, ids, decoded ?? DEFAULT_REGRESSION_STATE);
+      graph.set(ids.linearLossMode, "leastSquares" as LinearLossMode, { auxiliary: true });
+      graph.set(ids.showOutliers, false, { auxiliary: true });
+      graph.set(ids.huberFitting, false, { auxiliary: true });
+      graph.set<HuberFitResult>(ids.huberFitResult, null, { auxiliary: true });
 
       graph.define(ids.fit, (): FitResult => {
         try {
@@ -193,6 +200,10 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
   const modelExpr = useCell<string>(graph, ids.modelExpr);
   const paramGuesses = useCell<Record<string, string>>(graph, ids.paramGuesses);
   const fit = useCell<FitResult>(graph, ids.fit);
+  const linearLossMode = useCell<LinearLossMode>(graph, ids.linearLossMode);
+  const showOutliers = useCell<boolean>(graph, ids.showOutliers);
+  const huberFitting = useCell<boolean>(graph, ids.huberFitting);
+  const huberFitResult = useCell<HuberFitResult>(graph, ids.huberFitResult);
 
   const [modelExprInput, setModelExprInput] = useState(modelExpr);
   // Keeps the input box in sync when modelExpr changes for a reason other
@@ -216,6 +227,23 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
     }
   }
 
+  // Imperative, not a reactive graph.define compute (fitRobustLinear's
+  // trainer.fit is async -- CellGraph computes are synchronous), matching
+  // MlPlaygroundPanel's own precedent for the same reason.
+  async function handleFitHuber() {
+    if (!fit.ok) return;
+    graph.set(ids.huberFitting, true);
+    graph.set<HuberFitResult>(ids.huberFitResult, null);
+    try {
+      const value = await fitRobustLinear(fit.points);
+      graph.set<HuberFitResult>(ids.huberFitResult, { ok: true, value });
+    } catch (e) {
+      graph.set<HuberFitResult>(ids.huberFitResult, { ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      graph.set(ids.huberFitting, false);
+    }
+  }
+
   // Keep the URL fragment in sync with the live graph state, mirroring OdePanel's pattern.
   useEffect(() => {
     if (!syncUrl) return;
@@ -236,10 +264,12 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
     if (!fit.ok) return;
     drawScatter(ctx, fit.points, viewport, WIDTH, HEIGHT);
     let curvePoints: Vector<number>[];
+    let activeLinear: { slope: number; intercept: number } | null = null;
     if (fit.kind === "linear") {
+      activeLinear = linearLossMode === "huber" && huberFitResult?.ok ? huberFitResult.value : fit;
       curvePoints = [
-        Vector.fromArray([viewport.xMin, fit.slope * viewport.xMin + fit.intercept]),
-        Vector.fromArray([viewport.xMax, fit.slope * viewport.xMax + fit.intercept]),
+        Vector.fromArray([viewport.xMin, activeLinear.slope * viewport.xMin + activeLinear.intercept]),
+        Vector.fromArray([viewport.xMax, activeLinear.slope * viewport.xMax + activeLinear.intercept]),
       ];
     } else {
       const compiled = Symbolic.compile(preprocessImplicitMultiplication(modelExpr));
@@ -254,8 +284,15 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
       const line = GraphUtils.vectorToCurve(Vector.fromArray(curvePoints), 2, 0xdc2626);
       drawPath(ctx, line, viewport, WIDTH, HEIGHT);
     }
+    if (showOutliers && activeLinear) {
+      const outlierIndices = findOutlierIndices(fit.points, activeLinear.slope, activeLinear.intercept);
+      for (const i of outlierIndices) {
+        const p = fit.points[i]!;
+        drawPoint(ctx, p, viewport, WIDTH, HEIGHT, 7, "#f59e0b");
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fit, modelExpr]);
+  }, [fit, modelExpr, linearLossMode, huberFitResult, showOutliers]);
 
   function updateCell(rowId: string, field: "x" | "y", value: string) {
     graph.set(
@@ -306,6 +343,46 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
           Nonlinear (custom model)
         </label>
       </div>
+      {fitType === "linear" && (
+        <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+          <label>
+            <input
+              type="radio"
+              checked={linearLossMode === "leastSquares"}
+              onChange={() => graph.set(ids.linearLossMode, "leastSquares" as LinearLossMode)}
+            />{" "}
+            Least squares
+          </label>
+          <label>
+            <input
+              type="radio"
+              checked={linearLossMode === "huber"}
+              onChange={() => graph.set(ids.linearLossMode, "huber" as LinearLossMode)}
+            />{" "}
+            Huber (robust)
+          </label>
+          {linearLossMode === "huber" && (
+            <button type="button" onClick={handleFitHuber} disabled={huberFitting || !fit.ok}>
+              {huberFitting ? "Fitting…" : "Fit (Huber)"}
+            </button>
+          )}
+          <label>
+            <input type="checkbox" checked={showOutliers} onChange={(e) => graph.set(ids.showOutliers, e.target.checked)} /> highlight
+            outliers
+          </label>
+        </div>
+      )}
+      {linearLossMode === "huber" && huberFitResult && (
+        <p style={{ margin: "0.25rem 0" }}>
+          {huberFitResult.ok ? (
+            <>
+              Huber fit: y = {huberFitResult.value.slope.toFixed(4)}x + {huberFitResult.value.intercept.toFixed(4)}
+            </>
+          ) : (
+            <span style={{ color: "var(--danger)" }}>{huberFitResult.message}</span>
+          )}
+        </p>
+      )}
       {fitType === "nonlinear" && (
         <div style={{ margin: "0.25rem 0" }}>
           <label>

@@ -592,6 +592,15 @@ export function cellIdsRegression(cellId: string) {
     modelExpr: `regressionModelExpr:${cellId}`,
     paramGuesses: `regressionParamGuesses:${cellId}`,
     fit: `regressionFit:${cellId}`,
+    // Robust (Huber-loss) linear fit, issue #34 item 3 -- a separate,
+    // imperatively-triggered result (async `trainer.fit`, so it can't be a
+    // reactive `graph.define` compute; see robust-regression.ts's own doc
+    // comment). `huberFitResult` is null until the "Fit (Huber)" button has
+    // run at least once.
+    linearLossMode: `regressionLinearLossMode:${cellId}`,
+    showOutliers: `regressionShowOutliers:${cellId}`,
+    huberFitting: `regressionHuberFitting:${cellId}`,
+    huberFitResult: `regressionHuberFitResult:${cellId}`,
   };
 }
 
