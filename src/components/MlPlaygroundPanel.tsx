@@ -16,7 +16,7 @@ import {
   type LabeledPoint,
 } from "../lib/ml-playground.ts";
 import { drawAxes, drawPolyline, drawScatter } from "../lib/render-path.ts";
-import type { Viewport } from "../lib/viewport.ts";
+import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewport.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -34,6 +34,7 @@ const DATASET_LABELS: Record<DatasetType, string> = {
   xor: "XOR clusters",
   moons: "Two moons",
   rings: "Rings",
+  drawn: "Drawn points",
 };
 
 function seedState(graph: CellGraph, ids: CellIdsMlPlayground, state: MlPlaygroundState): void {
@@ -74,10 +75,15 @@ function useMlGraph(cellId: string): CellGraph {
     const ids = cellIdsMlPlayground(cellId);
     const decoded = typeof window !== "undefined" ? decodeMlPlaygroundState(window.location.hash.slice(1)) : null;
     seedState(graph, ids, decoded ?? DEFAULT_ML_PLAYGROUND_STATE);
+    // User-drawn points (issue #34's "drawn" dataset) are ephemeral UI
+    // state, not part of the URL-codable schema (unlike every other config
+    // input here) -- same reasoning as TIME_CELL: auxiliary, seeded once.
+    if (!graph.has(ids.drawnPoints)) graph.set(ids.drawnPoints, [] as LabeledPoint[], { auxiliary: true });
 
     graph.define(ids.points, (): Result<LabeledPoint[]> => {
       try {
         const dataset = graph.get<DatasetType>(ids.dataset);
+        if (dataset === "drawn") return { ok: true, value: graph.get<LabeledPoint[]>(ids.drawnPoints) };
         const pointsPerClass = Number(graph.get<string>(ids.pointsPerClass));
         const seed = Number(graph.get<string>(ids.dataSeed));
         if (Number.isNaN(pointsPerClass) || Number.isNaN(seed)) throw new Error("Points per class and data seed must be numbers.");
@@ -144,6 +150,10 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
   const [trainError, setTrainError] = useState<string | null>(null);
   const [training, setTraining] = useState(false);
   const [totalEpochs, setTotalEpochs] = useState(0);
+  // Which class a click adds to drawing mode -- ephemeral UI state, not a
+  // cell (like `training`/`trainError` above), since it's not part of the
+  // dataset itself.
+  const [drawLabel, setDrawLabel] = useState<0 | 1>(0);
 
   // Changing the architecture, its seed, or the dropout rate invalidates the
   // current weights -- the next Train starts from a fresh seeded init rather
@@ -193,6 +203,23 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
     setProbabilityGrid(null);
     setTrainError(null);
     setTotalEpochs(0);
+  }
+
+  // Click-to-add-labeled-point (issue #34's "drawn" dataset). Only active
+  // in drawn mode -- the other datasets' scatter is read-only.
+  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (dataset !== "drawn") return;
+    const canvas = boundaryCanvasRef.current;
+    if (!canvas) return;
+    const { sx, sy } = canvasEventPoint(e, canvas, BOUNDARY_SIZE, BOUNDARY_SIZE);
+    const x = toDataX(sx, VIEWPORT, BOUNDARY_SIZE);
+    const y = toDataY(sy, VIEWPORT, BOUNDARY_SIZE);
+    const current = graph.get<LabeledPoint[]>(ids.drawnPoints);
+    graph.set(ids.drawnPoints, [...current, { x, y, label: drawLabel }]);
+  }
+
+  function handleClearDrawnPoints() {
+    graph.set(ids.drawnPoints, []);
   }
 
   useEffect(() => {
@@ -252,21 +279,40 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
             ))}
           </select>
         </label>
-        <label>
-          points/class:{" "}
-          <input
-            type="number"
-            min={1}
-            max={500}
-            value={pointsPerClass}
-            onChange={(e) => graph.set(ids.pointsPerClass, e.target.value)}
-            style={{ font: "inherit", width: "6ch" }}
-          />
-        </label>
-        <label>
-          data seed:{" "}
-          <input value={dataSeed} onChange={(e) => graph.set(ids.dataSeed, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
-        </label>
+        {dataset === "drawn" ? (
+          <>
+            <span style={{ fontSize: "0.85rem" }}>
+              draw:{" "}
+              <label style={{ color: "#1d4ed8" }}>
+                <input type="radio" name={`${cellId}-draw-label`} checked={drawLabel === 0} onChange={() => setDrawLabel(0)} /> class 0
+              </label>{" "}
+              <label style={{ color: "#b91c1c" }}>
+                <input type="radio" name={`${cellId}-draw-label`} checked={drawLabel === 1} onChange={() => setDrawLabel(1)} /> class 1
+              </label>
+            </span>
+            <button type="button" onClick={handleClearDrawnPoints}>
+              Clear drawn points
+            </button>
+          </>
+        ) : (
+          <>
+            <label>
+              points/class:{" "}
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={pointsPerClass}
+                onChange={(e) => graph.set(ids.pointsPerClass, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+            <label>
+              data seed:{" "}
+              <input value={dataSeed} onChange={(e) => graph.set(ids.dataSeed, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
+            </label>
+          </>
+        )}
       </div>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <label>
@@ -343,8 +389,16 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
       {trainError && <p style={{ color: "var(--danger)" }}>{trainError}</p>}
       <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
         <div>
-          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Decision boundary (blue = class 0, red = class 1)</p>
-          <canvas ref={boundaryCanvasRef} width={BOUNDARY_SIZE} height={BOUNDARY_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+            Decision boundary (blue = class 0, red = class 1){dataset === "drawn" ? " -- click to add a point" : ""}
+          </p>
+          <canvas
+            ref={boundaryCanvasRef}
+            width={BOUNDARY_SIZE}
+            height={BOUNDARY_SIZE}
+            onClick={handleCanvasClick}
+            style={{ border: "1px solid var(--border)", maxWidth: "100%", cursor: dataset === "drawn" ? "crosshair" : "default" }}
+          />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton getCanvas={() => boundaryCanvasRef.current} label="ml-decision-boundary" />
           </div>

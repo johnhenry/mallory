@@ -1,7 +1,7 @@
 import { nn, optim, trainer, variable } from "mallory-tensor-autograd";
 import { Rng, Tensor } from "mallory-tensor-core";
 
-export type DatasetType = "xor" | "moons" | "rings";
+export type DatasetType = "xor" | "moons" | "rings" | "drawn";
 
 export interface LabeledPoint {
   x: number;
@@ -23,6 +23,14 @@ function gaussian(rng: Rng): number {
  * `noise` is the gaussian jitter's standard deviation -- 0 gives exactly
  * the underlying geometry (the tests pin that: XOR's four cluster centers,
  * rings' strict radius separation).
+ *
+ * `"drawn"` is deliberately NOT procedurally generated here -- it always
+ * returns an empty array. Its points come from user clicks on the panel's
+ * own canvas (issue #34's "user-drawn points as a dataset source"), held
+ * in a separate `mlDrawnPoints` cell the panel's `points` cell reads from
+ * directly when `dataset === "drawn"`, bypassing this function entirely.
+ * The case still exists explicitly (not a `default`) so this switch stays
+ * exhaustive over `DatasetType`.
  */
 export function generateDataset(type: DatasetType, pointsPerClass: number, seed: number, noise = 0.25): LabeledPoint[] {
   if (!Number.isInteger(pointsPerClass) || pointsPerClass <= 0 || pointsPerClass > 500) {
@@ -63,6 +71,9 @@ export function generateDataset(type: DatasetType, pointsPerClass: number, seed:
         const r1 = 2 + rng.nextFloat() * 0.4;
         points.push({ x: r1 * Math.cos(theta1) + gaussian(rng) * noise * 0.3, y: r1 * Math.sin(theta1) + gaussian(rng) * noise * 0.3, label: 1 });
       }
+      break;
+    }
+    case "drawn": {
       break;
     }
   }
