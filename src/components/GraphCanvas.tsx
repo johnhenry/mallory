@@ -21,7 +21,7 @@ import { evaluateDerivativeAtPoint } from "../lib/point-derivative.ts";
 import { findCurveExtrema, type CurveExtrema } from "../lib/curve-extrema.ts";
 import { HIGHLIGHT_PRELUDE_SECONDS, timelineDuration, type Keyframe } from "../lib/timeline.ts";
 import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
-import { pathsToSvgDocument } from "../lib/svg-export.ts";
+import { pathsToSvgDocument, scatterPointsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
@@ -808,7 +808,10 @@ export function GraphCanvas({
       </div>
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="graphing" />{" "}
-        <SvgExportButton getSvg={() => (scatter ? null : pathsToSvgDocument([path], viewport, WIDTH, HEIGHT))} label="graphing" />
+        <SvgExportButton
+          getSvg={() => (scatter ? scatterPointsToSvgDocument(scatter, viewport, WIDTH, HEIGHT) : pathsToSvgDocument([path], viewport, WIDTH, HEIGHT))}
+          label="graphing"
+        />
       </div>
       {modulus === null && point && (
         <div>

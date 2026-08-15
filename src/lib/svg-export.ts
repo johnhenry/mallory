@@ -33,14 +33,14 @@ export function pathToSvgD(path: MalloryPath, viewport: Viewport, width: number,
  * using the same viewport transform so the two match pixel-for-pixel.
  *
  * v1 scope (issue #45 item 1): only the stroked line itself. Region
- * shading/fills, point handles, and non-`Path2D` layers (scatter,
- * histograms, heatmaps, Three.js scenes) aren't included -- a full SVG
- * backend for every draw function in `render-path.ts` is the issue's own
- * larger, explicitly-deferred follow-up ("the renderer layer's draw
- * functions would need an SVG path backend"). This ships the single most
- * valuable case (a plotted curve) first, the same way PNG export itself
- * started on a "quick win" subset (issue #45's item 3) before later PRs
- * extended coverage panel-by-panel.
+ * shading/fills and non-`Path2D` layers other than the polyline/scatter
+ * cases below (histograms, heatmaps, Three.js scenes) aren't included --
+ * a full SVG backend for every draw function in `render-path.ts` is the
+ * issue's own larger, explicitly-deferred follow-up ("the renderer
+ * layer's draw functions would need an SVG path backend"). This ships
+ * the single most valuable case (a plotted curve) first, the same way
+ * PNG export itself started on a "quick win" subset (issue #45's item 3)
+ * before later PRs extended coverage panel-by-panel.
  */
 export function pathsToSvgDocument(paths: ReadonlyArray<MalloryPath>, viewport: Viewport, width: number, height: number): string {
   const elements = paths.map((path) => {
@@ -88,6 +88,29 @@ export function polylineToSvgDocument(
   const element =
     points.length === 0 ? "" : `<path d="${polylinePointsToSvgD(points, viewport, width, height)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" />`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${element}\n</svg>`;
+}
+
+/**
+ * Wraps a plain point array into a standalone SVG document as `<circle>`
+ * elements -- the `drawScatter` counterpart to `polylineToSvgDocument`, for
+ * a finite-structure/roots/extrema marker overlay rather than a connected
+ * line. `color`/`radius` mirror `drawScatter`'s own CSS-color-string +
+ * fixed-radius convention.
+ */
+export function scatterPointsToSvgDocument(
+  points: ReadonlyArray<{ x: number; y: number }>,
+  viewport: Viewport,
+  width: number,
+  height: number,
+  color = "#2563eb",
+  radius = 5,
+): string {
+  const elements = points.map((p) => {
+    const sx = toScreenX(p.x, viewport, width);
+    const sy = toScreenY(p.y, viewport, height);
+    return `<circle cx="${sx.toFixed(2)}" cy="${sy.toFixed(2)}" r="${radius}" fill="${color}" />`;
+  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${elements.join("\n")}\n</svg>`;
 }
 
 /**

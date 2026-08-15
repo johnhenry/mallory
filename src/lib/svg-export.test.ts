@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pathToSvgD, pathsToSvgDocument, polylinePointsToSvgD, polylineToSvgDocument, svgExportFilename } from "./svg-export.ts";
+import {
+  pathToSvgD,
+  pathsToSvgDocument,
+  polylinePointsToSvgD,
+  polylineToSvgDocument,
+  scatterPointsToSvgDocument,
+  svgExportFilename,
+} from "./svg-export.ts";
 
 test("svgExportFilename: slugifies like pngExportFilename but with a .svg extension", () => {
   assert.equal(svgExportFilename("graphing"), "mallory-graph-graphing.svg");
@@ -69,5 +76,26 @@ test("polylineToSvgDocument: wraps points into an SVG document with the given co
 
 test("polylineToSvgDocument: an empty point array produces a valid (empty) SVG document, not a stray <path>", () => {
   const svg = polylineToSvgDocument([], VIEWPORT, 50, 50);
+  assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">\n\n</svg>');
+});
+
+test("scatterPointsToSvgDocument: one <circle> per point, hand-computed screen coordinates using the same viewport transform drawScatter uses", () => {
+  const points = [
+    { x: 0, y: 0 },
+    { x: 2, y: 2 },
+  ];
+  // toScreenX(0)=0,toScreenY(0)=100; toScreenX(2)=100,toScreenY(2)=0.
+  const svg = scatterPointsToSvgDocument(points, VIEWPORT, 100, 100);
+  assert.ok(svg.includes('<circle cx="0.00" cy="100.00" r="5" fill="#2563eb" />'));
+  assert.ok(svg.includes('<circle cx="100.00" cy="0.00" r="5" fill="#2563eb" />'));
+});
+
+test("scatterPointsToSvgDocument: custom color/radius override drawScatter's own defaults", () => {
+  const svg = scatterPointsToSvgDocument([{ x: 0, y: 0 }], VIEWPORT, 100, 100, "#dc2626", 8);
+  assert.ok(svg.includes('r="8" fill="#dc2626"'));
+});
+
+test("scatterPointsToSvgDocument: an empty point array still produces a valid (empty) SVG document", () => {
+  const svg = scatterPointsToSvgDocument([], VIEWPORT, 50, 50);
   assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">\n\n</svg>');
 });
