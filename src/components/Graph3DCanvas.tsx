@@ -18,6 +18,7 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { TransportControls } from "./TransportControls.tsx";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
+import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
 
 const WIDTH = 600;
 const HEIGHT = 600;
@@ -188,7 +189,16 @@ export function Graph3DCanvas({
     const container = containerRef.current;
     if (!container) return;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xffffff);
+    scene.background = new THREE.Color(getThemeColors().surface);
+    // THREE.Color's constructor accepts a "#rrggbb" string directly (its
+    // internal `setStyle`), so no int-conversion step is needed here --
+    // but `scene.background` is plain runtime state set once, not CSS, so
+    // (unlike a DOM element styled with var(--surface)) it needs an
+    // explicit re-set on every theme flip, light OR dark-mode toggle AND
+    // OS-level "auto" changes alike -- see subscribeToThemeChange's doc.
+    const unsubscribeTheme = subscribeToThemeChange(() => {
+      scene.background = new THREE.Color(getThemeColors().surface);
+    });
 
     const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.1, 1000);
     camera.position.set(8, 8, 8);
@@ -228,6 +238,7 @@ export function Graph3DCanvas({
 
     return () => {
       cancelAnimationFrame(raf);
+      unsubscribeTheme();
       controls.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
@@ -329,7 +340,7 @@ export function Graph3DCanvas({
         />
       )}
       <div ref={containerRef} style={{ maxWidth: WIDTH, border: "1px solid var(--border)" }} />
-      <p style={{ fontSize: "0.85rem", color: "#666" }}>Drag to orbit, scroll to zoom.</p>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom.</p>
       {/* Server-side ecmanim export: a full camera orbit around the current
           surface (johnhenry/mallory-graph#3, pass 2) -- the live Three.js
           canvas above stays the interactive view; this renders a shareable
