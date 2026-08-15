@@ -19,6 +19,7 @@ import { TransportControls } from "./TransportControls.tsx";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 const WIDTH = 600;
 const HEIGHT = 600;
@@ -147,6 +148,7 @@ export function Graph3DCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const surfaceGroupRef = useRef<THREE.Group | null>(null);
   const highlightGroupRef = useRef<THREE.Group | null>(null);
+  const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   /** The export payload, shared by the full render job and the scrub preview so they can't drift apart. */
   function buildSurfaceExportInput(): { source: string; params: Record<string, number>; tracks: Record<string, Keyframe[] | undefined>; xDomain: SurfaceDomain; yDomain: SurfaceDomain; duration: number } {
@@ -203,13 +205,20 @@ export function Graph3DCanvas({
     const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.1, 1000);
     camera.position.set(8, 8, 8);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // `preserveDrawingBuffer: true` -- without it, WebGL is free to clear the
+    // drawing buffer immediately after compositing each frame, so a
+    // `canvas.toBlob()` PNG export (issue #45) called from a later task/
+    // click handler can race the next rAF's clear and read back blank. The
+    // GPU-memory-retention cost is a second copy of the framebuffer kept
+    // around between frames -- negligible at this canvas's fixed WIDTHxHEIGHT.
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     // `updateStyle=false` -- leaves the canvas's own CSS untouched so the
     // global `canvas { max-width: 100%; height: auto }` mobile rule can
     // scale it down; the drawing buffer stays a fixed WIDTH x HEIGHT
     // regardless, matching PerspectiveCamera's aspect ratio.
     renderer.setSize(WIDTH, HEIGHT, false);
     container.appendChild(renderer.domElement);
+    rendererCanvasRef.current = renderer.domElement;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -244,6 +253,7 @@ export function Graph3DCanvas({
       container.removeChild(renderer.domElement);
       surfaceGroupRef.current = null;
       highlightGroupRef.current = null;
+      rendererCanvasRef.current = null;
     };
   }, []);
 
@@ -340,6 +350,9 @@ export function Graph3DCanvas({
         />
       )}
       <div ref={containerRef} style={{ maxWidth: WIDTH, border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="surface-3d" />
+      </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom.</p>
       {/* Server-side ecmanim export: a full camera orbit around the current
           surface (johnhenry/mallory-graph#3, pass 2) -- the live Three.js
