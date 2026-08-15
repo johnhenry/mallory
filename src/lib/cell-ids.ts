@@ -378,6 +378,9 @@ export function cellIdsGradientDescent(cellId: string) {
     showSgd: `gdShowSgd:${cellId}`,
     showAdam: `gdShowAdam:${cellId}`,
     showRmsprop: `gdShowRmsprop:${cellId}`,
+    useSchedule: `gdUseSchedule:${cellId}`,
+    stepSize: `gdStepSize:${cellId}`,
+    gamma: `gdGamma:${cellId}`,
     contoursResult: `gdContoursResult:${cellId}`,
     descentResults: `gdDescentResults:${cellId}`,
   };

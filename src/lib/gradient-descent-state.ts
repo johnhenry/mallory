@@ -13,6 +13,17 @@ export interface GradientDescentStateV1 {
   showSgd: boolean;
   showAdam: boolean;
   showRmsprop: boolean;
+  /**
+   * Issue #33's "StepLR schedule wiring" item -- off by default (a plain
+   * constant lr is the more common case). Read only when `useSchedule` is
+   * true. Optional (not a schema version bump, same convention as
+   * NotebookTensorBlockStateV1's `opArg`) so an old encoded URL hash from
+   * before this field existed still decodes instead of failing validation
+   * and silently resetting the WHOLE state to defaults.
+   */
+  useSchedule?: boolean;
+  stepSize?: string;
+  gamma?: string;
 }
 
 export type GradientDescentState = GradientDescentStateV1;
@@ -29,6 +40,9 @@ export const DEFAULT_GRADIENT_DESCENT_STATE: GradientDescentState = {
   showSgd: true,
   showAdam: true,
   showRmsprop: false,
+  useSchedule: false,
+  stepSize: "10",
+  gamma: "0.5",
 };
 
 export function encodeGradientDescentState(state: GradientDescentState): string {
@@ -52,7 +66,10 @@ export function isGradientDescentStateV1(value: unknown): value is GradientDesce
   const stringFields = ["exprText", "startX", "startY", "lr", "steps"] as const;
   if (!stringFields.every((f) => typeof v[f] === "string")) return false;
   const boolFields = ["showSgd", "showAdam", "showRmsprop"] as const;
-  return boolFields.every((f) => typeof v[f] === "boolean");
+  if (!boolFields.every((f) => typeof v[f] === "boolean")) return false;
+  const optionalStringFields = ["stepSize", "gamma"] as const;
+  if (!optionalStringFields.every((f) => v[f] === undefined || typeof v[f] === "string")) return false;
+  return v.useSchedule === undefined || typeof v.useSchedule === "boolean";
 }
 
 function base64UrlEncode(input: string): string {

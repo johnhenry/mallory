@@ -48,6 +48,9 @@ function seedState(graph: CellGraph, ids: CellIdsGradientDescent, state: Gradien
   graph.set(ids.showSgd, state.showSgd);
   graph.set(ids.showAdam, state.showAdam);
   graph.set(ids.showRmsprop, state.showRmsprop);
+  graph.set(ids.useSchedule, state.useSchedule ?? DEFAULT_GRADIENT_DESCENT_STATE.useSchedule);
+  graph.set(ids.stepSize, state.stepSize ?? DEFAULT_GRADIENT_DESCENT_STATE.stepSize);
+  graph.set(ids.gamma, state.gamma ?? DEFAULT_GRADIENT_DESCENT_STATE.gamma);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsGradientDescent): GradientDescentState {
@@ -61,6 +64,9 @@ function getCurrentState(graph: CellGraph, ids: CellIdsGradientDescent): Gradien
     showSgd: graph.get<boolean>(ids.showSgd),
     showAdam: graph.get<boolean>(ids.showAdam),
     showRmsprop: graph.get<boolean>(ids.showRmsprop),
+    useSchedule: graph.get<boolean>(ids.useSchedule),
+    stepSize: graph.get<string>(ids.stepSize),
+    gamma: graph.get<string>(ids.gamma),
   };
 }
 
@@ -91,9 +97,21 @@ function useGradientDescentGraph(cellId: string): CellGraph {
         if (graph.get<boolean>(ids.showSgd)) enabled.push("sgd");
         if (graph.get<boolean>(ids.showAdam)) enabled.push("adam");
         if (graph.get<boolean>(ids.showRmsprop)) enabled.push("rmsprop");
-        // Same expression, same start, same lr/steps -- the runs differ ONLY
-        // by optimizer, which is what makes the overlay a genuine race.
-        const runs = enabled.map((optimizer) => ({ optimizer, result: runGradientDescent(exprText, startX, startY, optimizer, lr, steps) }));
+        let schedule: { stepSize: number; gamma: number } | undefined;
+        if (graph.get<boolean>(ids.useSchedule)) {
+          const stepSize = Number(graph.get<string>(ids.stepSize));
+          const gamma = Number(graph.get<string>(ids.gamma));
+          if (!Number.isInteger(stepSize) || stepSize <= 0) throw new Error("Schedule step size must be a positive integer.");
+          if (!Number.isFinite(gamma) || gamma <= 0) throw new Error("Schedule gamma must be a positive number.");
+          schedule = { stepSize, gamma };
+        }
+        // Same expression, same start, same lr/steps/schedule -- the runs
+        // differ ONLY by optimizer, which is what makes the overlay a
+        // genuine race.
+        const runs = enabled.map((optimizer) => ({
+          optimizer,
+          result: runGradientDescent(exprText, startX, startY, optimizer, lr, steps, schedule),
+        }));
         return { ok: true, value: runs };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -115,8 +133,10 @@ function useGradientDescentGraph(cellId: string): CellGraph {
  * rather than animating a polyline on the Three.js surface -- the contour
  * picture is where optimizer-behavior differences (SGD's zigzag across an
  * anisotropic valley vs Adam's per-coordinate scaling) actually read
- * clearly. The 3D-surface path overlay, per-step transport animation, and
- * StepLR schedules are deferred scope on the issue.
+ * clearly. The 3D-surface path overlay and per-step transport animation
+ * remain deferred scope on the issue. An optional `optim.StepLR` schedule
+ * (stepSize/gamma) is available, applied uniformly to every racing
+ * optimizer -- off by default.
  */
 export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = {}) {
   const graph = useGradientDescentGraph(cellId);
@@ -132,6 +152,9 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   const showSgd = useCell<boolean>(graph, ids.showSgd);
   const showAdam = useCell<boolean>(graph, ids.showAdam);
   const showRmsprop = useCell<boolean>(graph, ids.showRmsprop);
+  const useSchedule = useCell<boolean>(graph, ids.useSchedule);
+  const stepSize = useCell<string>(graph, ids.stepSize);
+  const gamma = useCell<string>(graph, ids.gamma);
   const contoursResult = useCell<Result<ContourLevel[]>>(graph, ids.contoursResult);
   const descentResults = useCell<Result<OptimizerRun[]>>(graph, ids.descentResults);
 
@@ -220,6 +243,29 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
         <label style={{ color: OPTIMIZER_COLORS.rmsprop }}>
           <input type="checkbox" checked={showRmsprop} onChange={(e) => graph.set(ids.showRmsprop, e.target.checked)} /> RMSprop
         </label>
+      </div>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label>
+          <input type="checkbox" checked={useSchedule} onChange={(e) => graph.set(ids.useSchedule, e.target.checked)} /> StepLR
+          schedule
+        </label>
+        {useSchedule && (
+          <>
+            <label>
+              step size:{" "}
+              <input
+                type="number"
+                min={1}
+                value={stepSize}
+                onChange={(e) => graph.set(ids.stepSize, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+            <label>
+              gamma: <input value={gamma} onChange={(e) => graph.set(ids.gamma, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
+            </label>
+          </>
+        )}
       </div>
       {!contoursResult.ok && <p style={{ color: "var(--danger)" }}>{contoursResult.message}</p>}
       {!descentResults.ok && <p style={{ color: "var(--danger)" }}>{descentResults.message}</p>}

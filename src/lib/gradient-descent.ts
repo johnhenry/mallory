@@ -42,6 +42,16 @@ const MAX_STEPS = 2000;
  * `UnsupportedExprError` (adapter-math's own error for an Expr with no
  * elementwise-tensor meaning, e.g. `gcd(x, y)`) propagates to the caller --
  * the panel surfaces it as the standard cell error, per the issue.
+ *
+ * `schedule`, if given, wraps the optimizer in an `optim.StepLR` (issue
+ * #33's remaining "StepLR schedule wiring" item): `stepSize`/`gamma` as
+ * documented on `StepLR` itself -- lr multiplies by `gamma` every
+ * `stepSize` calls to `.step()`. `StepLR.step()` is called once per
+ * descent iteration here (this toy single-batch setting has no separate
+ * epoch/batch distinction, so "once per epoch" collapses to "once per
+ * iteration"), AFTER the optimizer's own `.step()` -- the first descent
+ * step always uses the unmodified initial lr, matching `StepLR`'s own
+ * "effective lr after n calls" contract.
  */
 export function runGradientDescent(
   exprText: string,
@@ -50,6 +60,7 @@ export function runGradientDescent(
   optimizerType: OptimizerType,
   lr: number,
   steps: number,
+  schedule?: { stepSize: number; gamma: number },
 ): DescentResult {
   if (!Number.isFinite(startX) || !Number.isFinite(startY)) throw new Error("Start point must be finite numbers.");
   if (!Number.isFinite(lr) || lr <= 0) throw new Error("Learning rate must be a positive number.");
@@ -68,6 +79,7 @@ export function runGradientDescent(
       : optimizerType === "adam"
         ? new optim.Adam([x, y], { lr })
         : new optim.RMSprop([x, y], { lr });
+  const scheduler = schedule ? new optim.StepLR(optimizer, schedule) : null;
 
   const evaluateF = (): number => {
     // A plain (non-tracked) forward just for the readout -- reuses the same
@@ -84,6 +96,7 @@ export function runGradientDescent(
     const loss = op(x, y);
     loss.backward();
     optimizer.step();
+    scheduler?.step();
 
     const newX = x.value.item() as number;
     const newY = y.value.item() as number;
