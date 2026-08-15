@@ -18,12 +18,14 @@ import { sampleStructureExpr, type ScatterPoint } from "../lib/sample-structure.
 import { evaluateDerivativeAtPoint } from "../lib/point-derivative.ts";
 import { findCurveExtrema, type CurveExtrema } from "../lib/curve-extrema.ts";
 import { HIGHLIGHT_PRELUDE_SECONDS, timelineDuration, type Keyframe } from "../lib/timeline.ts";
+import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
 import { CopyableTex } from "./CopyableTex.tsx";
 import { KeyframeSliderControl } from "./KeyframeSliderControl.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 import { TexSpan } from "./TexSpan.tsx";
 import { TransportControls } from "./TransportControls.tsx";
 import { useCell } from "../lib/use-cell.ts";
@@ -783,7 +785,8 @@ export function GraphCanvas({
         />
       </div>
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="graphing" />
+        <PngExportButton getCanvas={() => canvasRef.current} label="graphing" />{" "}
+        <SvgExportButton getSvg={() => (scatter ? null : pathsToSvgDocument([path], viewport, WIDTH, HEIGHT))} label="graphing" />
       </div>
       {modulus === null && point && (
         <div>
