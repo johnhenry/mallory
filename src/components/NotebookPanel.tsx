@@ -15,6 +15,7 @@ import {
 } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
+import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import {
   DEFAULT_NOTEBOOK_STATE,
   decodeNotebookState,
@@ -220,6 +221,40 @@ export function NotebookPanel() {
     const decoded = typeof window !== "undefined" ? decodeNotebookState(window.location.hash.slice(1)) : null;
     return hydrateBlocks(graph, decoded ?? DEFAULT_NOTEBOOK_STATE);
   });
+
+  // Issue #43's "per-panel adoption": the multi-expression panel proved the
+  // shape (PR #97), this is the second adopter. `extraTrigger: blocks`
+  // (see use-undo-history.ts's own doc comment) covers the structural half
+  // (add/remove/reorder/text-edit) that lives in React state, not
+  // CellGraph cells; `graph.subscribeAll` alone (as GraphCanvasMulti uses
+  // unmodified) covers in-block edits (an expression, a value block's
+  // number, a slider drag).
+  //
+  // KNOWN LIMITATION, deliberately deferred rather than attempted here:
+  // `hydrateBlocks` (used as the restore function) always mints fresh
+  // `crypto.randomUUID()` block/row ids, the same "no id-based join" choice
+  // `captureGraphBlockImages` above makes -- so an undo/redo does NOT
+  // delete the PREVIOUS block set's own CellGraph cells the way
+  // GraphCanvasMulti's `restoreMultiGraphState` explicitly walks `oldIds`
+  // to clean up. For "graph"/"value" blocks the leaked cells are small and
+  // bounded per undo step. For geometry blocks specifically, full cleanup
+  // isn't even mechanically possible from here: `cellIdsGeometry`'s own
+  // per-object (point/line/circle/...) ids are `crypto.randomUUID()`s
+  // discoverable only by reading that block's OWN `objectList` cell first,
+  // not derivable from the block id alone. A real fix needs a shared
+  // "dispose everything this block's cellIdsX namespace owns, including
+  // any of its own dynamic child ids" helper across all 8 block-type
+  // wrappers -- meaningfully larger than this pass; long editing sessions
+  // with heavy undo/redo use will accumulate orphaned cells in memory
+  // until reload, same class of accepted tradeoff #97's own status note
+  // already documents for the snapshot-vs-op-log design choice.
+  const history = useUndoHistory(
+    graph,
+    () => getCurrentNotebookState(graph, blocks),
+    (state) => setBlocks(hydrateBlocks(graph, state)),
+    250,
+    blocks,
+  );
 
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const saveGraphFn = useServerFn(saveGraph);
@@ -764,6 +799,12 @@ export function NotebookPanel() {
         </button>
         <button type="button" onClick={forkView} title="Open this exact document in a new tab to explore an alternate path">
           Fork this view
+        </button>
+        <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
+          ↩ Undo
+        </button>
+        <button type="button" onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z / Cmd+Y)">
+          ↪ Redo
         </button>
         <button type="button" onClick={handleSave}>
           Save to gallery
