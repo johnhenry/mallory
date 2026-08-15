@@ -91,6 +91,19 @@ export function cellIdsVectorField3D(cellId: string) {
 
 export type CellIdsVectorField3D = ReturnType<typeof cellIdsVectorField3D>;
 
+export function cellIdsSpaceCurve(cellId: string) {
+  return {
+    exprX: `spaceCurveExprX:${cellId}`,
+    exprY: `spaceCurveExprY:${cellId}`,
+    exprZ: `spaceCurveExprZ:${cellId}`,
+    tMin: `spaceCurveTMin:${cellId}`,
+    tMax: `spaceCurveTMax:${cellId}`,
+    points: `spaceCurvePoints:${cellId}`,
+  };
+}
+
+export type CellIdsSpaceCurve = ReturnType<typeof cellIdsSpaceCurve>;
+
 /**
  * Cell-id namespacing for a system-of-equations solver panel
  * (SystemSolverPanel.tsx) -- a different input shape entirely from
