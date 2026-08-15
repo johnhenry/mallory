@@ -9,6 +9,7 @@ import { sampleGradientField } from "../lib/gradient-field.ts";
 import { equationToImplicitZero } from "../lib/equation-to-zero.ts";
 import type { VectorFieldPoint } from "../lib/sample-ode.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 const WIDTH = 500;
 const HEIGHT = 500;
@@ -199,6 +200,9 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
       {showContours && !contourResult.ok && <p style={{ color: "var(--danger)" }}>{contourResult.message}</p>}
       {showGradient && !gradientResult.ok && <p style={{ color: "var(--danger)" }}>{gradientResult.message}</p>}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="implicit" />
+      </div>
       {!segments.ok && <p style={{ color: "var(--danger)" }}>{segments.message}</p>}
     </div>
   );

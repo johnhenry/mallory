@@ -6,6 +6,7 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { drawPath, type Viewport } from "../lib/render-path.ts";
 import { sampleParametricCurve, samplePolarCurve } from "../lib/sample-parametric.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 const WIDTH = 500;
 const HEIGHT = 500;
@@ -123,6 +124,9 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
         </label>
       </div>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="parametric" />
+      </div>
       {!path.ok && <p style={{ color: "var(--danger)" }}>{path.message}</p>}
     </div>
   );

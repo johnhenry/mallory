@@ -17,6 +17,7 @@ import {
 } from "../lib/image-frequency.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -194,14 +195,23 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
         <div>
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Original</p>
           <canvas ref={originalCanvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => originalCanvasRef.current} label="image-frequency-original" />
+          </div>
         </div>
         <div>
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Magnitude spectrum (centered)</p>
           <canvas ref={spectrumCanvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="image-frequency-spectrum" />
+          </div>
         </div>
         <div>
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Filtered</p>
           <canvas ref={filteredCanvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => filteredCanvasRef.current} label="image-frequency-filtered" />
+          </div>
         </div>
       </div>
     </div>

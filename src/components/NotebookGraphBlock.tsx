@@ -5,6 +5,7 @@ import { cellIdsMultiRow, cellIdsNotebookBlock } from "../lib/cell-ids.ts";
 import { drawExpressionLayer, drawPath, type Viewport } from "../lib/render-path.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { ExpressionRow } from "./ExpressionRow.tsx";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 const WIDTH = 400;
 const HEIGHT = 400;
@@ -99,6 +100,9 @@ export function NotebookGraphBlock({
       </button>
       <div>
         <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+        <div style={{ margin: "0.25rem 0" }}>
+          <PngExportButton getCanvas={() => canvasRef.current} label="notebook-graph" />
+        </div>
       </div>
     </div>
   );

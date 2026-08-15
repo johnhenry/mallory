@@ -13,6 +13,7 @@ import { drawImplicitCurve, drawPoint, drawPolyline } from "../lib/render-path.t
 import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewport.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -229,6 +230,9 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
         onClick={handleCanvasClick}
         style={{ border: "1px solid var(--border)", maxWidth: "100%", cursor: "crosshair" }}
       />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="gradient-descent" />
+      </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Click the plot to move the start point.</p>
       {descentResults.ok && (
         <ul style={{ margin: "0.25rem 0" }}>

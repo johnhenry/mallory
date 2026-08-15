@@ -15,6 +15,7 @@ import {
 import { DEFAULT_MONTE_CARLO_STATE, decodeMonteCarloState, encodeMonteCarloState, type MonteCarloState } from "../lib/monte-carlo-state.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 const WIDTH = 400;
 const HEIGHT = 400;
@@ -354,6 +355,10 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
       </div>
       <canvas ref={dartCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <canvas ref={convergenceCanvasRef} width={WIDTH} height={120} style={{ border: "1px solid var(--border)", display: "block", marginTop: "0.25rem" }} />
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.5rem" }}>
+        <PngExportButton getCanvas={() => dartCanvasRef.current} label="monte-carlo-darts" />
+        <PngExportButton getCanvas={() => convergenceCanvasRef.current} label="monte-carlo-convergence" />
+      </div>
       {dartResult.ok ? (
         <p>π estimate = {dartResult.result.piEstimate.toFixed(5)} (actual π ≈ 3.14159)</p>
       ) : (
@@ -425,6 +430,9 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
         )}
       </div>
       <canvas ref={histCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => histCanvasRef.current} label="monte-carlo-histogram" />
+      </div>
       {histResult.ok ? (
         <p>
           sample mean = {histResult.result.sampleMean.toFixed(4)} (theoretical {histResult.result.theoreticalMean.toFixed(4)}), sample
@@ -475,6 +483,9 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
         </button>
       </div>
       <canvas ref={integrandCanvasRef} width={WIDTH} height={220} style={{ border: "1px solid var(--border)", display: "block" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => integrandCanvasRef.current} label="monte-carlo-integrand" />
+      </div>
       {integrandResult.ok ? (
         <p>
           estimate = {integrandResult.result.estimate.toFixed(5)} (true value {integrandResult.result.trueValue.toFixed(5)}), absolute
