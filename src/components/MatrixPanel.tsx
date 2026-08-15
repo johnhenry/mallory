@@ -17,6 +17,7 @@ import { DEFAULT_MATRIX_STATE, decodeMatrixState, encodeMatrixState, type Matrix
 import { drawScatter, type Viewport } from "../lib/render-path.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -261,7 +262,12 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
         />
       </div>
       <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
-        <canvas ref={rootCanvasRef} width={ROOT_CANVAS_SIZE} height={ROOT_CANVAS_SIZE} style={{ border: "1px solid var(--border)" }} />
+        <div>
+          <canvas ref={rootCanvasRef} width={ROOT_CANVAS_SIZE} height={ROOT_CANVAS_SIZE} style={{ border: "1px solid var(--border)" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => rootCanvasRef.current} label="matrix-roots" />
+          </div>
+        </div>
         {polyRoots.ok ? (
           <ul>
             {polyRoots.value.map((r, i) => (

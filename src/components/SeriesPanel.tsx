@@ -6,6 +6,7 @@ import { DEFAULT_SERIES_STATE, decodeSeriesState, encodeSeriesState, type Series
 import { drawScatter, type Viewport } from "../lib/render-path.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -160,6 +161,9 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
         </label>
       </div>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="series" />
+      </div>
       {result.ok ? (
         result.value.diverges ? (
           <p style={{ color: "var(--danger)" }}>Diverges -- {result.value.divergeMessage}</p>

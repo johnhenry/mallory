@@ -12,6 +12,7 @@ import { DEFAULT_ODE2_STATE, decodeOde2State, encodeOde2State, type Ode2State } 
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type SolutionResult = { ok: true; path: Path2D } | { ok: false; message: string };
 
@@ -212,6 +213,9 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
         closedForm.message && <p style={{ color: "var(--danger)" }}>{closedForm.message}</p>
       )}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="ode-2nd-order" />
+      </div>
       {!solution.ok && <p style={{ color: "var(--danger)" }}>{solution.message}</p>}
     </div>
   );

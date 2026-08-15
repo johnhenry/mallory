@@ -9,6 +9,7 @@ import { DEFAULT_TAYLOR_STATE, decodeTaylorState, encodeTaylorState, type Taylor
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type ApproxResult = { ok: true; fPath: Path2D; taylorPath: Path2D; latex: string } | { ok: false; message: string };
 type LimitResult = { ok: true; value: number } | { ok: false; message: string };
@@ -183,6 +184,9 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
         <p style={{ color: "var(--danger)" }}>{approx.message}</p>
       )}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="taylor" />
+      </div>
       <h2>Limit</h2>
       <div style={{ margin: "0.25rem 0" }}>
         <label>

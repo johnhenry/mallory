@@ -16,6 +16,7 @@ import { drawPolyline, drawScatter } from "../lib/render-path.ts";
 import type { Viewport } from "../lib/viewport.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type SummaryResult =
   | {
@@ -421,8 +422,16 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
         </p>
       )}
       <canvas ref={smoothingCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => smoothingCanvasRef.current} label="statistics-smoothing" />
+      </div>
       {smoothingShowResidual && (
-        <canvas ref={residualCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%", marginTop: "0.5rem" }} />
+        <>
+          <canvas ref={residualCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%", marginTop: "0.5rem" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => residualCanvasRef.current} label="statistics-residual" />
+          </div>
+        </>
       )}
 
       <h2>Distribution</h2>

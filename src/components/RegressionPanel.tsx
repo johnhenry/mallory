@@ -11,6 +11,7 @@ import { DEFAULT_REGRESSION_STATE, decodeRegressionState, encodeRegressionState,
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { drawPath, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 const WIDTH = 500;
 const HEIGHT = 500;
@@ -364,6 +365,9 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
         + Add row
       </button>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="regression" />
+      </div>
       {fit.ok ? (
         fit.kind === "linear" ? (
           <p>

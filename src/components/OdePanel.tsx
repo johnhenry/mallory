@@ -12,6 +12,7 @@ import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type SolutionResult = { ok: true; path: Path2D } | { ok: false; message: string };
 type SlopeFieldResult = { ok: true; points: SlopeFieldPoint[] } | { ok: false; message: string };
@@ -231,6 +232,9 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
         </p>
       )}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="ode" />
+      </div>
       {(!solution.ok || !slopeField.ok) && (
         <p style={{ color: "var(--danger)" }}>{!solution.ok ? solution.message : !slopeField.ok ? slopeField.message : ""}</p>
       )}

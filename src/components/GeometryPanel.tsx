@@ -1,6 +1,7 @@
 import { type PointerEvent, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { AlgebraView } from "./AlgebraView.tsx";
+import { PngExportButton } from "./PngExportButton.tsx";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { interiorAngleRadians, isSelfIntersecting, polygonCentroid, shoelaceArea } from "../lib/geometry.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -721,6 +722,9 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="geometry" />
+      </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{hint}</p>
       <div style={{ margin: "0.5rem 0" }}>
         <AlgebraView graph={graph} />

@@ -19,6 +19,7 @@ import { drawPolyline, drawScatter } from "../lib/render-path.ts";
 import type { Viewport } from "../lib/viewport.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -293,12 +294,18 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
         <div>
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Decision boundary (blue = class 0, red = class 1)</p>
           <canvas ref={boundaryCanvasRef} width={BOUNDARY_SIZE} height={BOUNDARY_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => boundaryCanvasRef.current} label="ml-decision-boundary" />
+          </div>
         </div>
         <div>
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
             Loss{totalEpochs > 0 ? ` -- ${totalEpochs} epochs, last ${lastLoss?.toExponential(3)}` : ""}
           </p>
           <canvas ref={lossCanvasRef} width={LOSS_WIDTH} height={LOSS_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => lossCanvasRef.current} label="ml-loss" />
+          </div>
         </div>
       </div>
     </div>

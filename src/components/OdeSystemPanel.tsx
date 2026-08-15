@@ -18,6 +18,7 @@ import { DEFAULT_ODE_SYSTEM_STATE, decodeOdeSystemState, encodeOdeSystemState, t
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
 
 type TrajectoryResult = { ok: true; path: Path2D; final: { t: number; x: number; y: number } } | { ok: false; message: string };
 type VectorFieldResult = { ok: true; points: VectorFieldPoint[] } | { ok: false; message: string };
@@ -307,6 +308,9 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
         </label>
       </div>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="ode-system" />
+      </div>
       {trajectory.ok && (
         <p>
           at t = {trajectory.final.t.toFixed(4)}: x = {trajectory.final.x.toFixed(4)}, y = {trajectory.final.y.toFixed(4)}
