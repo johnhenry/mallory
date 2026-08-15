@@ -375,6 +375,21 @@ export function cellIdsGradientDescent(cellId: string) {
 
 export type CellIdsGradientDescent = ReturnType<typeof cellIdsGradientDescent>;
 
+export function cellIdsMlPlayground(cellId: string) {
+  return {
+    dataset: `mlDataset:${cellId}`,
+    pointsPerClass: `mlPointsPerClass:${cellId}`,
+    dataSeed: `mlDataSeed:${cellId}`,
+    modelSeed: `mlModelSeed:${cellId}`,
+    hidden: `mlHidden:${cellId}`,
+    lr: `mlLr:${cellId}`,
+    epochs: `mlEpochs:${cellId}`,
+    points: `mlPoints:${cellId}`,
+  };
+}
+
+export type CellIdsMlPlayground = ReturnType<typeof cellIdsMlPlayground>;
+
 // Deliberately NOT namespaced by cellId, same reasoning as TIME_CELL: every
 // expression row on a GraphCanvasMulti shares one coordinate system and one
 // ordered row list, rather than each owning an independent viewport the way

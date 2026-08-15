@@ -27,6 +27,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppSignalRouteImport } from './routes/_app/signal'
 import { Route as AppPracticeRouteImport } from './routes/_app/practice'
 import { Route as AppNotesRouteImport } from './routes/_app/notes'
+import { Route as AppMlRouteImport } from './routes/_app/ml'
 import { Route as AppImageRouteImport } from './routes/_app/image'
 import { Route as AppGraphingRouteImport } from './routes/_app/graphing'
 import { Route as AppGeoRouteImport } from './routes/_app/geo'
@@ -125,6 +126,11 @@ const AppNotesRoute = AppNotesRouteImport.update({
   path: '/notes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMlRoute = AppMlRouteImport.update({
+  id: '/ml',
+  path: '/ml',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppImageRoute = AppImageRouteImport.update({
   id: '/image',
   path: '/image',
@@ -189,6 +195,7 @@ export interface FileRoutesByFullPath {
   '/geo': typeof AppGeoRoute
   '/graphing': typeof AppGraphingRoute
   '/image': typeof AppImageRoute
+  '/ml': typeof AppMlRoute
   '/notes': typeof AppNotesRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByTo {
   '/geo': typeof AppGeoRoute
   '/graphing': typeof AppGraphingRoute
   '/image': typeof AppImageRoute
+  '/ml': typeof AppMlRoute
   '/notes': typeof AppNotesRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
@@ -244,6 +252,7 @@ export interface FileRoutesById {
   '/_app/geo': typeof AppGeoRoute
   '/_app/graphing': typeof AppGraphingRoute
   '/_app/image': typeof AppImageRoute
+  '/_app/ml': typeof AppMlRoute
   '/_app/notes': typeof AppNotesRoute
   '/_app/practice': typeof AppPracticeRoute
   '/_app/signal': typeof AppSignalRoute
@@ -274,6 +283,7 @@ export interface FileRouteTypes {
     | '/geo'
     | '/graphing'
     | '/image'
+    | '/ml'
     | '/notes'
     | '/practice'
     | '/signal'
@@ -300,6 +310,7 @@ export interface FileRouteTypes {
     | '/geo'
     | '/graphing'
     | '/image'
+    | '/ml'
     | '/notes'
     | '/practice'
     | '/signal'
@@ -328,6 +339,7 @@ export interface FileRouteTypes {
     | '/_app/geo'
     | '/_app/graphing'
     | '/_app/image'
+    | '/_app/ml'
     | '/_app/notes'
     | '/_app/practice'
     | '/_app/signal'
@@ -479,6 +491,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/ml': {
+      id: '/_app/ml'
+      path: '/ml'
+      fullPath: '/ml'
+      preLoaderRoute: typeof AppMlRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/image': {
       id: '/_app/image'
       path: '/image'
@@ -547,6 +566,7 @@ interface AppRouteChildren {
   AppGeoRoute: typeof AppGeoRoute
   AppGraphingRoute: typeof AppGraphingRoute
   AppImageRoute: typeof AppImageRoute
+  AppMlRoute: typeof AppMlRoute
   AppNotesRoute: typeof AppNotesRoute
   AppPracticeRoute: typeof AppPracticeRoute
   AppSignalRoute: typeof AppSignalRoute
@@ -562,6 +582,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppGeoRoute: AppGeoRoute,
   AppGraphingRoute: AppGraphingRoute,
   AppImageRoute: AppImageRoute,
+  AppMlRoute: AppMlRoute,
   AppNotesRoute: AppNotesRoute,
   AppPracticeRoute: AppPracticeRoute,
   AppSignalRoute: AppSignalRoute,
