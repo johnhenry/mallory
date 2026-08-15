@@ -379,6 +379,10 @@ export function cellIdsSignal(cellId: string) {
     minSpacingHz: `signalMinSpacingHz:${cellId}`,
     minProminence: `signalMinProminence:${cellId}`,
     peaksResult: `signalPeaksResult:${cellId}`,
+    showCorrelation: `signalShowCorrelation:${cellId}`,
+    exprTextB: `signalExprTextB:${cellId}`,
+    waveformBResult: `signalWaveformBResult:${cellId}`,
+    correlationResult: `signalCorrelationResult:${cellId}`,
   };
 }
 
