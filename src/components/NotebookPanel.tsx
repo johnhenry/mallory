@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import {
   cellIds3D,
+  cellIdsComplex,
   cellIdsGeometry,
   cellIdsMultiRow,
   cellIdsNotebookBlock,
@@ -23,6 +24,7 @@ import {
   type NotebookGraphBlockStateV1,
   type NotebookState,
 } from "../lib/notebook-state.ts";
+import { DEFAULT_COMPLEX_STATE, type ComplexState } from "../lib/complex-state.ts";
 import { DEFAULT_GEOMETRY_STATE, type GeometryOp } from "../lib/geometry-state.ts";
 import { DEFAULT_ODE_STATE, type OdeState } from "../lib/ode-state.ts";
 import { DEFAULT_ODE_SYSTEM_STATE, type OdeSystemState } from "../lib/ode-system-state.ts";
@@ -31,6 +33,7 @@ import { DEFAULT_STATISTICS_STATE, type StatisticsState } from "../lib/statistic
 import { DEFAULT_SYSTEM_STATE, type SystemState } from "../lib/system-state.ts";
 import { notebookToLatex, notebookToMarkdown, type NotebookGraphImages } from "../lib/notebook-export.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
+import { getCurrentComplexState } from "./ComplexPanel.tsx";
 import { getCurrentGeometryState } from "./GeometryPanel.tsx";
 import { getCurrentOdeState } from "./OdePanel.tsx";
 import { getCurrentOdeSystemState } from "./OdeSystemPanel.tsx";
@@ -38,6 +41,7 @@ import { getCurrentRegressionState } from "./RegressionPanel.tsx";
 import { getCurrentStatisticsState } from "./StatisticsPanel.tsx";
 import { getCurrentSystemState } from "./SystemSolverPanel.tsx";
 import { type TensorOpType } from "../lib/tensor-block.ts";
+import { NotebookComplexBlock } from "./NotebookComplexBlock.tsx";
 import { NotebookGeometryBlock } from "./NotebookGeometryBlock.tsx";
 import { NotebookTensorBlock } from "./NotebookTensorBlock.tsx";
 import { NotebookGraph3DBlock } from "./NotebookGraph3DBlock.tsx";
@@ -61,7 +65,8 @@ type Block =
   | { id: string; type: "statistics"; initialState: StatisticsState }
   | { id: string; type: "systems"; initialState: SystemState }
   | { id: string; type: "geometry"; initialOps: GeometryOp[] }
-  | { id: string; type: "tensor"; source: string; op: TensorOpType; opArg: number };
+  | { id: string; type: "tensor"; source: string; op: TensorOpType; opArg: number }
+  | { id: string; type: "complex"; initialState: ComplexState };
 
 /**
  * Seeds a "graph" block's rows/viewport into `graph` (mirrors
@@ -116,6 +121,7 @@ function hydrateBlocks(graph: CellGraph, state: NotebookState): Block[] {
     if (b.type === "statistics") return { id, type: "statistics", initialState: b.state };
     if (b.type === "systems") return { id, type: "systems", initialState: b.state };
     if (b.type === "tensor") return { id, type: "tensor", source: b.source, op: b.op, opArg: b.opArg ?? 1 };
+    if (b.type === "complex") return { id, type: "complex", initialState: b.state };
     return { id, type: "geometry", initialOps: b.state.ops };
   });
 }
@@ -166,6 +172,7 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
       }
       if (block.type === "systems") return { type: "systems", state: getCurrentSystemState(graph, cellIdsSystem(block.id)) };
       if (block.type === "tensor") return { type: "tensor", source: block.source, op: block.op, opArg: block.opArg };
+      if (block.type === "complex") return { type: "complex", state: getCurrentComplexState(graph, cellIdsComplex(block.id)) };
       return { type: "geometry", state: getCurrentGeometryState(graph, cellIdsGeometry(block.id)) };
     }),
   };
@@ -366,6 +373,10 @@ export function NotebookPanel() {
     setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "tensor", source: "1 2 3\n4 5 6\n7 8 9", op: "none", opArg: 1 }]);
   }
 
+  function addComplexBlock() {
+    setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "complex", initialState: DEFAULT_COMPLEX_STATE }]);
+  }
+
   function updateTensorSource(id: string, source: string) {
     setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, source } : b)));
   }
@@ -452,6 +463,8 @@ export function NotebookPanel() {
       const listIds = cellIdsGeometry(id);
       graph.delete(listIds.objectList);
       graph.delete(listIds.opsLog);
+    } else if (removed?.type === "complex") {
+      for (const cellId of Object.values(cellIdsComplex(id))) graph.delete(cellId);
     }
     setBlocks((prev) => prev.filter((b) => b.id !== id));
   }
@@ -619,6 +632,17 @@ export function NotebookPanel() {
   });
 
   useModelContextTool({
+    name: "notebook_add_complex_block",
+    description: "Append a complex-plane block (domain coloring of f(z), a probe point, roots-of-unity/conformal-grid overlays) to the end of the notebook.",
+    inputSchema: { type: "object", properties: {} },
+    handler: () => {
+      const id = crypto.randomUUID();
+      setBlocks((prev) => [...prev, { id, type: "complex", initialState: DEFAULT_COMPLEX_STATE }]);
+      return { id };
+    },
+  });
+
+  useModelContextTool({
     name: "notebook_add_value_block",
     description: 'Append a named value block, referenceable by name (e.g. "k") from any graph block\'s expressions in this notebook. Name must be a single lowercase letter other than x/y (this app\'s expression parser splits any longer name into single-letter variables multiplied together).',
     inputSchema: {
@@ -765,6 +789,8 @@ export function NotebookPanel() {
                 onOpChange={(op) => updateTensorOp(block.id, op)}
                 onOpArgChange={(opArg) => updateTensorOpArg(block.id, opArg)}
               />
+            ) : block.type === "complex" ? (
+              <NotebookComplexBlock graph={graph} blockId={block.id} initialState={block.initialState} />
             ) : (
               <NotebookGeometryBlock graph={graph} blockId={block.id} initialOps={block.initialOps} />
             )}
@@ -804,6 +830,9 @@ export function NotebookPanel() {
         </button>
         <button type="button" onClick={addTensorBlock}>
           + Tensor block
+        </button>
+        <button type="button" onClick={addComplexBlock}>
+          + Complex block
         </button>
         <button type="button" onClick={addValueBlock}>
           + Value block

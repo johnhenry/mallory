@@ -15,6 +15,7 @@ const UNSUPPORTED_BLOCK_LABELS: Record<string, string> = {
   systems: "linear system",
   geometry: "geometry",
   tensor: "tensor",
+  complex: "complex plane",
 };
 
 /**
