@@ -383,6 +383,10 @@ export function cellIdsSignal(cellId: string) {
     exprTextB: `signalExprTextB:${cellId}`,
     waveformBResult: `signalWaveformBResult:${cellId}`,
     correlationResult: `signalCorrelationResult:${cellId}`,
+    showResample: `signalShowResample:${cellId}`,
+    resampleUp: `signalResampleUp:${cellId}`,
+    resampleDown: `signalResampleDown:${cellId}`,
+    resampleResult: `signalResampleResult:${cellId}`,
   };
 }
 

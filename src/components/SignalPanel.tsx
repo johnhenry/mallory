@@ -15,6 +15,7 @@ import {
   type Waveform,
 } from "../lib/signal-waveform.ts";
 import { crossCorrelate, type CorrelationResult } from "../lib/signal-correlation.ts";
+import { resampleWaveform } from "../lib/signal-resample.ts";
 import { drawPoint, drawPolyline } from "../lib/render-path.ts";
 import { polylineToSvgDocument } from "../lib/svg-export.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -81,6 +82,9 @@ function seedSignalState(graph: CellGraph, ids: CellIdsSignal, state: SignalStat
   graph.set(ids.minProminence, state.minProminence ?? DEFAULT_SIGNAL_STATE.minProminence);
   graph.set(ids.showCorrelation, state.showCorrelation ?? DEFAULT_SIGNAL_STATE.showCorrelation);
   graph.set(ids.exprTextB, state.exprTextB ?? DEFAULT_SIGNAL_STATE.exprTextB);
+  graph.set(ids.showResample, state.showResample ?? DEFAULT_SIGNAL_STATE.showResample);
+  graph.set(ids.resampleUp, state.resampleUp ?? DEFAULT_SIGNAL_STATE.resampleUp);
+  graph.set(ids.resampleDown, state.resampleDown ?? DEFAULT_SIGNAL_STATE.resampleDown);
 }
 
 function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalState {
@@ -97,6 +101,9 @@ function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalStat
     minProminence: graph.get<string>(ids.minProminence),
     showCorrelation: graph.get<boolean>(ids.showCorrelation),
     exprTextB: graph.get<string>(ids.exprTextB),
+    showResample: graph.get<boolean>(ids.showResample),
+    resampleUp: graph.get<string>(ids.resampleUp),
+    resampleDown: graph.get<string>(ids.resampleDown),
   };
 }
 
@@ -196,6 +203,19 @@ function useSignalGraph(cellId: string): CellGraph {
       }
     });
 
+    graph.define(ids.resampleResult, (): Result<Waveform> => {
+      const waveform = graph.get<Result<Waveform>>(ids.waveformResult);
+      if (!waveform.ok) return waveform;
+      try {
+        const up = Number(graph.get<string>(ids.resampleUp));
+        const down = Number(graph.get<string>(ids.resampleDown));
+        if (Number.isNaN(up) || Number.isNaN(down)) throw new Error("up and down must both be numbers.");
+        return { ok: true, value: resampleWaveform(waveform.value, up, down) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
     ref.current = graph;
   }
   return ref.current;
@@ -216,6 +236,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const spectrogramCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const correlationCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const resampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const exprText = useCell<string>(graph, ids.exprText);
   const sampleRate = useCell<string>(graph, ids.sampleRate);
@@ -233,6 +254,10 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const showCorrelation = useCell<boolean>(graph, ids.showCorrelation);
   const exprTextB = useCell<string>(graph, ids.exprTextB);
   const correlationResult = useCell<Result<CorrelationResult>>(graph, ids.correlationResult);
+  const showResample = useCell<boolean>(graph, ids.showResample);
+  const resampleUp = useCell<string>(graph, ids.resampleUp);
+  const resampleDown = useCell<string>(graph, ids.resampleDown);
+  const resampleResult = useCell<Result<Waveform>>(graph, ids.resampleResult);
 
   const [exprInput, setExprInput] = useState(exprText);
   const [exprInputB, setExprInputB] = useState(exprTextB);
@@ -321,6 +346,17 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       "#16a34a",
     );
   }, [showCorrelation, correlationResult]);
+
+  useEffect(() => {
+    const canvas = resampleCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
+    if (!showResample || !resampleResult.ok) return;
+    const { points, viewport } = waveformPlot(resampleResult.value);
+    drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0891b2");
+  }, [showResample, resampleResult]);
 
   return (
     <div>
@@ -513,6 +549,67 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
                 return polylineToSvgDocument(points, viewport, CORRELATION_WIDTH, CORRELATION_HEIGHT, "#7c3aed");
               }}
               label="signal-correlation"
+            />
+          </div>
+        </>
+      )}
+
+      <h3>Resample</h3>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label>
+          <input type="checkbox" checked={showResample} onChange={(e) => graph.set(ids.showResample, e.target.checked)} /> Resample the waveform
+        </label>
+        {showResample && (
+          <>
+            <label>
+              up:{" "}
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={resampleUp}
+                onChange={(e) => graph.set(ids.resampleUp, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+            <label>
+              down:{" "}
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={resampleDown}
+                onChange={(e) => graph.set(ids.resampleDown, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+          </>
+        )}
+      </div>
+      {showResample && (
+        <>
+          {!resampleResult.ok && <p style={{ color: "var(--danger)" }}>{resampleResult.message}</p>}
+          {resampleResult.ok && (
+            <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+              {resampleResult.value.y.length} samples at {resampleResult.value.sampleRate.toFixed(3)}Hz (was {waveformResult.ok ? waveformResult.value.y.length : "?"}{" "}
+              samples at {sampleRate}Hz).
+            </p>
+          )}
+          <canvas
+            ref={resampleCanvasRef}
+            width={WAVEFORM_WIDTH}
+            height={WAVEFORM_HEIGHT}
+            style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
+          />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => resampleCanvasRef.current} label="signal-resample" />{" "}
+            <SvgExportButton
+              getSvg={() => {
+                if (!resampleResult.ok) return null;
+                const { points, viewport } = waveformPlot(resampleResult.value);
+                return polylineToSvgDocument(points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0891b2");
+              }}
+              label="signal-resample"
             />
           </div>
         </>
