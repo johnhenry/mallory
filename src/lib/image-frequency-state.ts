@@ -2,11 +2,15 @@ import type { MaskType, PatternType } from "./image-frequency.ts";
 
 /**
  * URL-state schema for ImageFrequencyPanel -- the raw inputs only (see
- * cell-ids.ts's cellIdsImageFrequency). No raw pixel data in the URL: v1
- * only supports built-in patterns (see image-frequency.ts's own doc comment
- * on why file upload is deferred), so the pattern NAME is enough to
- * reproduce the image, same as every other panel's flat-string-cells
- * convention.
+ * cell-ids.ts's cellIdsImageFrequency). No raw pixel data in the URL, even
+ * for `pattern: "upload"`: an uploaded image can't be reproduced from a
+ * URL fragment (arbitrary size, no reasonable length cap), so the
+ * uploaded grid lives in an auxiliary, non-persisted cell instead
+ * (`ImageFrequencyPanel.tsx`'s `useImageFrequencyGraph`) -- mirroring
+ * `DataImportPanel`'s "this session isn't the shareable artifact"
+ * philosophy. A decoded `pattern: "upload"` hash is structurally valid but
+ * shows the upload prompt again on load, same as CSV import's `text`
+ * isn't restored either.
  */
 export interface ImageFrequencyStateV1 {
   v: 1;
@@ -53,7 +57,7 @@ export function decodeImageFrequencyState(fragment: string): ImageFrequencyState
   }
 }
 
-const PATTERN_TYPES: PatternType[] = ["checkerboard", "stripes", "circle", "gradient", "moire"];
+const PATTERN_TYPES: PatternType[] = ["checkerboard", "stripes", "circle", "gradient", "moire", "upload"];
 const MASK_TYPES: MaskType[] = ["lowpass", "highpass", "bandpass", "notch", "wedge", "none"];
 
 export function isImageFrequencyStateV1(value: unknown): value is ImageFrequencyStateV1 {
