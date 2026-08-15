@@ -74,6 +74,23 @@ export function cellIdsParametricSurface(cellId: string) {
 
 export type CellIdsParametricSurface = ReturnType<typeof cellIdsParametricSurface>;
 
+export function cellIdsVectorField3D(cellId: string) {
+  return {
+    exprDx: `vectorField3dExprDx:${cellId}`,
+    exprDy: `vectorField3dExprDy:${cellId}`,
+    exprDz: `vectorField3dExprDz:${cellId}`,
+    xMin: `vectorField3dXMin:${cellId}`,
+    xMax: `vectorField3dXMax:${cellId}`,
+    yMin: `vectorField3dYMin:${cellId}`,
+    yMax: `vectorField3dYMax:${cellId}`,
+    zMin: `vectorField3dZMin:${cellId}`,
+    zMax: `vectorField3dZMax:${cellId}`,
+    points: `vectorField3dPoints:${cellId}`,
+  };
+}
+
+export type CellIdsVectorField3D = ReturnType<typeof cellIdsVectorField3D>;
+
 /**
  * Cell-id namespacing for a system-of-equations solver panel
  * (SystemSolverPanel.tsx) -- a different input shape entirely from
