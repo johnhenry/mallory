@@ -21,6 +21,15 @@ test("generatePattern: rejects a non-positive size", () => {
   assert.throws(() => generatePattern("circle", 0), /size must be positive/);
 });
 
+test("generatePattern: moire sums two vertical gratings (period 8 and 16), hand-computed against 128 + 63.75*sin(2*pi*x/8) + 63.75*sin(2*pi*x/16)", () => {
+  const grid = generatePattern("moire", 20);
+  const expected = (x: number) => 128 + 63.75 * Math.sin((2 * Math.PI * x) / 8) + 63.75 * Math.sin((2 * Math.PI * x) / 16);
+  for (const x of [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16]) {
+    assert.ok(Math.abs((grid[0]?.[x] as number) - expected(x)) < 1e-9, `x=${x}`);
+    assert.equal(grid[0]?.[x], grid[7]?.[x], `x=${x} should be constant down each column`);
+  }
+});
+
 test("buildMask: lowpass keeps only the disc within radius of center, hand-checked on a 5x5 grid", () => {
   const mask = buildMask(5, "lowpass", 1);
   // center is (2,2); distance 1 keeps (2,2) and its 4 direct neighbors, corners are farther than 1.
@@ -56,6 +65,27 @@ test("buildMask: bandpass keeps only the annulus between the two radii", () => {
   assert.equal(mask[center]?.[center], 0); // dist 0, inside the inner radius -- excluded
   assert.equal(mask[center]?.[center + 2], 1); // dist 2, inside the band
   assert.equal(mask[center]?.[center + 4], 0); // dist 4, outside the outer radius
+});
+
+test("buildMask: notch keeps everything OUTSIDE the annulus (DC included), rejecting only the band bandpass would keep", () => {
+  const mask = buildMask(9, "notch", 1, 3);
+  const center = 4;
+  assert.equal(mask[center]?.[center], 1); // dist 0 (DC) -- kept, unlike bandpass
+  assert.equal(mask[center]?.[center + 2], 0); // dist 2, inside the rejected band
+  assert.equal(mask[center]?.[center + 4], 1); // dist 4, outside the band -- kept
+});
+
+test("buildMask: notch is the EXACT complement of bandpass at the same radii -- every point sums to exactly 1, no double-counted boundary (bandpass's bounds are inclusive, notch's are the strict opposite)", () => {
+  const size = 8;
+  const radius = 1;
+  const radius2 = 3;
+  const bandpass = buildMask(size, "bandpass", radius, radius2);
+  const notch = buildMask(size, "notch", radius, radius2);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      assert.equal((bandpass[y]![x]! as number) + (notch[y]![x]! as number), 1, `mismatch at (${x},${y})`);
+    }
+  }
 });
 
 test("buildMask: wedge (0deg, width 30) keeps horizontal-ish directions and excludes vertical, hand-checked on a 9x9 grid (center at (4,4))", () => {

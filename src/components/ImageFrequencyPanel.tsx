@@ -28,12 +28,14 @@ const PATTERN_LABELS: Record<PatternType, string> = {
   stripes: "Stripes",
   circle: "Circle",
   gradient: "Gradient",
+  moire: "Moire (two gratings)",
 };
 
 const MASK_LABELS: Record<MaskType, string> = {
   lowpass: "Low-pass (blur)",
   highpass: "High-pass (edges)",
   bandpass: "Band-pass (ring)",
+  notch: "Notch (reject a ring)",
   wedge: "Directional wedge",
   none: "None (pass-through)",
 };
@@ -188,7 +190,7 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
             style={{ font: "inherit", width: "6ch" }}
           />
         </label>
-        {maskType === "bandpass" && (
+        {(maskType === "bandpass" || maskType === "notch") && (
           <label>
             outer radius:{" "}
             <input

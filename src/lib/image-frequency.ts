@@ -2,7 +2,7 @@ import { Tensor } from "mallory-tensor-core";
 import { normalize, resize } from "mallory-image";
 import { ComplexTensor, fft2, fftshift, ifft2, ifftshift } from "mallory-fft";
 
-export type PatternType = "checkerboard" | "stripes" | "circle" | "gradient";
+export type PatternType = "checkerboard" | "stripes" | "circle" | "gradient" | "moire";
 
 /**
  * Generates a `size x size` grayscale (0-255) test pattern -- the "or pick a
@@ -30,6 +30,19 @@ export function generatePattern(type: PatternType, size: number): number[][] {
         case "gradient":
           value = size > 1 ? (x / (size - 1)) * 255 : 0;
           break;
+        case "moire":
+          // Two vertical gratings at periods 8 and 16 -- both divide every
+          // offered `size` (32/64/128) evenly, so neither leaks spectral
+          // energy across bins the way a non-integer-cycle period would.
+          // Summed as smooth sinusoids (not thresholded to 0/255 like
+          // `stripes`) so each grating stays a single clean spectral peak
+          // instead of a square wave's spray of harmonics. Their two peaks
+          // sit at distinct radii from DC (size/16 and size/8), so a
+          // `notch` mask tuned between them removes one grating's
+          // contribution while leaving the other's intact -- the demo
+          // issue #32 asked for specifically to exercise `notch`.
+          value = 128 + 63.75 * Math.sin((2 * Math.PI * x) / 8) + 63.75 * Math.sin((2 * Math.PI * x) / 16);
+          break;
       }
       row.push(value);
     }
@@ -38,7 +51,7 @@ export function generatePattern(type: PatternType, size: number): number[][] {
   return grid;
 }
 
-export type MaskType = "lowpass" | "highpass" | "bandpass" | "wedge" | "none";
+export type MaskType = "lowpass" | "highpass" | "bandpass" | "notch" | "wedge" | "none";
 
 /**
  * Folds an angle in degrees to `[0, 180)` -- a line through the spectrum's
@@ -55,11 +68,15 @@ function foldAngleDeg(angleDeg: number): number {
  * Builds a `size x size` binary mask (1 = keep, 0 = zero out) centered on the
  * (fftshift'd) spectrum's own DC position -- a disc for `lowpass`, its
  * complement (a ring extending to the corners) for `highpass`, an annulus
- * for `bandpass`, a symmetric bowtie through the center for `wedge` (issue
- * #32's directional filter -- keeps frequency content oriented along
- * `wedgeAngleDeg`, e.g. 0deg/horizontal keeps vertical image edges), or
- * all-ones for `none` (a round-trip sanity check: masking with `none` and
- * inverting should exactly reconstruct the input).
+ * for `bandpass`, `bandpass`'s own complement (everything OUTSIDE the
+ * annulus, including DC) for `notch` -- issue #32's "reject one specific
+ * periodic frequency, keep everything else" filter, e.g. removing a single
+ * unwanted grating/moire frequency without blurring the rest of the image
+ * the way a `lowpass` would -- a symmetric bowtie through the center for
+ * `wedge` (issue #32's directional filter -- keeps frequency content
+ * oriented along `wedgeAngleDeg`, e.g. 0deg/horizontal keeps vertical image
+ * edges), or all-ones for `none` (a round-trip sanity check: masking with
+ * `none` and inverting should exactly reconstruct the input).
  */
 export function buildMask(
   size: number,
@@ -92,6 +109,9 @@ export function buildMask(
           break;
         case "bandpass":
           keep = dist >= radius && dist <= outerRadius;
+          break;
+        case "notch":
+          keep = dist < radius || dist > outerRadius;
           break;
         case "wedge": {
           // DC itself has no meaningful direction -- always keep it, the
