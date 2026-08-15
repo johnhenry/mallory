@@ -14,6 +14,7 @@ import {
 } from "../lib/parametric-surface-state.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -131,7 +132,12 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
     const container = containerRef.current;
     if (!container) return;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xffffff);
+    scene.background = new THREE.Color(getThemeColors().surface);
+    // scene.background is runtime state set once, not CSS -- needs an
+    // explicit re-set on every theme flip (see subscribeToThemeChange's doc).
+    const unsubscribeTheme = subscribeToThemeChange(() => {
+      scene.background = new THREE.Color(getThemeColors().surface);
+    });
 
     const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.1, 1000);
     camera.position.set(6, 6, 6);
@@ -163,6 +169,7 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
 
     return () => {
       cancelAnimationFrame(raf);
+      unsubscribeTheme();
       controls.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
