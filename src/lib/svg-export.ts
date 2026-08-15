@@ -52,6 +52,45 @@ export function pathsToSvgDocument(paths: ReadonlyArray<MalloryPath>, viewport: 
 }
 
 /**
+ * Converts a plain `{x,y}[]` array (data space) into an SVG `<path>` `d`
+ * attribute -- the polyline counterpart to `pathToSvgD`, for callers (a
+ * sampled waveform or FFT spectrum) that already have flat point arrays
+ * and have no mallory-math `Path2D`, matching `render-path.ts`'s own
+ * `drawPolyline`/`drawPath` split.
+ */
+export function polylinePointsToSvgD(points: ReadonlyArray<{ x: number; y: number }>, viewport: Viewport, width: number, height: number): string {
+  return points
+    .map((p, i) => {
+      const sx = toScreenX(p.x, viewport, width);
+      const sy = toScreenY(p.y, viewport, height);
+      return `${i === 0 ? "M" : "L"}${sx.toFixed(2)} ${sy.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+/**
+ * Wraps a plain point array into a standalone SVG document -- the
+ * `polylinePointsToSvgD` counterpart to `pathsToSvgDocument`, one line
+ * only (a `drawPolyline` caller only ever draws a single line per call,
+ * unlike `drawPath`'s multi-`Path2D` case). `color`/`strokeWidth` mirror
+ * `drawPolyline`'s own CSS-color-string + fixed-1.5px-width convention
+ * (a plain CSS color, not mallory-math's `Path2D.stroke`'s packed hex
+ * number + separate alpha).
+ */
+export function polylineToSvgDocument(
+  points: ReadonlyArray<{ x: number; y: number }>,
+  viewport: Viewport,
+  width: number,
+  height: number,
+  color = "#2563eb",
+  strokeWidth = 1.5,
+): string {
+  const element =
+    points.length === 0 ? "" : `<path d="${polylinePointsToSvgD(points, viewport, width, height)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" />`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${element}\n</svg>`;
+}
+
+/**
  * Downloads an SVG document string as a file -- a `Blob` + anchor-click
  * download, the same pattern `canvas-export.ts`'s `downloadCanvasPng` uses
  * for PNGs (no `toBlob()` step needed here since the SVG is already a

@@ -15,12 +15,39 @@ import {
   type Waveform,
 } from "../lib/signal-waveform.ts";
 import { drawPoint, drawPolyline } from "../lib/render-path.ts";
+import { polylineToSvgDocument } from "../lib/svg-export.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import type { Viewport } from "../lib/viewport.ts";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
+
+interface PlotSeries {
+  points: { x: number; y: number }[];
+  viewport: Viewport;
+}
+
+/** Shared by the Canvas2D draw effect and the SVG export getter, so the viewport math can't drift between the two. */
+export function waveformPlot(waveform: Waveform): PlotSeries {
+  const { t, y } = waveform;
+  const maxAbsY = Math.max(1e-9, ...y.map((v) => Math.abs(v)));
+  return {
+    points: t.map((ti, i) => ({ x: ti, y: y[i]! })),
+    viewport: { xMin: t[0]!, xMax: t[t.length - 1]!, yMin: -maxAbsY * 1.1, yMax: maxAbsY * 1.1 },
+  };
+}
+
+/** Shared by the Canvas2D draw effect and the SVG export getter, so the viewport math can't drift between the two. */
+export function spectrumPlot(spectrum: AmplitudeSpectrum): PlotSeries {
+  const { frequencies, amplitudes } = spectrum;
+  const maxAmp = Math.max(1e-9, ...amplitudes);
+  return {
+    points: frequencies.map((f, i) => ({ x: f, y: amplitudes[i]! })),
+    viewport: { xMin: 0, xMax: frequencies[frequencies.length - 1]!, yMin: 0, yMax: maxAmp * 1.1 },
+  };
+}
 
 const WAVEFORM_WIDTH = 640;
 const WAVEFORM_HEIGHT = 220;
@@ -191,10 +218,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     if (!ctx) return;
     ctx.clearRect(0, 0, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
     if (!waveformResult.ok) return;
-    const { t, y } = waveformResult.value;
-    const maxAbsY = Math.max(1e-9, ...y.map((v) => Math.abs(v)));
-    const viewport: Viewport = { xMin: t[0]!, xMax: t[t.length - 1]!, yMin: -maxAbsY * 1.1, yMax: maxAbsY * 1.1 };
-    const points = t.map((ti, i) => ({ x: ti, y: y[i]! }));
+    const { points, viewport } = waveformPlot(waveformResult.value);
     drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
   }, [waveformResult]);
 
@@ -205,10 +229,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     if (!ctx) return;
     ctx.clearRect(0, 0, SPECTRUM_WIDTH, SPECTRUM_HEIGHT);
     if (!spectrumResult.ok) return;
-    const { frequencies, amplitudes } = spectrumResult.value;
-    const maxAmp = Math.max(1e-9, ...amplitudes);
-    const viewport: Viewport = { xMin: 0, xMax: frequencies[frequencies.length - 1]!, yMin: 0, yMax: maxAmp * 1.1 };
-    const points = frequencies.map((f, i) => ({ x: f, y: amplitudes[i]! }));
+    const { points, viewport } = spectrumPlot(spectrumResult.value);
     drawPolyline(ctx, points, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, "#dc2626");
     if (showPeaks && peaksResult.ok) {
       for (const peak of peaksResult.value) {
@@ -268,14 +289,30 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       <h3>Waveform</h3>
       <canvas ref={waveformCanvasRef} width={WAVEFORM_WIDTH} height={WAVEFORM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => waveformCanvasRef.current} label="signal-waveform" />
+        <PngExportButton getCanvas={() => waveformCanvasRef.current} label="signal-waveform" />{" "}
+        <SvgExportButton
+          getSvg={() => {
+            if (!waveformResult.ok) return null;
+            const { points, viewport } = waveformPlot(waveformResult.value);
+            return polylineToSvgDocument(points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
+          }}
+          label="signal-waveform"
+        />
       </div>
 
       <h3>Amplitude spectrum</h3>
       {!spectrumResult.ok && <p style={{ color: "var(--danger)" }}>{spectrumResult.message}</p>}
       <canvas ref={spectrumCanvasRef} width={SPECTRUM_WIDTH} height={SPECTRUM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="signal-spectrum" />
+        <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="signal-spectrum" />{" "}
+        <SvgExportButton
+          getSvg={() => {
+            if (!spectrumResult.ok) return null;
+            const { points, viewport } = spectrumPlot(spectrumResult.value);
+            return polylineToSvgDocument(points, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, "#dc2626");
+          }}
+          label="signal-spectrum"
+        />
       </div>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <label>
