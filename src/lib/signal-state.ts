@@ -34,6 +34,13 @@ export interface SignalStateV2 {
    */
   showCorrelation?: boolean;
   exprTextB?: string;
+  /**
+   * `resamplePoly` demo (issue #31's last "extras" item) -- optional for the
+   * same reason as the fields above.
+   */
+  showResample?: boolean;
+  resampleUp?: string;
+  resampleDown?: string;
 }
 
 export type SignalState = SignalStateV2;
@@ -54,6 +61,9 @@ export const DEFAULT_SIGNAL_STATE: SignalState = {
   // ready-made demo where the cross-correlation's detected lag should read
   // back close to +0.05s with zero manual tuning.
   exprTextB: "sin(2*pi*5*(t-0.05)) + 0.5*sin(2*pi*12*(t-0.05))",
+  showResample: false,
+  resampleUp: "1",
+  resampleDown: "2",
 };
 
 export function encodeSignalState(state: SignalState): string {
@@ -94,7 +104,8 @@ export function isSignalStateV2(value: unknown): value is SignalStateV2 {
   if (typeof v.nperseg !== "string" || typeof v.noverlap !== "string") return false;
   if (v.showPeaks !== undefined && typeof v.showPeaks !== "boolean") return false;
   if (v.showCorrelation !== undefined && typeof v.showCorrelation !== "boolean") return false;
-  const optionalStringFields = ["minAmplitude", "minSpacingHz", "minProminence", "exprTextB"] as const;
+  if (v.showResample !== undefined && typeof v.showResample !== "boolean") return false;
+  const optionalStringFields = ["minAmplitude", "minSpacingHz", "minProminence", "exprTextB", "resampleUp", "resampleDown"] as const;
   return optionalStringFields.every((f) => v[f] === undefined || typeof v[f] === "string");
 }
 

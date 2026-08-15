@@ -76,3 +76,15 @@ test("encodeSignalState/decodeSignalState: round-trips the full state including 
   const decoded = decodeSignalState(encodeSignalState(state));
   assert.deepEqual(decoded, state);
 });
+
+test("isSignalStateV2: accepts a v2 state missing the resample fields entirely (an old encoded URL hash from before that feature existed)", () => {
+  const preResampleState = { v: 2, exprText: "sin(t)", sampleRate: "64", duration: "1", nperseg: "16", noverlap: "8" };
+  assert.equal(isSignalStateV2(preResampleState), true);
+});
+
+test("isSignalStateV2: rejects a resample field with the wrong type when present", () => {
+  const badShowResample = { ...DEFAULT_SIGNAL_STATE, showResample: "yes" };
+  assert.equal(isSignalStateV2(badShowResample), false);
+  const badResampleUp = { ...DEFAULT_SIGNAL_STATE, resampleUp: 2 };
+  assert.equal(isSignalStateV2(badResampleUp), false);
+});
