@@ -13,6 +13,7 @@ import {
   type ParametricSurfaceState,
 } from "../lib/parametric-surface-state.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -108,6 +109,12 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
   const vMin = useCell<string>(graph, ids.vMin);
   const vMax = useCell<string>(graph, ids.vMax);
   const meshResult = useCell<Result<Mesh[]>>(graph, ids.mesh);
+
+  // Issue #43: unlike Regression/Statistics/ODE/Systems, this panel has no
+  // externalGraph/syncUrl -- it's always standalone (see the file's own doc
+  // comment: never folded into a heavier component or notebook-embedded),
+  // so no `enabled` gating is needed here.
+  const history = useUndoHistory(graph, () => getCurrentState(graph, ids), (state) => seedState(graph, ids, state));
 
   useEffect(() => {
     function writeUrl() {
@@ -237,7 +244,13 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
       {!meshResult.ok && <p style={{ color: "var(--danger)" }}>{meshResult.message}</p>}
       <div ref={containerRef} style={{ maxWidth: WIDTH, border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="parametric-surface" />
+        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="parametric-surface" />{" "}
+        <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
+          ↩ Undo
+        </button>{" "}
+        <button type="button" onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z / Cmd+Y)">
+          ↪ Redo
+        </button>
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom.</p>
     </div>
