@@ -36,6 +36,7 @@ import { Route as AppMlRouteImport } from './routes/_app/ml'
 import { Route as AppNotesRouteImport } from './routes/_app/notes'
 import { Route as AppPracticeRouteImport } from './routes/_app/practice'
 import { Route as AppSignalRouteImport } from './routes/_app/signal'
+import { Route as SIdRouteImport } from './routes/s.$id'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -171,6 +172,11 @@ const AppSignalRoute = AppSignalRouteImport.update({
   path: '/signal',
   getParentRoute: () => AppRoute,
 } as any)
+const SIdRoute = SIdRouteImport.update({
+  id: '/s/$id',
+  path: '/s/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -199,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/notes': typeof AppNotesRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
+  '/s/$id': typeof SIdRoute
 }
 export interface FileRoutesByTo {
   '/demos': typeof DemosRoute
@@ -226,6 +233,7 @@ export interface FileRoutesByTo {
   '/notes': typeof AppNotesRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
+  '/s/$id': typeof SIdRoute
   '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
@@ -256,6 +264,7 @@ export interface FileRoutesById {
   '/_app/notes': typeof AppNotesRoute
   '/_app/practice': typeof AppPracticeRoute
   '/_app/signal': typeof AppSignalRoute
+  '/s/$id': typeof SIdRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
@@ -287,6 +296,7 @@ export interface FileRouteTypes {
     | '/notes'
     | '/practice'
     | '/signal'
+    | '/s/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/demos'
@@ -314,6 +324,7 @@ export interface FileRouteTypes {
     | '/notes'
     | '/practice'
     | '/signal'
+    | '/s/$id'
     | '/'
   id:
     | '__root__'
@@ -343,6 +354,7 @@ export interface FileRouteTypes {
     | '/_app/notes'
     | '/_app/practice'
     | '/_app/signal'
+    | '/s/$id'
     | '/_app/'
   fileRoutesById: FileRoutesById
 }
@@ -361,6 +373,7 @@ export interface RootRouteChildren {
   StatisticsRoute: typeof StatisticsRoute
   Surface3dRoute: typeof Surface3dRoute
   SystemsRoute: typeof SystemsRoute
+  SIdRoute: typeof SIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -554,6 +567,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSignalRouteImport
       parentRoute: typeof AppRoute
     }
+    '/s/$id': {
+      id: '/s/$id'
+      path: '/s/$id'
+      fullPath: '/s/$id'
+      preLoaderRoute: typeof SIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -606,6 +626,7 @@ const rootRouteChildren: RootRouteChildren = {
   StatisticsRoute: StatisticsRoute,
   Surface3dRoute: Surface3dRoute,
   SystemsRoute: SystemsRoute,
+  SIdRoute: SIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
