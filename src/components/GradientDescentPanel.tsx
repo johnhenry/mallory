@@ -1,4 +1,7 @@
+import type { Mesh } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsGradientDescent, TIME_CELL, type CellIdsGradientDescent } from "../lib/cell-ids.ts";
 import { computeContourLevels, type ContourLevel } from "../lib/contour-plot.ts";
@@ -8,8 +11,11 @@ import {
   encodeGradientDescentState,
   type GradientDescentState,
 } from "../lib/gradient-descent-state.ts";
-import { runGradientDescent, type DescentResult, type OptimizerType } from "../lib/gradient-descent.ts";
+import { runGradientDescent, type DescentPoint, type DescentResult, type OptimizerType } from "../lib/gradient-descent.ts";
+import { meshToGeometry, meshToMaterial } from "../lib/mesh-to-geometry.ts";
 import { drawAxes, drawImplicitCurve, drawPoint, drawPolyline } from "../lib/render-path.ts";
+import { sampleSurface } from "../lib/sample-surface.ts";
+import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewport.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -28,6 +34,7 @@ const WIDTH = 520;
 const HEIGHT = 520;
 const VIEWPORT: Viewport = { xMin: -5, xMax: 5, yMin: -5, yMax: 5 };
 const DOMAIN = { min: -5, max: 5 };
+const SURFACE_RESOLUTION = 40;
 // Per-step transport animation (issue #33's remaining scope): 1 descent
 // step = this many seconds of the shared TIME_CELL clock, so the default
 // 80-step run plays back over 8s -- watchable, not instant, not a slog.
@@ -41,6 +48,28 @@ export function maxDescentSteps(runs: readonly OptimizerRun[]): number {
 /** The index into a (possibly shorter, already-stopped) run's own path the shared clock currently points at -- clamped so a fast/short-diverged run just holds its last point once the clock outruns it, rather than reading past the array end. */
 export function visiblePathIndex(time: number, pathLength: number): number {
   return Math.min(Math.floor(time / STEP_SECONDS), pathLength - 1);
+}
+
+export interface ThreePoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * Maps a racing run's path onto the 3D surface's Three.js-space, growing
+ * with the shared clock via the same `visiblePathIndex` the 2D canvas uses
+ * -- so the 3D polyline and the 2D polyline always show the same prefix of
+ * the same path. mallory-math's height (the loss value `f`) maps to
+ * Three's y-axis and mallory-math's y maps to Three's z-axis, matching
+ * `mesh-to-geometry.ts`'s surface-mesh convention so the path visually sits
+ * on the sampled surface rather than floating in a different frame.
+ * Framework-agnostic (no `THREE` import) so it's plainly unit-testable.
+ */
+export function descentPathTo3DPoints(path: readonly DescentPoint[], time: number): ThreePoint[] {
+  if (path.length === 0) return [];
+  const lastIndex = visiblePathIndex(time, path.length);
+  return path.slice(0, lastIndex + 1).map((p) => ({ x: p.x, y: p.f, z: p.y }));
 }
 
 const OPTIMIZER_COLORS: Record<OptimizerType, string> = {
@@ -103,6 +132,14 @@ function useGradientDescentGraph(cellId: string): CellGraph {
       }
     });
 
+    graph.define(ids.surfaceMesh, (): Result<Mesh[]> => {
+      try {
+        return { ok: true, value: sampleSurface(graph.get<string>(ids.exprText), DOMAIN, DOMAIN, SURFACE_RESOLUTION) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
     graph.define(ids.descentResults, (): Result<OptimizerRun[]> => {
       try {
         const exprText = graph.get<string>(ids.exprText);
@@ -146,17 +183,19 @@ function useGradientDescentGraph(cellId: string): CellGraph {
  * Variable.backward() -> optim chain, with SGD/Adam/RMSprop racing from the
  * same start point in different colors. Click the canvas to move the start.
  *
- * v1 renders on the 2D contour view (reusing #28's computeContourLevels)
- * rather than animating a polyline on the Three.js surface -- the contour
- * picture is where optimizer-behavior differences (SGD's zigzag across an
- * anisotropic valley vs Adam's per-coordinate scaling) actually read
- * clearly. The 3D-surface path overlay remains deferred scope on the
- * issue. An optional `optim.StepLR` schedule (stepSize/gamma) is
- * available, applied uniformly to every racing optimizer -- off by
- * default. Each racing path plays back per-step on the shared TIME_CELL
- * clock (STEP_SECONDS per step) via the same TransportControls/
- * useTimelinePlayback machinery GraphCanvas/Graph3DCanvas already use,
- * rather than rendering the whole path at once.
+ * v1 renders on the 2D contour view (reusing #28's computeContourLevels) --
+ * the contour picture is where optimizer-behavior differences (SGD's
+ * zigzag across an anisotropic valley vs Adam's per-coordinate scaling)
+ * actually read clearly. A second Three.js pane (issue #33's last
+ * remaining scope item) renders the same racing paths as growing 3D
+ * polylines directly on the sampled loss surface, sharing this panel's own
+ * `CellGraph`/`TIME_CELL` rather than mounting a second clock -- see
+ * `descentPathTo3DPoints` and the scene-setup effects below. An optional
+ * `optim.StepLR` schedule (stepSize/gamma) is available, applied uniformly
+ * to every racing optimizer -- off by default. Each racing path plays back
+ * per-step on the shared TIME_CELL clock (STEP_SECONDS per step) via the
+ * same TransportControls/useTimelinePlayback machinery GraphCanvas/
+ * Graph3DCanvas already use, rather than rendering the whole path at once.
  */
 export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = {}) {
   const graph = useGradientDescentGraph(cellId);
@@ -164,6 +203,10 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   const ids = cellIdsGradientDescent(cellId);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const draggingRef = useRef(false);
+  const containerRef3D = useRef<HTMLDivElement | null>(null);
+  const surfaceGroupRef = useRef<THREE.Group | null>(null);
+  const pathGroupRef = useRef<THREE.Group | null>(null);
+  const rendererCanvasRef3D = useRef<HTMLCanvasElement | null>(null);
 
   const exprText = useCell<string>(graph, ids.exprText);
   const startX = useCell<string>(graph, ids.startX);
@@ -178,6 +221,7 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   const gamma = useCell<string>(graph, ids.gamma);
   const contoursResult = useCell<Result<ContourLevel[]>>(graph, ids.contoursResult);
   const descentResults = useCell<Result<OptimizerRun[]>>(graph, ids.descentResults);
+  const surfaceMeshResult = useCell<Result<Mesh[]>>(graph, ids.surfaceMesh);
   const time = useCell<number>(graph, TIME_CELL);
 
   const [exprInput, setExprInput] = useState(exprText);
@@ -234,6 +278,98 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
       drawPoint(ctx, { x: sx, y: sy }, VIEWPORT, WIDTH, HEIGHT, 6, "#111827");
     }
   }, [contoursResult, descentResults, startX, startY, time]);
+
+  // Mount-once 3D scene setup (issue #33's remaining scope: the racing
+  // paths, additionally animated as a polyline on the loss surface itself)
+  // -- same scene/camera/renderer/controls boilerplate as SpaceCurvePanel/
+  // Graph3DCanvas. Shares this panel's existing TIME_CELL clock/
+  // TransportControls rather than mounting a second one.
+  useEffect(() => {
+    const container = containerRef3D.current;
+    if (!container) return;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(getThemeColors().surface);
+    const unsubscribeTheme = subscribeToThemeChange(() => {
+      scene.background = new THREE.Color(getThemeColors().surface);
+    });
+
+    const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.1, 1000);
+    camera.position.set(8, 8, 8);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(WIDTH, HEIGHT, false);
+    container.appendChild(renderer.domElement);
+    rendererCanvasRef3D.current = renderer.domElement;
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
+    directional.position.set(5, 10, 7);
+    scene.add(directional);
+    scene.add(new THREE.AxesHelper(DOMAIN.max));
+
+    const surfaceGroup = new THREE.Group();
+    surfaceGroupRef.current = surfaceGroup;
+    scene.add(surfaceGroup);
+
+    const pathGroup = new THREE.Group();
+    pathGroupRef.current = pathGroup;
+    scene.add(pathGroup);
+
+    let raf = 0;
+    function tick() {
+      controls.update();
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      unsubscribeTheme();
+      controls.dispose();
+      renderer.dispose();
+      container.removeChild(renderer.domElement);
+      surfaceGroupRef.current = null;
+      pathGroupRef.current = null;
+      rendererCanvasRef3D.current = null;
+    };
+  }, []);
+
+  // Rebuilds the loss surface mesh only when it actually changes (typing a
+  // new expression), not every animation frame.
+  useEffect(() => {
+    const group = surfaceGroupRef.current;
+    if (!group || !surfaceMeshResult.ok) return;
+    for (const child of [...group.children]) group.remove(child);
+    for (const mesh of surfaceMeshResult.value) group.add(new THREE.Mesh(meshToGeometry(mesh), meshToMaterial(mesh)));
+  }, [surfaceMeshResult]);
+
+  // Rebuilds the racing paths' 3D polylines every time the shared clock
+  // advances, mirroring the 2D canvas's own per-frame slice-and-redraw
+  // (`visiblePathIndex`) so both views always show the same prefix.
+  useEffect(() => {
+    const group = pathGroupRef.current;
+    if (!group) return;
+    for (const child of [...group.children]) group.remove(child);
+    if (!descentResults.ok) return;
+    for (const run of descentResults.value) {
+      const points = descentPathTo3DPoints(run.result.path, time);
+      if (points.length === 0) continue;
+      const vectors = points.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+      const color = OPTIMIZER_COLORS[run.optimizer];
+      if (vectors.length >= 2) {
+        const geometry = new THREE.BufferGeometry().setFromPoints(vectors);
+        group.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color })));
+      }
+      const tip = vectors[vectors.length - 1];
+      const marker = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), new THREE.MeshStandardMaterial({ color }));
+      marker.position.copy(tip);
+      group.add(marker);
+    }
+  }, [descentResults, time]);
 
   function setStartFromEvent(e: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current;
@@ -333,18 +469,26 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
       </div>
       {!contoursResult.ok && <p style={{ color: "var(--danger)" }}>{contoursResult.message}</p>}
       {!descentResults.ok && <p style={{ color: "var(--danger)" }}>{descentResults.message}</p>}
-      <canvas
-        ref={canvasRef}
-        width={WIDTH}
-        height={HEIGHT}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        style={{ border: "1px solid var(--border)", maxWidth: "100%", cursor: "crosshair", touchAction: "none" }}
-      />
-      <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="gradient-descent" />
+      {!surfaceMeshResult.ok && <p style={{ color: "var(--danger)" }}>{surfaceMeshResult.message}</p>}
+      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <canvas
+          ref={canvasRef}
+          width={WIDTH}
+          height={HEIGHT}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          style={{ border: "1px solid var(--border)", maxWidth: "100%", cursor: "crosshair", touchAction: "none" }}
+        />
+        <div ref={containerRef3D} style={{ width: WIDTH, height: HEIGHT, maxWidth: "100%", border: "1px solid var(--border)" }} />
       </div>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <PngExportButton getCanvas={() => canvasRef.current} label="gradient-descent" />
+        <PngExportButton getCanvas={() => rendererCanvasRef3D.current} label="gradient-descent-3d" />
+      </div>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+        3D view: drag to orbit, scroll to zoom -- the racing paths animate on the surface with the same transport clock as the contour view.
+      </p>
       <TransportControls
         graph={graph}
         time={time}

@@ -435,6 +435,7 @@ export function cellIdsGradientDescent(cellId: string) {
     gamma: `gdGamma:${cellId}`,
     contoursResult: `gdContoursResult:${cellId}`,
     descentResults: `gdDescentResults:${cellId}`,
+    surfaceMesh: `gdSurfaceMesh:${cellId}`,
   };
 }
 
