@@ -18,6 +18,8 @@ import { nthRootsOfUnity } from "../lib/roots-of-unity.ts";
 import { findComplexZeros, findComplexPoles, type ComplexDomain } from "../lib/complex-roots.ts";
 import { autoFitViewport, mapGridLines, polarGridLines, rectangularGridLines, type MappedLine } from "../lib/conformal-grid.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
+import { polylinesToSvgDocument } from "../lib/svg-export.ts";
 import { drawPolyline, drawScatter } from "../lib/render-path.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -442,6 +444,17 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
             <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
               Image of the grid under f(z), z-plane on the left → w-plane on the right (auto-fit window).
             </p>
+            <div style={{ margin: "0.25rem 0" }}>
+              <PngExportButton getCanvas={() => wCanvasRef.current} label="complex-plane-w" />{" "}
+              <SvgExportButton
+                getSvg={() => {
+                  if (!conformalGridResult.ok) return null;
+                  const { wLines, wViewport } = conformalGridResult.value;
+                  return polylinesToSvgDocument(wLines, wViewport, WIDTH, HEIGHT, "#2563eb");
+                }}
+                label="complex-plane-w"
+              />
+            </div>
           </div>
         )}
       </div>
