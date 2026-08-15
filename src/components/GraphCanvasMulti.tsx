@@ -23,7 +23,7 @@ import {
   type Viewport,
 } from "../lib/render-path.ts";
 import { findNearestPointOnRows, type PointReadout } from "../lib/point-readout.ts";
-import { isCoarsePointer } from "../lib/pointer-media.ts";
+import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { findIntersections } from "../lib/sample-function.ts";
@@ -37,10 +37,9 @@ const WIDTH = 600;
 const HEIGHT = 600;
 const ANNOTATION_HIT_RADIUS_PX = 10;
 // A touch tap is a much less precise target than a mouse click -- issue
-// #53. Both hit-test call sites below multiply by this factor on a coarse
-// pointer (isCoarsePointer(), read once per hit test since it's a live
-// media-query match, not something to cache/go stale).
-const COARSE_POINTER_HIT_RADIUS_MULTIPLIER = 2.5;
+// #53. Both hit-test call sites below multiply by COARSE_POINTER_HIT_RADIUS_MULTIPLIER
+// (pointer-media.ts) on a coarse pointer (isCoarsePointer(), read once per
+// hit test since it's a live media-query match, not something to cache/go stale).
 
 // Not namespaced by any row id -- one shared annotation list per view,
 // mirroring EXPRESSION_LIST_CELL's own "one shared, unnamespaced list" shape.

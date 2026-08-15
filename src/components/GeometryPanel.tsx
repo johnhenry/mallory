@@ -7,6 +7,7 @@ import { interiorAngleRadians, isSelfIntersecting, polygonCentroid, shoelaceArea
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
+import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
 import { cellIdsGeometry, type CellIdsGeometry } from "../lib/cell-ids.ts";
 import {
@@ -192,6 +193,12 @@ function pushObject(graph: CellGraph, listIds: CellIdsGeometry, id: string): voi
 
 function pushOp(graph: CellGraph, listIds: CellIdsGeometry, op: GeometryOp): void {
   graph.set(listIds.opsLog, [...graph.get<GeometryOp[]>(listIds.opsLog), op], { auxiliary: true });
+}
+
+/** Converts HIT_RADIUS_PX to a data-space radius, widened on a coarse pointer (issue #53's "roll out" item) -- a touch tap on a construction point is a much less precise target than a mouse click, same isCoarsePointer() treatment GraphCanvasMulti's own hit-testing already uses. */
+function currentHitDataRadius(): number {
+  const px = isCoarsePointer() ? HIT_RADIUS_PX * COARSE_POINTER_HIT_RADIUS_MULTIPLIER : HIT_RADIUS_PX;
+  return (px / WIDTH) * (VIEWPORT.xMax - VIEWPORT.xMin);
 }
 
 /** Nearest point within `maxDistance`, optionally restricted to free (draggable) points -- a dependent/transformed point is still a valid line/circle/transform endpoint, just not draggable itself. */
@@ -613,8 +620,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
 
   function handlePointerDown(e: PointerEvent<HTMLCanvasElement>) {
     const { x, y } = dataCoordsFromEvent(e);
-    const hitDataRadius = (HIT_RADIUS_PX / WIDTH) * (VIEWPORT.xMax - VIEWPORT.xMin);
-    const freeHit = nearestPointId(graph, listIds, x, y, hitDataRadius, true);
+    const freeHit = nearestPointId(graph, listIds, x, y, currentHitDataRadius(), true);
     if (freeHit) {
       dragRef.current = { id: freeHit, moved: false };
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -638,8 +644,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       return;
     }
     const { x, y } = dataCoordsFromEvent(e);
-    const hitDataRadius = (HIT_RADIUS_PX / WIDTH) * (VIEWPORT.xMax - VIEWPORT.xMin);
-    const hit = nearestPointId(graph, listIds, x, y, hitDataRadius);
+    const hit = nearestPointId(graph, listIds, x, y, currentHitDataRadius());
     if (hit) handlePointClick(hit);
     else handleEmptyClick(x, y);
   }
