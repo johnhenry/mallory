@@ -403,11 +403,10 @@ export const EXPRESSION_LIST_CELL = "expressionList";
  * than `cellIds`: v1 covers the curve itself, its color/visibility,
  * free-variable sliders, an optional f' overlay curve (sharing the row's
  * own color, dashed), per-row area-under-curve shading (#51), a
- * step-by-step differentiation trace, and now (#51 again) inequality
- * region shading, but not yet the single-pane `GraphCanvas`'s
- * point-drag/finite-structure features, which stay single-expression-only
- * for now (porting each to a multi-curve-aware form is follow-on work, not
- * this pass). Exact-mode evaluation (#107) is shared across the whole
+ * step-by-step differentiation trace, inequality region shading, and now
+ * (#51's last item) finite-structure scatter mode, but not yet the
+ * single-pane `GraphCanvas`'s point-drag feature, which stays
+ * single-expression-only for now. Exact-mode evaluation (#107) is shared across the whole
  * panel instead of per-row, so it lives on GraphCanvasMulti's own
  * MODE_CELL, not here -- the differentiation trace, by contrast, is both
  * computed AND displayed per-row: each row owns an independent local
@@ -446,6 +445,10 @@ export function cellIdsMultiRow(cellId: string) {
     derivative: `multiDerivative:${cellId}`,
     /** 1D inequality shading (issue #51), mirroring GraphCanvas's own `ids.regionMask`: null unless this row's top-level expression is a `cmp` node (e.g. "sin(x) < cos(x)"), so a plain function row costs nothing extra. No "off" toggle -- entirely driven by what the row's expression parses as, same as the single-pane version. */
     regionMask: `multiRegionMask:${cellId}`,
+    /** Finite-structure modulus (issue #51), mirroring GraphCanvas's own `ids.structure`: null selects the reals (the default, continuous curve); set to n, this row plots over Z/nZ instead. */
+    structure: `multiStructure:${cellId}`,
+    /** All (x,y) pairs of this row's expression evaluated over its `structure` (Z/nZ), or null while `structure` is null. When populated, GraphCanvasMulti draws ONLY this scatter for the row -- no continuous path, no region/area shading, matching GraphCanvas's own "scatter replaces everything else" branching, since none of those overlays have meaning over a finite structure. */
+    scatter: `multiScatter:${cellId}`,
     param: (name: string) => `multiParam:${cellId}:${name}`,
   };
 }

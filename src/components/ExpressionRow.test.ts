@@ -95,6 +95,32 @@ test("ExpressionRow: regionMask is populated for an inequality expression, hand-
   await unmount();
 });
 
+test("ExpressionRow: scatter stays null while structure is unset (the default, real-numbers mode)", async () => {
+  const graph = new CellGraph();
+  const ids = seedRow(graph, "row-6", "x^2");
+
+  const { unmount } = await mount(createElement(ExpressionRow, { graph, rowId: "row-6" }));
+  assert.equal(graph.get<{ x: number; y: number }[] | null>(ids.scatter), null);
+  await unmount();
+});
+
+test("ExpressionRow: setting structure populates scatter, hand-verified against the same oracle sample-structure.test.ts uses", async () => {
+  const graph = new CellGraph();
+  const ids = seedRow(graph, "row-7", "x^2+1");
+
+  const { update, unmount } = await mount(createElement(ExpressionRow, { graph, rowId: "row-7" }));
+  await update(() => graph.set(ids.structure, 7));
+  const scatter = graph.get<{ x: number; y: number }[] | null>(ids.scatter);
+  assert.ok(scatter, "expected a populated scatter once structure is set");
+  // Same "x^2+1 over Z/7Z" case sample-structure.test.ts's own oracle test
+  // verifies -- every element 0..6, y = (x^2+1) mod 7.
+  assert.deepEqual(
+    scatter!.map((p) => p.y),
+    [0, 1, 2, 3, 4, 5, 6].map((x) => (x * x + 1) % 7),
+  );
+  await unmount();
+});
+
 test("ExpressionRow: clicking remove calls the onRemove callback", async () => {
   const graph = new CellGraph();
   seedRow(graph, "row-3", "cos(x)");

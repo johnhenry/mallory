@@ -594,39 +594,50 @@ export function GraphCanvasMulti() {
       for (const id of graph.get<string[]>(EXPRESSION_LIST_CELL)) {
         const ids = cellIdsMultiRow(id);
         try {
-          const path = graph.get<Path2D>(ids.path);
           const visible = graph.get<boolean>(ids.visible);
-          if (visible) {
-            // Region/area shading (issue #51) draw BEFORE the curve stroke
-            // below, same layering GraphCanvas's own single-pane version
-            // uses, so the line renders on top of its own fill instead of
-            // being covered by it. Region mask is null for the vast
-            // majority of rows (only populated when the row's expression is
-            // itself a `cmp` inequality), so this is a no-op for a plain
-            // function row.
-            const regionMask = graph.get<boolean[] | null>(ids.regionMask);
-            if (regionMask) {
-              const color = graph.get<number>(ids.color);
-              drawRegionMask(ctx, regionMask, viewport, WIDTH, HEIGHT, hexToRgba(color, 0.15));
+          const scatter = graph.get<{ x: number; y: number }[] | null>(ids.scatter);
+          if (visible && scatter) {
+            // Finite-structure mode (issue #51): a set modulus REPLACES the
+            // continuous curve entirely, same "scatter or everything else,
+            // never both" branching GraphCanvas's own single-pane draw
+            // effect uses -- none of the path/region/area overlays below
+            // have meaning over a finite structure.
+            const color = graph.get<number>(ids.color);
+            drawScatter(ctx, scatter, viewport, WIDTH, HEIGHT, 5, hexToRgba(color, 1));
+          } else {
+            const path = graph.get<Path2D>(ids.path);
+            if (visible) {
+              // Region/area shading (issue #51) draw BEFORE the curve stroke
+              // below, same layering GraphCanvas's own single-pane version
+              // uses, so the line renders on top of its own fill instead of
+              // being covered by it. Region mask is null for the vast
+              // majority of rows (only populated when the row's expression is
+              // itself a `cmp` inequality), so this is a no-op for a plain
+              // function row.
+              const regionMask = graph.get<boolean[] | null>(ids.regionMask);
+              if (regionMask) {
+                const color = graph.get<number>(ids.color);
+                drawRegionMask(ctx, regionMask, viewport, WIDTH, HEIGHT, hexToRgba(color, 0.15));
+              }
+              const areaResult = graph.get<{ value: number; path: Path2D } | null>(ids.area);
+              if (areaResult) {
+                const color = graph.get<number>(ids.color);
+                drawFilledArea(ctx, areaResult.path, viewport, WIDTH, HEIGHT, hexToRgba(color, 0.25));
+              }
             }
-            const areaResult = graph.get<{ value: number; path: Path2D } | null>(ids.area);
-            if (areaResult) {
-              const color = graph.get<number>(ids.color);
-              drawFilledArea(ctx, areaResult.path, viewport, WIDTH, HEIGHT, hexToRgba(color, 0.25));
+            drawExpressionLayer(ctx, path, visible, viewport, WIDTH, HEIGHT);
+            if (visible) {
+              const roots = graph.get<{ x: number; y: number }[]>(ids.roots);
+              if (roots.length > 0) drawScatter(ctx, roots, viewport, WIDTH, HEIGHT, 4, theme.ink);
+              const discontinuities = graph.get<{ before: { x: number; y: number }; after: { x: number; y: number } }[]>(
+                ids.discontinuities,
+              );
+              if (discontinuities.length > 0) {
+                drawOpenCircles(ctx, discontinuities.flatMap((g) => [g.before, g.after]), viewport, WIDTH, HEIGHT, 4);
+              }
+              const derivativePath = graph.get<Path2D | null>(ids.derivativePath);
+              if (derivativePath) drawPath(ctx, derivativePath, viewport, WIDTH, HEIGHT, true);
             }
-          }
-          drawExpressionLayer(ctx, path, visible, viewport, WIDTH, HEIGHT);
-          if (visible) {
-            const roots = graph.get<{ x: number; y: number }[]>(ids.roots);
-            if (roots.length > 0) drawScatter(ctx, roots, viewport, WIDTH, HEIGHT, 4, theme.ink);
-            const discontinuities = graph.get<{ before: { x: number; y: number }; after: { x: number; y: number } }[]>(
-              ids.discontinuities,
-            );
-            if (discontinuities.length > 0) {
-              drawOpenCircles(ctx, discontinuities.flatMap((g) => [g.before, g.after]), viewport, WIDTH, HEIGHT, 4);
-            }
-            const derivativePath = graph.get<Path2D | null>(ids.derivativePath);
-            if (derivativePath) drawPath(ctx, derivativePath, viewport, WIDTH, HEIGHT, true);
           }
         } catch {
           // A row whose cells haven't been registered yet (ExpressionRow
