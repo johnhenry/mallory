@@ -4,9 +4,11 @@ import type { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, notebookValueCellId, VIEWPORT_CELL } from "../lib/cell-ids.ts";
 import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
 import { exprToLatex } from "../lib/expr-to-latex.ts";
+import { integersModuloStructure } from "../lib/finite-structure.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import type { Viewport } from "../lib/render-path.ts";
 import { findDiscontinuities, findRootCrossings, sampleExpr, sampleExprAdaptive, sampleRegionMask } from "../lib/sample-function.ts";
+import { sampleStructureExpr, type ScatterPoint } from "../lib/sample-structure.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
 import { MathInput } from "./MathInput.tsx";
@@ -14,6 +16,15 @@ import { TexSpan } from "./TexSpan.tsx";
 
 const RESOLUTION = 400;
 const AXIS_VARIABLE = "x";
+
+/** Mirrors GraphCanvas.tsx's own STRUCTURE_OPTIONS -- kept as a separate local copy rather than shared since it's UI-only (the compute side just reads a plain `number | null` modulus). */
+const STRUCTURE_OPTIONS: Array<{ label: string; modulus: number | null }> = [
+  { label: "Real numbers", modulus: null },
+  { label: "Z/2Z (GF(2))", modulus: 2 },
+  { label: "Z/5Z", modulus: 5 },
+  { label: "Z/7Z (GF(7))", modulus: 7 },
+  { label: "Z/11Z", modulus: 11 },
+];
 
 interface AreaResult {
   value: number;
@@ -30,8 +41,8 @@ interface Derivative {
  * params -> a path sampled against the shared VIEWPORT_CELL, colored per the
  * row's own color cell. A much smaller cell family than single-pane
  * GraphCanvas's `useExpressionGraph` -- see `cellIdsMultiRow`'s doc comment
- * for what's deliberately not ported here yet (point-drag, exact mode,
- * derivative steps, area/region shading, finite-structure scatter).
+ * for what's deliberately not ported here yet (point-drag; exact mode is
+ * shared across the panel rather than per-row).
  *
  * Guarded by `!graph.hasValue(ids.path)` (not just the mount ref) so mounting
  * a second ExpressionRow pointed at an already-populated row id is a safe
@@ -60,6 +71,7 @@ function useRowCells(graph: CellGraph, rowId: string, viewportCellId: string = V
     if (!graph.hasValue(ids.path)) {
       graph.set(ids.strict, false, { auxiliary: true });
       graph.set(ids.showDerivative, false, { auxiliary: true });
+      graph.set(ids.structure, null as number | null, { auxiliary: true });
 
       // Area-under-curve (issue #51): bounds are plain fixed numeric
       // inputs, not the auto-inferred-slider mechanism, same reasoning as
@@ -293,6 +305,28 @@ function useRowCells(graph: CellGraph, rowId: string, viewportCellId: string = V
         },
         { auxiliary: true },
       );
+
+      // Finite-structure scatter mode (issue #51): null (the default) means
+      // "plot over the reals" -- GraphCanvasMulti's redraw loop draws the
+      // usual continuous path/overlays for that case. Once a modulus is
+      // set, this becomes non-null and REPLACES all of that, same
+      // "scatter or everything else, never both" branching GraphCanvas's
+      // own single-pane draw effect uses (a finite structure has no
+      // continuous curve, area, or region to shade).
+      graph.define(
+        ids.scatter,
+        (): ScatterPoint[] | null => {
+          const modulus = graph.get<number | null>(ids.structure);
+          if (modulus === null) return null;
+          try {
+            const params = graph.get<Record<string, number>>(ids.params);
+            return sampleStructureExpr(graph.get<string>(ids.expr), integersModuloStructure(modulus), AXIS_VARIABLE, params);
+          } catch {
+            return [];
+          }
+        },
+        { auxiliary: true },
+      );
     }
   }
   return ids;
@@ -320,6 +354,7 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
   const areaUpper = useCell<number>(graph, ids.areaUpper);
   const area = useCell<AreaResult | null>(graph, ids.area);
   const derivative = useCell<Derivative | null>(graph, ids.derivative);
+  const structure = useCell<number | null>(graph, ids.structure);
   const error = useCell<string | null>(graph, ids.error);
   const [exprInput, setExprInput] = useState(expr);
   const [useMathKeyboard, setUseMathKeyboard] = useState(false);
@@ -447,6 +482,41 @@ export function ExpressionRow({ graph, rowId, onRemove, viewportCellId }: Expres
         {derivative && (
           <label style={{ fontSize: "0.78rem", color: "var(--muted)" }} title="Step-by-step differentiation trace for this row">
             <input type="checkbox" checked={showSteps} onChange={(e) => setShowSteps(e.target.checked)} /> steps
+          </label>
+        )}
+        <label style={{ fontSize: "0.78rem", color: "var(--muted)" }} title="Plot this row over a finite structure (Z/nZ) instead of the reals">
+          <select
+            value={
+              structure === null ? "real" : STRUCTURE_OPTIONS.some((opt) => opt.modulus === structure) ? String(structure) : "custom"
+            }
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "real") graph.set(ids.structure, null);
+              else if (v === "custom") graph.set(ids.structure, 13); // seed a default so the number input below has something to edit
+              else graph.set(ids.structure, Number(v));
+            }}
+          >
+            {STRUCTURE_OPTIONS.map((opt) => (
+              <option key={opt.label} value={opt.modulus === null ? "real" : String(opt.modulus)}>
+                {opt.label}
+              </option>
+            ))}
+            <option value="custom">Custom Z/nZ…</option>
+          </select>
+        </label>
+        {structure !== null && !STRUCTURE_OPTIONS.some((opt) => opt.modulus === structure) && (
+          <label style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
+            n:{" "}
+            <input
+              type="number"
+              min={2}
+              value={structure}
+              style={{ font: "inherit", width: "6ch" }}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isInteger(n) && n >= 2) graph.set(ids.structure, n);
+              }}
+            />
           </label>
         )}
         {freeVars.map((name) =>
