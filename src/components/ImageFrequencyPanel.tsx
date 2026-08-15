@@ -9,8 +9,11 @@ import {
 } from "../lib/image-frequency-state.ts";
 import {
   analyzeImageFrequency,
+  canvasPointToGridCell,
   drawGrayscaleGrid,
   generatePattern,
+  makeAllOnesMask,
+  paintMaskCell,
   rgbaToGrayscaleGrid,
   type FrequencyResult,
   type MaskType,
@@ -18,7 +21,10 @@ import {
 } from "../lib/image-frequency.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { canvasEventPoint } from "../lib/viewport.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+
+const PAINT_BRUSH_RADIUS = 1;
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -40,6 +46,7 @@ const MASK_LABELS: Record<MaskType, string> = {
   notch: "Notch (reject a ring)",
   wedge: "Directional wedge",
   none: "None (pass-through)",
+  freehand: "Freehand paint",
 };
 
 function seedState(graph: CellGraph, ids: CellIdsImageFrequency, state: ImageFrequencyState): void {
@@ -79,6 +86,15 @@ function useImageFrequencyGraph(cellId: string): CellGraph {
     // drawnPoints. Reselecting "Upload an image" after a reload shows the
     // upload prompt again rather than restoring the old image.
     if (!graph.has(ids.uploadedGrid)) graph.set(ids.uploadedGrid, null as number[][] | null, { auxiliary: true });
+    // The painted mask is likewise auxiliary/non-URL-persisted (same
+    // reasoning as uploadedGrid -- up to 128x128 numbers, no reasonable
+    // hash-fragment size cap). Seeded all-1 (pass everything) at the
+    // initial size, matching "freehand" starting as a no-op filter until
+    // the user actually paints.
+    if (!graph.has(ids.paintedMask)) {
+      const initialSize = Number((decoded ?? DEFAULT_IMAGE_FREQUENCY_STATE).size);
+      graph.set(ids.paintedMask, makeAllOnesMask(initialSize), { auxiliary: true });
+    }
 
     graph.define(ids.result, (): Result<FrequencyResult> => {
       try {
@@ -100,7 +116,8 @@ function useImageFrequencyGraph(cellId: string): CellGraph {
         } else {
           source = generatePattern(pattern, size);
         }
-        return { ok: true, value: analyzeImageFrequency(source, size, maskType, radius, radius2, wedgeAngle, wedgeWidth) };
+        const paintedMask = maskType === "freehand" ? graph.get<number[][]>(ids.paintedMask) : undefined;
+        return { ok: true, value: analyzeImageFrequency(source, size, maskType, radius, radius2, wedgeAngle, wedgeWidth, paintedMask) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
@@ -140,6 +157,10 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
   const wedgeWidth = useCell<string>(graph, ids.wedgeWidth);
   const result = useCell<Result<FrequencyResult>>(graph, ids.result);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Which value a paint stroke sets cells to -- ephemeral UI state (like
+  // MlPlaygroundPanel's drawLabel), not persisted.
+  const [paintValue, setPaintValue] = useState<0 | 1>(0);
+  const paintingRef = useRef(false);
 
   // Decodes an uploaded image entirely client-side (drawImage + getImageData
   // -- the first image-decode-into-canvas code in this codebase; no server
@@ -190,6 +211,51 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
     return graph.subscribeAll(writeUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
+
+  // A size change invalidates the painted mask's dimensions (analyzeImageFrequency
+  // requires an exact size x size match), so it resets to a fresh all-1 mask
+  // rather than erroring on the next freehand render.
+  useEffect(() => {
+    const n = Number(size);
+    if (Number.isFinite(n) && n > 0) graph.set(ids.paintedMask, makeAllOnesMask(n));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size]);
+
+  // Click-and-drag painting on the spectrum canvas (issue #32's "freehand
+  // mask painting" remaining scope item), only meaningful in freehand mode.
+  function paintAt(e: { clientX: number; clientY: number }) {
+    const canvas = spectrumCanvasRef.current;
+    if (!canvas || maskType !== "freehand") return;
+    const { sx, sy } = canvasEventPoint(e, canvas, CANVAS_SIZE, CANVAS_SIZE);
+    const n = Number(size);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const { gx, gy } = canvasPointToGridCell(sx, sy, CANVAS_SIZE, CANVAS_SIZE, n);
+    const current = graph.get<number[][]>(ids.paintedMask);
+    graph.set(ids.paintedMask, paintMaskCell(current, gx, gy, paintValue, PAINT_BRUSH_RADIUS));
+  }
+
+  function handlePaintDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (maskType !== "freehand") return;
+    paintingRef.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    paintAt(e);
+  }
+
+  function handlePaintMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!paintingRef.current) return;
+    paintAt(e);
+  }
+
+  function handlePaintUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!paintingRef.current) return;
+    paintingRef.current = false;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  }
+
+  function handleClearMask() {
+    const n = Number(size);
+    if (Number.isFinite(n) && n > 0) graph.set(ids.paintedMask, makeAllOnesMask(n));
+  }
 
   useEffect(() => {
     const original = originalCanvasRef.current?.getContext("2d");
@@ -317,11 +383,39 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
           </div>
         </div>
         <div>
-          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Magnitude spectrum (centered)</p>
-          <canvas ref={spectrumCanvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+            Magnitude spectrum (centered){maskType === "freehand" ? " -- drag to paint" : ""}
+          </p>
+          <canvas
+            ref={spectrumCanvasRef}
+            width={CANVAS_SIZE}
+            height={CANVAS_SIZE}
+            onPointerDown={handlePaintDown}
+            onPointerMove={handlePaintMove}
+            onPointerUp={handlePaintUp}
+            style={{
+              border: "1px solid var(--border)",
+              maxWidth: "100%",
+              cursor: maskType === "freehand" ? "crosshair" : "default",
+              touchAction: maskType === "freehand" ? "none" : "auto",
+            }}
+          />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="image-frequency-spectrum" />
           </div>
+          {maskType === "freehand" && (
+            <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+              <label style={{ fontSize: "0.78rem" }}>
+                <input type="radio" checked={paintValue === 0} onChange={() => setPaintValue(0)} /> reject (paint black)
+              </label>
+              <label style={{ fontSize: "0.78rem" }}>
+                <input type="radio" checked={paintValue === 1} onChange={() => setPaintValue(1)} /> keep (paint white)
+              </label>
+              <button type="button" onClick={handleClearMask}>
+                Clear mask (keep all)
+              </button>
+            </div>
+          )}
         </div>
         <div>
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Filtered</p>

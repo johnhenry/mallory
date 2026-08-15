@@ -78,7 +78,7 @@ export function rgbaToGrayscaleGrid(data: Uint8ClampedArray, width: number, heig
   return grid;
 }
 
-export type MaskType = "lowpass" | "highpass" | "bandpass" | "notch" | "wedge" | "none";
+export type MaskType = "lowpass" | "highpass" | "bandpass" | "notch" | "wedge" | "none" | "freehand";
 
 /**
  * Folds an angle in degrees to `[0, 180)` -- a line through the spectrum's
@@ -156,12 +156,58 @@ export function buildMask(
         case "none":
           keep = true;
           break;
+        case "freehand":
+          throw new Error('buildMask does not handle "freehand" -- the caller must supply a painted customMask instead.');
       }
       row.push(keep ? 1 : 0);
     }
     mask.push(row);
   }
   return mask;
+}
+
+/**
+ * Maps a canvas-relative pixel position to the grid cell it falls in --
+ * the exact inverse of `drawGrayscaleGrid`'s own `gx`/`gy` scaling (same
+ * `floor((p / canvasSize) * gridSize)` formula), so painting on the
+ * rendered spectrum canvas (issue #32's "freehand mask painting" remaining
+ * scope item) hits the cell it visually looks like it should.
+ */
+export function canvasPointToGridCell(
+  px: number,
+  py: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  gridSize: number,
+): { gx: number; gy: number } {
+  return {
+    gx: Math.max(0, Math.min(gridSize - 1, Math.floor((px / canvasWidth) * gridSize))),
+    gy: Math.max(0, Math.min(gridSize - 1, Math.floor((py / canvasHeight) * gridSize))),
+  };
+}
+
+/**
+ * Returns a NEW mask (immutable -- matches this codebase's CellGraph
+ * convention of always `graph.set`ting a fresh value) with every cell
+ * within `brushRadius` (Chebyshev/square distance, i.e. a `(2r+1)x(2r+1)`
+ * square brush -- cheap and predictable, unlike a circular brush's
+ * per-cell distance check) of `(gx, gy)` set to `value` (1 = keep, 0 =
+ * reject). Out-of-bounds brush cells are silently clipped.
+ */
+export function paintMaskCell(mask: readonly (readonly number[])[], gx: number, gy: number, value: 0 | 1, brushRadius: number): number[][] {
+  const size = mask.length;
+  const next = mask.map((row) => [...row]);
+  for (let y = Math.max(0, gy - brushRadius); y <= Math.min(size - 1, gy + brushRadius); y++) {
+    for (let x = Math.max(0, gx - brushRadius); x <= Math.min(size - 1, gx + brushRadius); x++) {
+      next[y]![x] = value;
+    }
+  }
+  return next;
+}
+
+/** A fresh `size x size` all-1 (pass-through) mask -- the starting point for freehand painting, and what `size` changes reset the painted mask to (a stale wrong-dimension mask would otherwise fail `analyzeImageFrequency`'s size check). */
+export function makeAllOnesMask(size: number): number[][] {
+  return Array.from({ length: size }, () => Array.from({ length: size }, () => 1));
 }
 
 function grid2DToTensor(grid: readonly (readonly number[])[], dtype?: "f32" | "f64"): Tensor {
@@ -204,6 +250,7 @@ export function analyzeImageFrequency(
   radius2?: number,
   wedgeAngleDeg?: number,
   wedgeWidthDeg?: number,
+  customMask?: readonly (readonly number[])[],
 ): FrequencyResult {
   const height = pixels.length;
   const width = pixels[0]?.length ?? 0;
@@ -230,7 +277,15 @@ export function analyzeImageFrequency(
     magnitudeSpectrum.push(row);
   }
 
-  const mask = buildMask(size, maskType, radius, radius2, wedgeAngleDeg, wedgeWidthDeg);
+  let mask: number[][];
+  if (maskType === "freehand") {
+    if (!customMask || customMask.length !== size || customMask.some((row) => row.length !== size)) {
+      throw new Error(`Freehand mask must be a ${size}x${size} grid.`);
+    }
+    mask = customMask.map((row) => [...row]);
+  } else {
+    mask = buildMask(size, maskType, radius, radius2, wedgeAngleDeg, wedgeWidthDeg);
+  }
   const maskTensor = grid2DToTensor(mask, "f64"); // f64 to match fft2/fftshift's own output dtype -- Tensor has no implicit promotion (confirmed directly: mismatched dtypes throw on mul()).
   const maskedReal = shifted.real.mul(maskTensor);
   const maskedImag = shifted.imag.mul(maskTensor);
