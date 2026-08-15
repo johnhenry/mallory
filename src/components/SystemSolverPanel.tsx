@@ -5,6 +5,7 @@ import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsSystem, type CellIdsSystem } from "../lib/cell-ids.ts";
 import { equationToImplicitZero } from "../lib/equation-to-zero.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { DEFAULT_SYSTEM_STATE, decodeSystemState, encodeSystemState, type SystemState } from "../lib/system-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
@@ -102,6 +103,20 @@ export function SystemSolverPanel({ cellId = "system-1", graph: externalGraph, s
   const equations = useCell<string[]>(graph, ids.equations);
   const variablesText = useCell<string>(graph, ids.variables);
   const solution = useCell<SolutionResult>(graph, ids.solution);
+
+  // Standalone only (issue #43, same enabled:syncUrl pattern as #121-#123):
+  // a notebook-embedded instance shares its graph with NotebookPanel's own
+  // useUndoHistory, so a second independent history here would double-fire
+  // on Ctrl+Z.
+  const history = useUndoHistory(
+    graph,
+    () => getCurrentSystemState(graph, ids),
+    (state) => seedSystemState(graph, ids, state),
+    250,
+    undefined,
+    syncUrl,
+  );
+
   const [equationInputs, setEquationInputs] = useState(equations);
   const [variablesInput, setVariablesInput] = useState(variablesText);
   // Keeps the input boxes in sync when equations/variablesText change for a
@@ -222,6 +237,12 @@ export function SystemSolverPanel({ cellId = "system-1", graph: externalGraph, s
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
             Save to gallery
+          </button>{" "}
+          <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
+            ↩ Undo
+          </button>{" "}
+          <button type="button" onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z / Cmd+Y)">
+            ↪ Redo
           </button>
           {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>
