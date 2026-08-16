@@ -222,6 +222,49 @@ test("layersToSvgDocument: a polyline layer with no dash (or an empty dash array
   assert.ok(!emptyDash.includes("stroke-dasharray"));
 });
 
+test("layersToSvgDocument: a histogram layer's bin produces a hand-computed <rect>, using drawHistogram's own light-blue/blue defaults", () => {
+  // viewport [0,4]x[0,10] on a 100x100 canvas: toScreenX(0)=0, toScreenX(2)=50,
+  // toScreenY(0)=100 (zeroY), toScreenY(5)=50 -- bin [0,2] count=5 is a rect
+  // from x=0 to x=50, y=50 (top, higher count) down to y=100 (zero line).
+  const svg = layersToSvgDocument([{ kind: "histogram", bins: [{ x0: 0, x1: 2, count: 5 }] }], { xMin: 0, xMax: 4, yMin: 0, yMax: 10 }, 100, 100);
+  assert.ok(svg.includes('<rect x="0.00" y="50.00" width="50.00" height="50.00" fill="#93c5fd" stroke="#2563eb" stroke-width="1" />'));
+});
+
+test("layersToSvgDocument: a histogram layer's custom color/strokeColor override drawHistogram's own defaults", () => {
+  const svg = layersToSvgDocument(
+    [{ kind: "histogram", bins: [{ x0: 0, x1: 2, count: 5 }], color: "#facc15", strokeColor: "#a16207" }],
+    { xMin: 0, xMax: 4, yMin: 0, yMax: 10 },
+    100,
+    100,
+  );
+  assert.ok(svg.includes('fill="#facc15" stroke="#a16207"'));
+});
+
+test("layersToSvgDocument: multiple histogram bins each produce their own <rect>, one per bin in array order", () => {
+  const svg = layersToSvgDocument(
+    [
+      {
+        kind: "histogram",
+        bins: [
+          { x0: 0, x1: 2, count: 5 },
+          { x0: 2, x1: 4, count: 10 },
+        ],
+      },
+    ],
+    { xMin: 0, xMax: 4, yMin: 0, yMax: 10 },
+    100,
+    100,
+  );
+  assert.equal((svg.match(/<rect/g) ?? []).length, 2);
+  // Second bin's count=10 hits yMax exactly -> toScreenY(10)=0, so its rect spans the full canvas height (y=0, height=100).
+  assert.ok(svg.includes('<rect x="50.00" y="0.00" width="50.00" height="100.00"'));
+});
+
+test("layersToSvgDocument: a histogram layer with an empty bins array is skipped entirely, not emitted as a stray empty element", () => {
+  const svg = layersToSvgDocument([{ kind: "histogram", bins: [] }], VIEWPORT, 100, 100);
+  assert.equal((svg.match(/<rect/g) ?? []).length, 0);
+});
+
 test("layersToSvgDocument: a layer with an empty points array is skipped entirely, not emitted as a stray empty element", () => {
   const svg = layersToSvgDocument(
     [

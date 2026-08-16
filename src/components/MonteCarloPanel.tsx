@@ -1,3 +1,4 @@
+import type { Path2D } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { Rng } from "mallory-tensor-core";
 import { CellGraph } from "../lib/cell-graph.ts";
@@ -114,6 +115,26 @@ export function convergencePlot(dartResult: DartResult): ConvergencePlot | null 
         ]
       : null,
   };
+}
+
+export interface HistogramPlot {
+  viewport: Viewport;
+  bins: ReadonlyArray<{ x0: number; x1: number; count: number }>;
+  /** The density curve rescaled into count-space (an approximation, not a properly normalized dual-axis overlay -- see the inline comment this was extracted from). */
+  densityPath: Path2D;
+}
+
+/** Shared between the histogram canvas's draw effect and its SVG export (issue #45). */
+export function histogramPlot(histResult: HistResult): HistogramPlot | null {
+  if (!histResult.ok) return null;
+  const { bins, densityPath } = histResult.result;
+  const maxCount = Math.max(...bins.map((b) => b.count), 1);
+  const minX = bins[0]?.x0 ?? 0;
+  const maxX = bins[bins.length - 1]?.x1 ?? 1;
+  const viewport: Viewport = { xMin: minX, xMax: maxX, yMin: 0, yMax: maxCount };
+  const maxDensity = Math.max(...densityPath.commands.map((c) => c.y), 1e-9);
+  const scaledDensityPath = { ...densityPath, commands: densityPath.commands.map((c) => ({ ...c, y: (c.y / maxDensity) * maxCount })) };
+  return { viewport, bins, densityPath: scaledDensityPath };
 }
 
 function useMonteCarloGraph(cellId: string): CellGraph {
@@ -301,21 +322,11 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
     const ctx = histCanvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    if (histResult.ok) {
-      const { bins, densityPath } = histResult.result;
-      const maxCount = Math.max(...bins.map((b) => b.count), 1);
-      const minX = bins[0]?.x0 ?? 0;
-      const maxX = bins[bins.length - 1]?.x1 ?? 1;
-      const countViewport: Viewport = { xMin: minX, xMax: maxX, yMin: 0, yMax: maxCount };
-      drawAxes(ctx, countViewport, WIDTH, HEIGHT);
-      drawHistogram(ctx, bins, countViewport, WIDTH, HEIGHT);
-      // Density curve is drawn against a *proportion* scale (count/n / binWidth would
-      // be true density), so it's overlaid on a separate rescaled pass rather than
-      // sharing count-space y with the bars -- an approximation, not a properly
-      // normalized dual-axis overlay (documented v1 simplification).
-      const maxDensity = Math.max(...densityPath.commands.map((c) => c.y), 1e-9);
-      const scaled = { ...densityPath, commands: densityPath.commands.map((c) => ({ ...c, y: (c.y / maxDensity) * maxCount })) };
-      drawPath(ctx, scaled, countViewport, WIDTH, HEIGHT);
+    const plot = histogramPlot(histResult);
+    if (plot) {
+      drawAxes(ctx, plot.viewport, WIDTH, HEIGHT);
+      drawHistogram(ctx, plot.bins, plot.viewport, WIDTH, HEIGHT);
+      drawPath(ctx, plot.densityPath, plot.viewport, WIDTH, HEIGHT);
     }
   }, [histResult]);
 
@@ -498,6 +509,15 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
       <canvas ref={histCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => histCanvasRef.current} label="monte-carlo-histogram" />
+        <SvgExportButton
+          getSvg={() => {
+            const plot = histogramPlot(histResult);
+            if (!plot) return null;
+            const layers: SvgLayer[] = [{ kind: "histogram", bins: plot.bins }, { kind: "path", path: plot.densityPath }];
+            return layersToSvgDocument(layers, plot.viewport, WIDTH, HEIGHT);
+          }}
+          label="monte-carlo-histogram"
+        />
       </div>
       {histResult.ok ? (
         <p>
