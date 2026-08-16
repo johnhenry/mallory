@@ -16,9 +16,11 @@ import { classifyFixedPoint, findFixedPoints, FIXED_POINT_LABEL, type Classified
 import { getThemeColors } from "../lib/theme-colors.ts";
 import { DEFAULT_ODE_SYSTEM_STATE, decodeOdeSystemState, encodeOdeSystemState, type OdeSystemState } from "../lib/ode-system-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
+import { layersToSvgDocument, type SvgLayer } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 type TrajectoryResult = { ok: true; path: Path2D; final: { t: number; x: number; y: number } } | { ok: false; message: string };
 type VectorFieldResult = { ok: true; points: VectorFieldPoint[] } | { ok: false; message: string };
@@ -311,6 +313,18 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="ode-system" />
+        <SvgExportButton
+          getSvg={() => {
+            const layers: SvgLayer[] = [];
+            if (vectorField.ok) layers.push({ kind: "vectorfield", points: vectorField.points });
+            if (trajectory.ok) {
+              layers.push({ kind: "path", path: trajectory.path });
+              layers.push({ kind: "scatter", points: [{ x: Number(x0), y: Number(y0) }], color: "#dc2626", radius: 5 });
+            }
+            return layers.length > 0 ? layersToSvgDocument(layers, viewport, WIDTH, HEIGHT) : null;
+          }}
+          label="ode-system"
+        />
       </div>
       {trajectory.ok && (
         <p>

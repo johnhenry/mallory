@@ -165,8 +165,11 @@ export function scatterPointsToSvgDocument(
  * mallory-math `Path2D` (its own stroke color/alpha/thickness, same as
  * `pathsToSvgDocument`, rather than the `color`/`strokeWidth` overrides the
  * plain-point-array kinds take), a `drawHistogram`-style set of bin bars,
- * or a `drawSlopeField`-style grid of undirected tangent-line segments. A
- * `polyline` layer's optional `dash` maps straight to SVG's
+ * a `drawSlopeField`-style grid of undirected tangent-line segments, or a
+ * `drawVectorField`-style grid of directed arrows (a line + filled
+ * `<polygon>` arrowhead per point; points whose magnitude is below 1e-12
+ * are skipped, matching `drawVectorField`'s own `continue`). A `polyline`
+ * layer's optional `dash` maps straight to SVG's
  * `stroke-dasharray` -- for a `ctx.setLineDash([...])` reference line (e.g.
  * MonteCarloPanel's dashed pi-estimate line) alongside solid layers on the
  * same canvas.
@@ -176,7 +179,8 @@ export type SvgLayer =
   | { kind: "scatter"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; radius?: number }
   | { kind: "path"; path: MalloryPath }
   | { kind: "histogram"; bins: ReadonlyArray<{ x0: number; x1: number; count: number }>; color?: string; strokeColor?: string }
-  | { kind: "slopefield"; points: ReadonlyArray<{ x: number; y: number; slope: number }>; halfLengthPx?: number; color?: string };
+  | { kind: "slopefield"; points: ReadonlyArray<{ x: number; y: number; slope: number }>; halfLengthPx?: number; color?: string }
+  | { kind: "vectorfield"; points: ReadonlyArray<{ x: number; y: number; dx: number; dy: number }>; halfLengthPx?: number; color?: string };
 
 /**
  * Wraps MULTIPLE layers of possibly-different kinds (polyline, scatter,
@@ -249,6 +253,34 @@ export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewp
             const dx = Math.cos(angle) * halfLengthPx;
             const dy = Math.sin(angle) * halfLengthPx;
             return `<line x1="${(sx - dx).toFixed(2)}" y1="${(sy - dy).toFixed(2)}" x2="${(sx + dx).toFixed(2)}" y2="${(sy + dy).toFixed(2)}" stroke="${color}" stroke-width="1.5" />`;
+          })
+          .join("\n");
+      }
+      if (layer.kind === "vectorfield") {
+        const color = layer.color ?? "rgba(37, 99, 235, 0.55)";
+        const halfLengthPx = layer.halfLengthPx ?? 8;
+        return layer.points
+          .filter((p) => Math.hypot(p.dx, p.dy) >= 1e-12)
+          .map((p) => {
+            const mag = Math.hypot(p.dx, p.dy);
+            const sx = toScreenX(p.x, viewport, width);
+            const sy = toScreenY(p.y, viewport, height);
+            // Screen-space y is flipped vs. data-space y, matching drawVectorField's own convention.
+            const ux = p.dx / mag;
+            const uy = -p.dy / mag;
+            const tipX = sx + ux * halfLengthPx;
+            const tipY = sy + uy * halfLengthPx;
+            const tailX = sx - ux * halfLengthPx;
+            const tailY = sy - uy * halfLengthPx;
+            const arrowAngle = Math.atan2(tipY - tailY, tipX - tailX);
+            const headLen = halfLengthPx * 0.6;
+            const leftX = tipX - headLen * Math.cos(arrowAngle - Math.PI / 6);
+            const leftY = tipY - headLen * Math.sin(arrowAngle - Math.PI / 6);
+            const rightX = tipX - headLen * Math.cos(arrowAngle + Math.PI / 6);
+            const rightY = tipY - headLen * Math.sin(arrowAngle + Math.PI / 6);
+            const shaft = `<line x1="${tailX.toFixed(2)}" y1="${tailY.toFixed(2)}" x2="${tipX.toFixed(2)}" y2="${tipY.toFixed(2)}" stroke="${color}" stroke-width="1.5" />`;
+            const head = `<polygon points="${tipX.toFixed(2)},${tipY.toFixed(2)} ${leftX.toFixed(2)},${leftY.toFixed(2)} ${rightX.toFixed(2)},${rightY.toFixed(2)}" fill="${color}" />`;
+            return `${shaft}\n${head}`;
           })
           .join("\n");
       }
