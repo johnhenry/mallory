@@ -109,3 +109,37 @@ test("buildGraphSessionServer: gallery_list returns an array that includes the k
   assert.equal(seed!.title, "sin(x) and cos(x)");
   assert.equal(seed!.kind, "multi");
 });
+
+test("buildGraphSessionServer: gallery_save is absent from tools/list by default (MALLORY_GRAPH_ENABLE_MCP_WRITE unset -- write path OFF by default)", async () => {
+  assert.equal(process.env.MALLORY_GRAPH_ENABLE_MCP_WRITE, undefined, "test isolation precondition -- another test left this set");
+  const names = await listTools();
+  assert.ok(!names.includes("gallery_save"), `expected gallery_save to be absent, got: ${names.join(", ")}`);
+  assert.equal(names.length, 11);
+});
+
+test("buildGraphSessionServer: gallery_save appears and round-trips through gallery_get when MALLORY_GRAPH_ENABLE_MCP_WRITE=1", async () => {
+  process.env.MALLORY_GRAPH_ENABLE_MCP_WRITE = "1";
+  try {
+    const names = await listTools();
+    assert.ok(names.includes("gallery_save"), `expected gallery_save present, got: ${names.join(", ")}`);
+    assert.equal(names.length, 12);
+
+    const state = {
+      v: 1,
+      rows: [{ source: "x^2", color: 0x2563eb, visible: true, params: {} }],
+      viewport: { xMin: -10, xMax: 10, yMin: -10, yMax: 10 },
+      annotations: [],
+      mode: "float",
+    };
+    const saved = await callTool("gallery_save", { title: "mcp write test", kind: "multi", state });
+    assert.equal(saved.isError, undefined);
+    const { id } = JSON.parse(saved.text) as { id: string };
+    assert.ok(typeof id === "string" && id.length > 0);
+
+    const fetched = await callTool("gallery_get", { id });
+    assert.equal(fetched.isError, undefined);
+    assert.deepEqual(JSON.parse(fetched.text), state);
+  } finally {
+    delete process.env.MALLORY_GRAPH_ENABLE_MCP_WRITE;
+  }
+});
