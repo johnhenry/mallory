@@ -173,8 +173,11 @@ export function scatterPointsToSvgDocument(
  * the same x-coordinates (e.g. MonteCarloPanel's integrand error band) --
  * one `<polygon>` tracing the upper boundary forward then the lower
  * boundary backward, matching the `ctx.fill()`-a-closed-path technique the
- * Canvas2D draw effect uses. A `polyline` layer's optional `dash` maps
- * straight to SVG's
+ * Canvas2D draw effect uses, or a per-point color-and-text marker (e.g.
+ * OdeSystemPanel's classified fixed-point circles, each stroked in the
+ * theme's ink color with a short label offset above-right, matching the
+ * Canvas2D draw effect's `ctx.fillText` placement exactly). A `polyline`
+ * layer's optional `dash` maps straight to SVG's
  * `stroke-dasharray` -- for a `ctx.setLineDash([...])` reference line (e.g.
  * MonteCarloPanel's dashed pi-estimate line) alongside solid layers on the
  * same canvas.
@@ -186,7 +189,8 @@ export type SvgLayer =
   | { kind: "histogram"; bins: ReadonlyArray<{ x0: number; x1: number; count: number }>; color?: string; strokeColor?: string }
   | { kind: "slopefield"; points: ReadonlyArray<{ x: number; y: number; slope: number }>; halfLengthPx?: number; color?: string }
   | { kind: "vectorfield"; points: ReadonlyArray<{ x: number; y: number; dx: number; dy: number }>; halfLengthPx?: number; color?: string }
-  | { kind: "band"; points: ReadonlyArray<{ x: number; yLow: number; yHigh: number }>; color?: string };
+  | { kind: "band"; points: ReadonlyArray<{ x: number; yLow: number; yHigh: number }>; color?: string }
+  | { kind: "labeled-markers"; points: ReadonlyArray<{ x: number; y: number; color: string; label: string }>; radius?: number };
 
 /**
  * Wraps MULTIPLE layers of possibly-different kinds (polyline, scatter,
@@ -297,6 +301,19 @@ export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewp
           .reverse()
           .map((p) => `${toScreenX(p.x, viewport, width).toFixed(2)},${toScreenY(p.yLow, viewport, height).toFixed(2)}`);
         return `<polygon points="${[...upper, ...lower].join(" ")}" fill="${color}" />`;
+      }
+      if (layer.kind === "labeled-markers") {
+        const theme = getThemeColors();
+        const radius = layer.radius ?? 6;
+        return layer.points
+          .map((p) => {
+            const sx = toScreenX(p.x, viewport, width);
+            const sy = toScreenY(p.y, viewport, height);
+            const circle = `<circle cx="${sx.toFixed(2)}" cy="${sy.toFixed(2)}" r="${radius}" fill="${p.color}" stroke="${theme.ink}" stroke-width="1.5" />`;
+            const text = `<text x="${(sx + 9).toFixed(2)}" y="${(sy - 9).toFixed(2)}" fill="${theme.ink}" font-size="11" font-family="sans-serif">${p.label}</text>`;
+            return `${circle}\n${text}`;
+          })
+          .join("\n");
       }
       const color = layer.color ?? "#2563eb";
       const radius = layer.radius ?? 5;

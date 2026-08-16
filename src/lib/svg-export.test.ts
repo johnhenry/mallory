@@ -387,6 +387,52 @@ test("layersToSvgDocument: a band layer with an empty points array is skipped en
   assert.equal((svg.match(/<polygon/g) ?? []).length, 0);
 });
 
+test("layersToSvgDocument: a labeled-markers layer's circle+text pair is hand-computed, matching OdeSystemPanel's fixed-point marker placement", () => {
+  // viewport [-1,1]x[-1,1] on a 100x100 canvas: toScreenX(0)=50, toScreenY(0)=50.
+  // Label offset is +9,-9 from the marker center, matching ctx.fillText(label, sx+9, sy-9).
+  // axes=false to isolate this layer's own <text> from the axis tick labels' <text> elements.
+  const svg = layersToSvgDocument(
+    [{ kind: "labeled-markers", points: [{ x: 0, y: 0, color: "#f59e0b", label: "Saddle" }] }],
+    { xMin: -1, xMax: 1, yMin: -1, yMax: 1 },
+    100,
+    100,
+    false,
+  );
+  assert.ok(svg.includes(`<circle cx="50.00" cy="50.00" r="6" fill="#f59e0b" stroke="${INK}" stroke-width="1.5" />`));
+  assert.ok(svg.includes(`<text x="59.00" y="41.00" fill="${INK}" font-size="11" font-family="sans-serif">Saddle</text>`));
+  // Circle precedes its own text label.
+  assert.ok(svg.indexOf("<circle") < svg.indexOf("<text"));
+});
+
+test("layersToSvgDocument: a labeled-markers layer's custom radius overrides the default 6px, and multiple points each get their own circle+text pair", () => {
+  const svg = layersToSvgDocument(
+    [
+      {
+        kind: "labeled-markers",
+        points: [
+          { x: 0, y: 0, color: "#2563eb", label: "Stable node" },
+          { x: 0.5, y: 0.5, color: "#dc2626", label: "Unstable node" },
+        ],
+        radius: 3,
+      },
+    ],
+    { xMin: -1, xMax: 1, yMin: -1, yMax: 1 },
+    100,
+    100,
+    false,
+  );
+  assert.equal((svg.match(/<circle/g) ?? []).length, 2);
+  assert.equal((svg.match(/<text/g) ?? []).length, 2);
+  assert.ok(svg.includes('r="3"'));
+  assert.ok(!svg.includes('r="6"'));
+});
+
+test("layersToSvgDocument: a labeled-markers layer with an empty points array is skipped entirely", () => {
+  const svg = layersToSvgDocument([{ kind: "labeled-markers", points: [] }], VIEWPORT, 100, 100, false);
+  assert.equal((svg.match(/<circle/g) ?? []).length, 0);
+  assert.equal((svg.match(/<text/g) ?? []).length, 0);
+});
+
 test("layersToSvgDocument: a layer with an empty points array is skipped entirely, not emitted as a stray empty element", () => {
   const svg = layersToSvgDocument(
     [
