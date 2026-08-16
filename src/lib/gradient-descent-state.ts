@@ -24,6 +24,16 @@ export interface GradientDescentStateV1 {
   useSchedule?: boolean;
   stepSize?: string;
   gamma?: string;
+  /**
+   * SGD momentum/Nesterov (issue #33's last remaining item, unblocked by
+   * johnhenry/mallory-plus#89) -- optional for the same reason as
+   * `useSchedule`/`stepSize`/`gamma` above: an old encoded URL hash from
+   * before this field existed still decodes. `momentum` defaults to "0"
+   * (off, byte-identical to plain SGD); `nesterov` requires a nonzero
+   * momentum (enforced by `optim.SGD` itself, not re-validated here).
+   */
+  momentum?: string;
+  nesterov?: boolean;
 }
 
 export type GradientDescentState = GradientDescentStateV1;
@@ -43,6 +53,8 @@ export const DEFAULT_GRADIENT_DESCENT_STATE: GradientDescentState = {
   useSchedule: false,
   stepSize: "10",
   gamma: "0.5",
+  momentum: "0",
+  nesterov: false,
 };
 
 export function encodeGradientDescentState(state: GradientDescentState): string {
@@ -67,9 +79,10 @@ export function isGradientDescentStateV1(value: unknown): value is GradientDesce
   if (!stringFields.every((f) => typeof v[f] === "string")) return false;
   const boolFields = ["showSgd", "showAdam", "showRmsprop"] as const;
   if (!boolFields.every((f) => typeof v[f] === "boolean")) return false;
-  const optionalStringFields = ["stepSize", "gamma"] as const;
+  const optionalStringFields = ["stepSize", "gamma", "momentum"] as const;
   if (!optionalStringFields.every((f) => v[f] === undefined || typeof v[f] === "string")) return false;
-  return v.useSchedule === undefined || typeof v.useSchedule === "boolean";
+  if (v.useSchedule !== undefined && typeof v.useSchedule !== "boolean") return false;
+  return v.nesterov === undefined || typeof v.nesterov === "boolean";
 }
 
 function base64UrlEncode(input: string): string {

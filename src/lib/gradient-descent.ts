@@ -52,6 +52,12 @@ const MAX_STEPS = 2000;
  * iteration"), AFTER the optimizer's own `.step()` -- the first descent
  * step always uses the unmodified initial lr, matching `StepLR`'s own
  * "effective lr after n calls" contract.
+ *
+ * `sgdMomentum`, if given, is passed straight through to `optim.SGD`'s
+ * own `momentum`/`nesterov` options (issue #33's last remaining item,
+ * unblocked by johnhenry/mallory-plus#89) -- harmlessly ignored when
+ * `optimizerType` isn't `"sgd"`, matching how `schedule` above already
+ * applies uniformly to every racing optimizer regardless of type.
  */
 export function runGradientDescent(
   exprText: string,
@@ -61,10 +67,14 @@ export function runGradientDescent(
   lr: number,
   steps: number,
   schedule?: { stepSize: number; gamma: number },
+  sgdMomentum?: { momentum: number; nesterov: boolean },
 ): DescentResult {
   if (!Number.isFinite(startX) || !Number.isFinite(startY)) throw new Error("Start point must be finite numbers.");
   if (!Number.isFinite(lr) || lr <= 0) throw new Error("Learning rate must be a positive number.");
   if (!Number.isInteger(steps) || steps <= 0 || steps > MAX_STEPS) throw new Error(`Steps must be a positive integer up to ${MAX_STEPS}.`);
+  if (sgdMomentum && !(sgdMomentum.momentum >= 0 && sgdMomentum.momentum < 1)) {
+    throw new Error("SGD momentum must be a number in [0, 1).");
+  }
 
   const expr = Symbolic.parse(preprocessImplicitMultiplication(exprText));
   const compiled = compileExpr(expr, { variables: ["x", "y"] });
@@ -75,7 +85,7 @@ export function runGradientDescent(
 
   const optimizer =
     optimizerType === "sgd"
-      ? new optim.SGD([x, y], { lr })
+      ? new optim.SGD([x, y], { lr, momentum: sgdMomentum?.momentum, nesterov: sgdMomentum?.nesterov })
       : optimizerType === "adam"
         ? new optim.Adam([x, y], { lr })
         : new optim.RMSprop([x, y], { lr });
