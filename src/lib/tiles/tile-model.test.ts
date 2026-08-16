@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCompatibilityDigraph, solveWang, type Tile, tilesCompatible } from "./tile-model.ts";
+import {
+  buildCompatibilityDigraph,
+  encodeWangSat,
+  solveSat,
+  solveTorus,
+  solveWang,
+  solveWangViaSat,
+  type Tile,
+  tilesCompatible,
+} from "./tile-model.ts";
 
 async function drain<T, R>(gen: AsyncGenerator<T, R>): Promise<{ steps: T[]; result: R }> {
   const steps: T[] = [];
@@ -104,4 +113,64 @@ test("solveWang: two tiles with no valid vertical pairing in any combination (in
   const q: Tile = { id: "q", edges: { N: "3", E: "x", S: "4", W: "x" } };
   const { result } = await drain(solveWang({ tiles: [p, q] }, 1, 2));
   assert.equal(result, null);
+});
+
+test("solveTorus: a single asymmetric tile (E !== W) fails a 1x1 torus even though solveWang trivially accepts the same tile/size -- the wraparound self-edge check is the differentiator", async () => {
+  const t: Tile = { id: "asym", edges: { N: "0", E: "0", S: "0", W: "1" } };
+  const plain = await drain(solveWang({ tiles: [t] }, 1, 1));
+  assert.deepEqual(plain.result, [["asym"]], "solveWang has no neighbor to conflict with, so it trivially succeeds");
+  const torus = await drain(solveTorus({ tiles: [t] }, 1, 1));
+  assert.equal(torus.result, null, "on a 1-cell torus the tile's own E must equal its own W via wraparound, and it doesn't (E=0, W=1)");
+});
+
+test("solveTorus: a genuinely periodic 2-tile horizontal pair (L.E matches R.W, and R.E wraps back to match L.W) succeeds on a 2x1 torus", async () => {
+  const l: Tile = { id: "L", edges: { N: "v", E: "a", S: "v", W: "b" } };
+  const r: Tile = { id: "R", edges: { N: "v", E: "b", S: "v", W: "a" } };
+  const { result } = await drain(solveTorus({ tiles: [l, r] }, 2, 1));
+  assert.deepEqual(result, [["L", "R"]]);
+});
+
+test("solveSat: a satisfiable 2-clause 2-variable CNF returns an assignment satisfying every clause, hand-verified", () => {
+  // (x1 OR x2) AND (NOT x1 OR x2) AND (NOT x2 OR NOT x1) -- forces x2=true, x1=false.
+  const cnf = [
+    [1, 2],
+    [-1, 2],
+    [-2, -1],
+  ];
+  const assignment = solveSat(cnf, 2);
+  assert.notEqual(assignment, null);
+  assert.equal(assignment!.get(1), false);
+  assert.equal(assignment!.get(2), true);
+});
+
+test("solveSat: an unsatisfiable CNF (unit clause forces x1=true, which propagates to force x2=true, contradicting a unit clause forcing x2=false) returns null", () => {
+  const cnf = [[1], [-1, 2], [-2]];
+  assert.equal(solveSat(cnf, 2), null);
+});
+
+test("encodeWangSat + solveSat: an unsatisfiable tiling (two tiles whose edges never match in any direction) is correctly UNSAT via the SAT encoding, cross-checking solveWang's own null result", async () => {
+  const p: Tile = { id: "p", edges: { N: "1", E: "x", S: "2", W: "x" } };
+  const q: Tile = { id: "q", edges: { N: "3", E: "x", S: "4", W: "x" } };
+  const { cnf, numVars } = encodeWangSat({ tiles: [p, q] }, 1, 2);
+  assert.equal(solveSat(cnf, numVars), null);
+  const wang = await drain(solveWang({ tiles: [p, q] }, 1, 2));
+  assert.equal(wang.result, null, "solveWang agrees: no valid vertical pairing exists");
+});
+
+test("solveWangViaSat: agrees with solveWang on the same 'backtracks past a dead end' tile set (issue #92 M1's own cross-check property)", async () => {
+  const c: Tile = { id: "C", edges: { N: "1", E: "x", S: "9", W: "x" } };
+  const b: Tile = { id: "B", edges: { N: "2", E: "x", S: "1", W: "x" } };
+  const viaSat = solveWangViaSat({ tiles: [c, b] }, 1, 2);
+  assert.deepEqual(viaSat, [["B"], ["C"]]);
+  const { result } = await drain(solveWang({ tiles: [c, b] }, 1, 2));
+  assert.deepEqual(viaSat, result, "SAT cross-check and backtracking solver must agree on the same tiling");
+});
+
+test("solveWangViaSat: a single self-compatible tile trivially fills a 2x2 grid, matching solveWang", () => {
+  const t: Tile = { id: "t", edges: { N: "0", E: "0", S: "0", W: "0" } };
+  const viaSat = solveWangViaSat({ tiles: [t] }, 2, 2);
+  assert.deepEqual(viaSat, [
+    ["t", "t"],
+    ["t", "t"],
+  ]);
 });
