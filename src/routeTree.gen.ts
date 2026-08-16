@@ -36,6 +36,7 @@ import { Route as AppMlRouteImport } from './routes/_app/ml'
 import { Route as AppNotesRouteImport } from './routes/_app/notes'
 import { Route as AppPracticeRouteImport } from './routes/_app/practice'
 import { Route as AppSignalRouteImport } from './routes/_app/signal'
+import { Route as AppTilesRouteImport } from './routes/_app/tiles'
 import { Route as AppWorkspaceRouteImport } from './routes/_app/workspace'
 import { Route as ApiMcpRouteImport } from './routes/api.mcp'
 import { Route as SIdRouteImport } from './routes/s.$id'
@@ -174,6 +175,11 @@ const AppSignalRoute = AppSignalRouteImport.update({
   path: '/signal',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTilesRoute = AppTilesRouteImport.update({
+  id: '/tiles',
+  path: '/tiles',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWorkspaceRoute = AppWorkspaceRouteImport.update({
   id: '/workspace',
   path: '/workspace',
@@ -217,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/notes': typeof AppNotesRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
+  '/tiles': typeof AppTilesRoute
   '/workspace': typeof AppWorkspaceRoute
   '/api/mcp': typeof ApiMcpRoute
   '/s/$id': typeof SIdRoute
@@ -247,6 +254,7 @@ export interface FileRoutesByTo {
   '/notes': typeof AppNotesRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
+  '/tiles': typeof AppTilesRoute
   '/workspace': typeof AppWorkspaceRoute
   '/api/mcp': typeof ApiMcpRoute
   '/s/$id': typeof SIdRoute
@@ -280,6 +288,7 @@ export interface FileRoutesById {
   '/_app/notes': typeof AppNotesRoute
   '/_app/practice': typeof AppPracticeRoute
   '/_app/signal': typeof AppSignalRoute
+  '/_app/tiles': typeof AppTilesRoute
   '/_app/workspace': typeof AppWorkspaceRoute
   '/api/mcp': typeof ApiMcpRoute
   '/s/$id': typeof SIdRoute
@@ -314,6 +323,7 @@ export interface FileRouteTypes {
     | '/notes'
     | '/practice'
     | '/signal'
+    | '/tiles'
     | '/workspace'
     | '/api/mcp'
     | '/s/$id'
@@ -344,6 +354,7 @@ export interface FileRouteTypes {
     | '/notes'
     | '/practice'
     | '/signal'
+    | '/tiles'
     | '/workspace'
     | '/api/mcp'
     | '/s/$id'
@@ -376,6 +387,7 @@ export interface FileRouteTypes {
     | '/_app/notes'
     | '/_app/practice'
     | '/_app/signal'
+    | '/_app/tiles'
     | '/_app/workspace'
     | '/api/mcp'
     | '/s/$id'
@@ -592,6 +604,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSignalRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/tiles': {
+      id: '/_app/tiles'
+      path: '/tiles'
+      fullPath: '/tiles'
+      preLoaderRoute: typeof AppTilesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/workspace': {
       id: '/_app/workspace'
       path: '/workspace'
@@ -629,6 +648,7 @@ interface AppRouteChildren {
   AppNotesRoute: typeof AppNotesRoute
   AppPracticeRoute: typeof AppPracticeRoute
   AppSignalRoute: typeof AppSignalRoute
+  AppTilesRoute: typeof AppTilesRoute
   AppWorkspaceRoute: typeof AppWorkspaceRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -646,6 +666,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppNotesRoute: AppNotesRoute,
   AppPracticeRoute: AppPracticeRoute,
   AppSignalRoute: AppSignalRoute,
+  AppTilesRoute: AppTilesRoute,
   AppWorkspaceRoute: AppWorkspaceRoute,
   AppIndexRoute: AppIndexRoute,
 }
