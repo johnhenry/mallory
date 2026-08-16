@@ -16,6 +16,7 @@ import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { resolveNavigationCommand } from "../lib/nav-sections.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { resolveMatrixNavigationCommand } from "../lib/nl-query-matrix.ts";
+import { resolveDiscreteNavigationCommand } from "../lib/nl-query-discrete.ts";
 import { drawAxes, drawFilledArea, drawPath, drawPoint, drawRegionMask, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { sampleExpr, sampleExprAdaptive, sampleRegionMask } from "../lib/sample-function.ts";
 import { sampleStructureExpr, type ScatterPoint } from "../lib/sample-structure.ts";
@@ -563,6 +564,13 @@ export function GraphCanvas({
       setChatLog((log) => [...log, { input, ok: true, message: "Navigating to the matrix panel…" }]);
       setChatInput("");
       navigate(matrixNav);
+      return;
+    }
+    const discreteNav = resolveDiscreteNavigationCommand(input);
+    if (discreteNav) {
+      setChatLog((log) => [...log, { input, ok: true, message: "Navigating to the discrete panel…" }]);
+      setChatInput("");
+      navigate(discreteNav);
       return;
     }
     const navPath = resolveNavigationCommand(input);
