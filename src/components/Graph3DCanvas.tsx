@@ -19,6 +19,7 @@ import { TransportControls } from "./TransportControls.tsx";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
+import { buildAxesLabelGroup, setupCss2DOverlay } from "../lib/axes-3d-labels.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 
 const WIDTH = 600;
@@ -228,6 +229,8 @@ export function Graph3DCanvas({
     directional.position.set(5, 10, 7);
     scene.add(directional);
     scene.add(new THREE.AxesHelper(DOMAIN.max));
+    scene.add(buildAxesLabelGroup(DOMAIN.max));
+    const labelOverlay = setupCss2DOverlay(container, WIDTH, HEIGHT);
 
     const group = new THREE.Group();
     surfaceGroupRef.current = group;
@@ -241,6 +244,7 @@ export function Graph3DCanvas({
     function tick() {
       controls.update();
       renderer.render(scene, camera);
+      labelOverlay.renderer.render(scene, camera);
       raf = requestAnimationFrame(tick);
     }
     raf = requestAnimationFrame(tick);
@@ -251,6 +255,7 @@ export function Graph3DCanvas({
       controls.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
+      labelOverlay.dispose();
       surfaceGroupRef.current = null;
       highlightGroupRef.current = null;
       rendererCanvasRef.current = null;
@@ -349,7 +354,7 @@ export function Graph3DCanvas({
           setSpeed={setSpeed}
         />
       )}
-      <div ref={containerRef} style={{ maxWidth: WIDTH, border: "1px solid var(--border)" }} />
+      <div ref={containerRef} style={{ position: "relative", maxWidth: WIDTH, border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => rendererCanvasRef.current} label="surface-3d" />
       </div>
