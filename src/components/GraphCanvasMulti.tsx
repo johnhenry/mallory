@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { type PointerEvent, useEffect, useRef, useState, type WheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, EXPRESSION_LIST_CELL, VIEWPORT_CELL } from "../lib/cell-ids.ts";
+import { parseDesmosExpressionList, type DesmosImportRow } from "../lib/desmos-import.ts";
 import { evaluateExactAt } from "../lib/exact-eval.ts";
 import {
   DEFAULT_MULTI_GRAPH_STATE,
@@ -270,6 +271,10 @@ export function GraphCanvasMulti() {
   );
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [annotating, setAnnotating] = useState(false);
+  const [showDesmosImport, setShowDesmosImport] = useState(false);
+  const [desmosText, setDesmosText] = useState("");
+  const [desmosImportStatus, setDesmosImportStatus] = useState<string | null>(null);
+  const [desmosImportFailures, setDesmosImportFailures] = useState<DesmosImportRow[]>([]);
   const [readingPoint, setReadingPoint] = useState(false);
   const [readoutMissed, setReadoutMissed] = useState(false);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
@@ -308,6 +313,33 @@ export function GraphCanvasMulti() {
     const current = graph.get<string[]>(EXPRESSION_LIST_CELL);
     seedRow(graph, id, "x", PALETTE[current.length % PALETTE.length] as number, true);
     graph.set(EXPRESSION_LIST_CELL, [...current, id]);
+  }
+
+  // Desmos paste-import (issue #54, "start with import only" scope): a
+  // pasted line list replaces this view's rows entirely -- a fresh import,
+  // not an append -- reusing restoreMultiGraphState (the same primitive
+  // undo/redo already relies on) so the swap is a single well-tested code
+  // path. Rows that fail to parse are reported, not silently dropped or
+  // allowed to fail the whole paste (parseDesmosExpressionList's own
+  // per-line contract).
+  function handleDesmosImport() {
+    const parsed = parseDesmosExpressionList(desmosText);
+    const succeeded = parsed.filter((r): r is DesmosImportRow & { source: string } => r.source !== undefined);
+    const failed = parsed.filter((r) => r.error !== undefined);
+    setDesmosImportFailures(failed);
+    if (succeeded.length === 0) {
+      setDesmosImportStatus(parsed.length === 0 ? "Nothing to import." : "Could not parse any line -- see the errors below.");
+      return;
+    }
+    restoreMultiGraphState(graph, {
+      v: 1,
+      rows: succeeded.map((r, i) => ({ source: r.source, color: PALETTE[i % PALETTE.length] as number, visible: true, params: {} })),
+      viewport: graph.get<Viewport>(VIEWPORT_CELL),
+      annotations: graph.get<MultiGraphAnnotation[]>(ANNOTATIONS_CELL),
+      mode: graph.get<"float" | "exact">(MODE_CELL),
+    });
+    setDesmosImportStatus(failed.length > 0 ? `Imported ${succeeded.length} expression(s); ${failed.length} line(s) failed to parse (see below).` : `Imported ${succeeded.length} expression(s).`);
+    setDesmosText("");
   }
 
   // Removes the row from the shared list FIRST (so the redraw/URL-sync
@@ -712,6 +744,9 @@ export function GraphCanvasMulti() {
         <button type="button" onClick={addRow}>
           + Add expression
         </button>
+        <button type="button" onClick={() => setShowDesmosImport((v) => !v)}>
+          {showDesmosImport ? "Cancel import" : "Import from Desmos"}
+        </button>
         <button type="button" onClick={forkView} title="Open this exact view in a new tab to explore an alternate path">
           Fork this view
         </button>
@@ -745,6 +780,34 @@ export function GraphCanvasMulti() {
           ↪ Redo
         </button>
       </div>
+      {showDesmosImport && (
+        <div style={{ margin: "0.5rem 0", padding: "0.5rem", border: "1px solid var(--border)" }}>
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem 0" }}>
+            Paste one Desmos expression per line (e.g. "y=\sin\left(x\right)"). This replaces the expressions above.
+          </p>
+          <textarea
+            value={desmosText}
+            onChange={(e) => setDesmosText(e.target.value)}
+            rows={4}
+            style={{ font: "inherit", fontFamily: "monospace", width: "100%", boxSizing: "border-box" }}
+          />
+          <div style={{ margin: "0.25rem 0" }}>
+            <button type="button" onClick={handleDesmosImport}>
+              Import
+            </button>
+          </div>
+          {desmosImportStatus && <p style={{ fontSize: "0.85rem" }}>{desmosImportStatus}</p>}
+          {desmosImportFailures.length > 0 && (
+            <ul style={{ fontSize: "0.8rem", color: "var(--danger)", margin: "0.25rem 0" }}>
+              {desmosImportFailures.map((f, i) => (
+                <li key={i}>
+                  <code>{f.line}</code>: {f.error}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       <p style={{ fontSize: "0.78rem", color: "var(--muted)", margin: "0.25rem 0" }}>
         Drag the canvas to pan, scroll to zoom.
       </p>
