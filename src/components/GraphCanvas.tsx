@@ -1,5 +1,5 @@
 import { Symbolic, type DifferentiationStep, type Expr, type Path2D } from "mallory-math";
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent, type WheelEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
@@ -25,6 +25,7 @@ import { findCurveExtrema, type CurveExtrema } from "../lib/curve-extrema.ts";
 import { HIGHLIGHT_PRELUDE_SECONDS, timelineDuration, type Keyframe } from "../lib/timeline.ts";
 import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { pathsToSvgDocument, scatterPointsToSvgDocument } from "../lib/svg-export.ts";
+import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
@@ -35,7 +36,7 @@ import { SvgExportButton } from "./SvgExportButton.tsx";
 import { TexSpan } from "./TexSpan.tsx";
 import { TransportControls } from "./TransportControls.tsx";
 import { useCell } from "../lib/use-cell.ts";
-import { canvasEventPoint, toDataX, toScreenX, toScreenY } from "../lib/viewport.ts";
+import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY } from "../lib/viewport.ts";
 
 const STRUCTURE_OPTIONS: Array<{ label: string; modulus: number | null }> = [
   { label: "Real numbers", modulus: null },
@@ -114,6 +115,8 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
 
     if (!graph.has(ids.expr)) {
       graph.set(ids.expr, source);
+      graph.set(ids.viewport, viewport, { auxiliary: true });
+      graph.set<Viewport | null>(ids.liveViewport, null, { auxiliary: true });
 
       // Kept pure -- no `graph.set()` here. This cell is read via `get()`
       // from inside React's `getSnapshot` during render (through `params`'s
@@ -145,19 +148,24 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
         () => {
           try {
             const params = graph.get<Record<string, number>>(ids.params);
+            // Reads the COMMITTED viewport (ids.viewport), not a live
+            // mid-gesture override (ids.liveViewport) -- panning/pinching
+            // stays a pure redraw with zero resampling for the whole
+            // gesture, same as GraphCanvasMulti's #52 split.
+            const vp = graph.get<Viewport>(ids.viewport);
             // sampleExprAdaptive (issue #52's flagged finding), not the
             // plain sampleExpr this used before -- matches ExpressionRow's
             // multi-expression rows, which already got the curvature-driven
             // refinement (and its memoization) via #80.
             lastGoodPath = sampleExprAdaptive(
               graph.get<string>(ids.expr),
-              { min: viewport.xMin, max: viewport.xMax },
+              { min: vp.xMin, max: vp.xMax },
               RESOLUTION,
               AXIS_VARIABLE,
               params,
               undefined,
               {},
-              { min: viewport.yMin, max: viewport.yMax },
+              { min: vp.yMin, max: vp.yMax },
             );
           } catch {
             if (!lastGoodPath) throw new Error(`Initial expression "${source}" failed to parse`);
@@ -196,7 +204,8 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
           try {
             const expr = Symbolic.parse(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
             const params = graph.get<Record<string, number>>(ids.params);
-            return sampleRegionMask(expr, { min: viewport.xMin, max: viewport.xMax }, RESOLUTION, AXIS_VARIABLE, params);
+            const vp = graph.get<Viewport>(ids.viewport);
+            return sampleRegionMask(expr, { min: vp.xMin, max: vp.xMax }, RESOLUTION, AXIS_VARIABLE, params);
           } catch {
             return null;
           }
@@ -288,6 +297,7 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
             const params = graph.get<Record<string, number>>(ids.params);
             const expr = Symbolic.parse(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
             const value = Symbolic.integrateDefinite(expr, lower, upper, AXIS_VARIABLE, params);
+            const vp = graph.get<Viewport>(ids.viewport);
             const path = sampleExpr(
               expr,
               { min: Math.min(lower, upper), max: Math.max(lower, upper) },
@@ -295,7 +305,7 @@ function useExpressionGraph(cellId: string, source: string, viewport: Viewport, 
               AXIS_VARIABLE,
               params,
               undefined,
-              { min: viewport.yMin, max: viewport.yMax },
+              { min: vp.yMin, max: vp.yMax },
             );
             lastGoodArea = { value, path };
           } catch {
@@ -377,9 +387,9 @@ export function GraphCanvas({
   syncUrl = true,
   durationCellId,
 }: GraphCanvasProps = {}) {
-  const viewport = DEFAULT_GRAPH_STATE.viewport;
+  const initialViewport = DEFAULT_GRAPH_STATE.viewport;
   const ids = cellIds(cellId);
-  const graph = useExpressionGraph(cellId, defaultSource, viewport, externalGraph);
+  const graph = useExpressionGraph(cellId, defaultSource, initialViewport, externalGraph);
   const navigate = useNavigate();
   // Namespaced by cellId (not a flat "graphing") so two GraphCanvas panes
   // sharing one CellGraph -- LinkedGraphPanes/Linked3DView, and now the
@@ -388,6 +398,14 @@ export function GraphCanvas({
   // useModelContextTool, silently leaving the second pane un-addressable
   // (mallory-graph#11's resolution).
   useCellGraphTools(`graphing_${cellId}`, graph);
+  // Pan/zoom (issue #53): `committedViewport` is what curve/region-mask/
+  // area sampling reads; `liveViewport` overrides it for a zero-resample
+  // redraw during an in-progress wheel/drag/pinch gesture -- see
+  // cell-ids.ts's doc comment for the full VIEWPORT_CELL/LIVE_VIEWPORT_CELL
+  // rationale (mirrors GraphCanvasMulti's #52/#103 split).
+  const committedViewport = useCell<Viewport>(graph, ids.viewport);
+  const liveViewport = useCell<Viewport | null>(graph, ids.liveViewport);
+  const viewport = liveViewport ?? committedViewport;
   const path = useCell<Path2D>(graph, ids.path);
   const point = useCell<CurvePoint | null>(graph, ids.point);
   const exact = useCell<string | null>(graph, ids.exact);
@@ -406,6 +424,18 @@ export function GraphCanvas({
   const exprValue = useCell<string>(graph, ids.expr);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draggingRef = useRef(false);
+  // Pan/pinch gesture state (issue #53), mirroring GraphCanvasMulti's own
+  // dragRef/activePointersRef exactly -- "point" here is the existing
+  // curve-handle drag (handlePointerDown's hit-test below), kept as its own
+  // kind so it can coexist with pan/pinch on the same canvas: a pointerdown
+  // ON the handle drags it, anywhere else starts a pan.
+  const gestureRef = useRef<
+    | { kind: "pan"; anchorX: number; anchorY: number; spanX: number; spanY: number }
+    | { kind: "pinch"; anchorX: number; anchorY: number; spanX: number; spanY: number; startDistancePx: number }
+    | null
+  >(null);
+  const activePointersRef = useRef<Map<number, { sx: number; sy: number }>>(new Map());
+  const zoomCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [source, setSource] = useState(defaultSource);
 
   // Keeps the input box's displayed text in sync whenever `ids.expr` changes
@@ -483,7 +513,9 @@ export function GraphCanvas({
     } catch {
       latex = undefined;
     }
-    return { source, params, tracks, viewport, duration, latex };
+    // The committed viewport (not a live mid-gesture one) -- the server
+    // export renders against exactly what curve sampling itself uses.
+    return { source, params, tracks, viewport: graph.get<Viewport>(ids.viewport), duration, latex };
   }
 
   // Fetched on slider release (not per drag tick): a frame render is fast
@@ -610,6 +642,7 @@ export function GraphCanvas({
     for (const [name, value] of Object.entries(cellState.params)) graph.set(ids.param(name), value);
     graph.set(ids.structure, cellState.structureModulus);
     graph.set(ids.expr, cellState.source);
+    graph.set(ids.viewport, decoded.viewport);
     setSource(cellState.source);
     setMode(decoded.mode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -626,7 +659,9 @@ export function GraphCanvas({
       const state: GraphState = {
         v: 3,
         cells: [{ id: cellId, source: graph.get<string>(ids.expr), params, structureModulus: graph.get<number | null>(ids.structure) }],
-        viewport,
+        // Committed, not live -- so the URL doesn't wobble on every
+        // mid-gesture pointermove/wheel tick, only on gesture-end commit.
+        viewport: graph.get<Viewport>(ids.viewport),
         mode,
       };
       window.history.replaceState(null, "", `#${encodeGraphState(state)}`);
@@ -634,7 +669,7 @@ export function GraphCanvas({
     writeUrl();
     return graph.subscribeAll(writeUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, viewport, mode, syncUrl]);
+  }, [graph, mode, syncUrl]);
 
   useTimelinePlayback(graph, playing, loop, speed, duration, setPlaying);
 
@@ -659,31 +694,169 @@ export function GraphCanvas({
     }
   }, [path, point, scatter, viewport, regionMask, showArea, area, showExtrema, extrema]);
 
+  /** Copies a pending live-viewport override into the real, sampled-against viewport (the gesture-end resample) and clears the override -- shared by pan/pinch release and the wheel-zoom debounce below. */
+  function commitLiveViewport() {
+    const live = graph.get<Viewport | null>(ids.liveViewport);
+    if (!live) return;
+    graph.set(ids.viewport, live);
+    graph.set<Viewport | null>(ids.liveViewport, null);
+  }
+
   function handlePointerDown(e: PointerEvent<HTMLCanvasElement>) {
-    if (!point || modulus !== null) return;
-    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
-    const handleSx = toScreenX(point.x, viewport, WIDTH);
-    const handleSy = toScreenY(point.y, viewport, HEIGHT);
-    // A touch tap is a much less precise target than a mouse click --
-    // issue #53's "roll out" item, same isCoarsePointer() widening
-    // GraphCanvasMulti's annotation-drag/"Read point" hit-testing already
-    // uses.
-    const handleHitRadius = isCoarsePointer() ? HANDLE_HIT_RADIUS * COARSE_POINTER_HIT_RADIUS_MULTIPLIER : HANDLE_HIT_RADIUS;
-    if (Math.hypot(sx - handleSx, sy - handleSy) > handleHitRadius) return;
-    draggingRef.current = true;
+    // A scroll-then-immediately-drag sequence could otherwise start the new
+    // gesture's anchor capture against a stale pre-zoom committed viewport
+    // while the zoomed position only exists in the live one -- same guard
+    // GraphCanvasMulti's own handleCanvasPointerDown uses.
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    commitLiveViewport();
+
+    const downPoint = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    activePointersRef.current.set(e.pointerId, downPoint);
+
+    if (activePointersRef.current.size >= 2) {
+      // Pinch-to-zoom (issue #53): a second finger touching down overrides
+      // whatever single-pointer gesture (point-drag/pan) was in progress --
+      // picks the two most recently added touches, same as Multi.
+      const [p1, p2] = [...activePointersRef.current.values()].slice(-2) as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
+      gestureRef.current = {
+        kind: "pinch",
+        anchorX: toDataX(midSx, vp, WIDTH),
+        anchorY: toDataY(midSy, vp, HEIGHT),
+        spanX: vp.xMax - vp.xMin,
+        spanY: vp.yMax - vp.yMin,
+        startDistancePx: Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy),
+      };
+      draggingRef.current = false;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    if (point && modulus === null) {
+      const { sx, sy } = downPoint;
+      const handleSx = toScreenX(point.x, viewport, WIDTH);
+      const handleSy = toScreenY(point.y, viewport, HEIGHT);
+      // A touch tap is a much less precise target than a mouse click --
+      // issue #53's "roll out" item, same isCoarsePointer() widening
+      // GraphCanvasMulti's annotation-drag/"Read point" hit-testing already
+      // uses.
+      const handleHitRadius = isCoarsePointer() ? HANDLE_HIT_RADIUS * COARSE_POINTER_HIT_RADIUS_MULTIPLIER : HANDLE_HIT_RADIUS;
+      if (Math.hypot(sx - handleSx, sy - handleSy) <= handleHitRadius) {
+        draggingRef.current = true;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+
+    // Neither pinch nor a handle hit -- start a pan. Anchors the data point
+    // currently under the cursor; every subsequent pointermove recomputes
+    // the viewport from scratch so that same data point stays under the
+    // cursor, rather than accumulating per-frame deltas.
+    const vp = graph.get<Viewport>(ids.viewport);
+    const { sx, sy } = downPoint;
+    gestureRef.current = {
+      kind: "pan",
+      anchorX: toDataX(sx, vp, WIDTH),
+      anchorY: toDataY(sy, vp, HEIGHT),
+      spanX: vp.xMax - vp.xMin,
+      spanY: vp.yMax - vp.yMin,
+    };
     e.currentTarget.setPointerCapture(e.pointerId);
   }
 
   function handlePointerMove(e: PointerEvent<HTMLCanvasElement>) {
-    if (!draggingRef.current) return;
-    const { sx } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
-    const x = Math.min(viewport.xMax, Math.max(viewport.xMin, toDataX(sx, viewport, WIDTH)));
-    graph.set(ids.pointX, x);
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT));
+    }
+    if (draggingRef.current) {
+      const { sx } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+      const x = Math.min(viewport.xMax, Math.max(viewport.xMin, toDataX(sx, viewport, WIDTH)));
+      graph.set(ids.pointX, x);
+      return;
+    }
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+    if (gesture.kind === "pinch") {
+      // Only the ONE pointer that generated this event is in `e` -- both
+      // touches' up-to-date positions come back out of activePointersRef.
+      const points = [...activePointersRef.current.values()].slice(-2);
+      if (points.length < 2) return; // a finger lifted without a matching pointerup somehow -- ignore this tick
+      const [p1, p2] = points as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const currentDistancePx = Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy);
+      if (currentDistancePx < 1) return; // fingers overlapping -- avoid a near-zero-divide factor spike
+      const factor = pinchZoomFactor(gesture.startDistancePx, currentDistancePx);
+      const spanX = gesture.spanX * factor;
+      const spanY = gesture.spanY * factor;
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, midSx, midSy, spanX, spanY, WIDTH, HEIGHT));
+      return;
+    }
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    // Live-only write: ids.path/regionMask/area all depend on ids.viewport,
+    // not this cell, so panning stays a pure redraw -- zero resampling --
+    // for the whole gesture. Committed to ids.viewport (the one real
+    // resample) on pointerup below.
+    graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, sx, sy, gesture.spanX, gesture.spanY, WIDTH, HEIGHT));
   }
 
   function handlePointerUp(e: PointerEvent<HTMLCanvasElement>) {
-    draggingRef.current = false;
+    activePointersRef.current.delete(e.pointerId);
+    if (draggingRef.current) {
+      draggingRef.current = false;
+    } else {
+      if (gestureRef.current?.kind === "pan" || gestureRef.current?.kind === "pinch") commitLiveViewport();
+      gestureRef.current = null;
+    }
     e.currentTarget.releasePointerCapture(e.pointerId);
+  }
+
+  const ZOOM_STEP = 1.1;
+  const ZOOM_COMMIT_DEBOUNCE_MS = 150;
+
+  /**
+   * Wheel-to-zoom, anchored on the cursor's data point (same anchor
+   * technique as panning). Live-only: a trackpad's continuous scroll has no
+   * discrete "gesture end" event the way a pointerup does, so the real
+   * commit (the resample) is debounced instead -- fires
+   * `ZOOM_COMMIT_DEBOUNCE_MS` after the last wheel event, reset on every
+   * new one, matching GraphCanvasMulti's own handleCanvasWheel exactly.
+   */
+  function handleWheel(e: WheelEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    const anchorX = toDataX(sx, vp, WIDTH);
+    const anchorY = toDataY(sy, vp, HEIGHT);
+    const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
+    const spanX = (vp.xMax - vp.xMin) * factor;
+    const spanY = (vp.yMax - vp.yMin) * factor;
+    graph.set(ids.liveViewport, viewportFromAnchor(anchorX, anchorY, sx, sy, spanX, spanY, WIDTH, HEIGHT));
+    if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    zoomCommitTimerRef.current = setTimeout(() => {
+      zoomCommitTimerRef.current = null;
+      commitLiveViewport();
+    }, ZOOM_COMMIT_DEBOUNCE_MS);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    };
+  }, []);
+
+  function resetView() {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    graph.set<Viewport | null>(ids.liveViewport, null);
+    graph.set(ids.viewport, initialViewport);
   }
 
   return (
@@ -856,6 +1029,7 @@ export function GraphCanvas({
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onWheel={handleWheel}
         />
       </div>
       <div style={{ margin: "0.25rem 0" }}>
@@ -863,7 +1037,10 @@ export function GraphCanvas({
         <SvgExportButton
           getSvg={() => (scatter ? scatterPointsToSvgDocument(scatter, viewport, WIDTH, HEIGHT) : pathsToSvgDocument([path], viewport, WIDTH, HEIGHT))}
           label="graphing"
-        />
+        />{" "}
+        <button type="button" onClick={resetView}>
+          Reset view
+        </button>
       </div>
       {modulus === null && point && (
         <div>
