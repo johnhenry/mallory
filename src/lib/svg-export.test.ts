@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  axesToSvgElements,
   pathToSvgD,
   pathsToSvgDocument,
   polylinePointsToSvgD,
@@ -9,6 +10,11 @@ import {
   scatterPointsToSvgDocument,
   svgExportFilename,
 } from "./svg-export.ts";
+
+// getThemeColors() falls back to the light-theme palette outside a DOM (node:test has no `document`) --
+// same fallback constants theme-colors.ts's own FALLBACK uses.
+const MUTED = "#64748b";
+const INK = "#1c2531";
 
 test("svgExportFilename: slugifies like pngExportFilename but with a .svg extension", () => {
   assert.equal(svgExportFilename("graphing"), "mallory-graph-graphing.svg");
@@ -45,8 +51,18 @@ test("pathsToSvgDocument: wraps a path into an SVG document with the hand-comput
 });
 
 test("pathsToSvgDocument: an empty paths array still produces a valid (empty) SVG document", () => {
-  const svg = pathsToSvgDocument([], VIEWPORT, 50, 50);
+  const svg = pathsToSvgDocument([], VIEWPORT, 50, 50, false);
   assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">\n\n</svg>');
+});
+
+test("pathsToSvgDocument: axes default on, prepended before the curve so the curve renders on top", () => {
+  const path = {
+    stroke: { thickness: 1, color: 0, alpha: 1, pixelHinting: false, scaleMode: "normal", caps: null, joints: null, miterLimit: 3 },
+    commands: [{ op: "moveTo" as const, x: 0, y: 0 }],
+  };
+  const svg = pathsToSvgDocument([path], VIEWPORT, 50, 50);
+  assert.ok(svg.includes("<line"), "expected axis lines by default");
+  assert.ok(svg.indexOf("<line") < svg.indexOf("<path"), "axes must render before (under) the curve");
 });
 
 test("polylinePointsToSvgD: converts a plain point array to M/L using the same viewport transform as drawPolyline", () => {
@@ -76,8 +92,13 @@ test("polylineToSvgDocument: wraps points into an SVG document with the given co
 });
 
 test("polylineToSvgDocument: an empty point array produces a valid (empty) SVG document, not a stray <path>", () => {
-  const svg = polylineToSvgDocument([], VIEWPORT, 50, 50);
+  const svg = polylineToSvgDocument([], VIEWPORT, 50, 50, "#2563eb", 1.5, false);
   assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">\n\n</svg>');
+});
+
+test("polylineToSvgDocument: axes=false omits axis elements entirely", () => {
+  const svg = polylineToSvgDocument([{ x: 0, y: 0 }], VIEWPORT, 50, 50, "#2563eb", 1.5, false);
+  assert.ok(!svg.includes("<line"));
 });
 
 test("polylinesToSvgDocument: one <path> per line, hand-computed screen coordinates matching polylinePointsToSvgD for each line independently", () => {
@@ -116,7 +137,7 @@ test("polylinesToSvgDocument: custom color/stroke-width applies to every line", 
 });
 
 test("polylinesToSvgDocument: an empty lines array produces a valid (empty) SVG document", () => {
-  const svg = polylinesToSvgDocument([], VIEWPORT, 50, 50);
+  const svg = polylinesToSvgDocument([], VIEWPORT, 50, 50, "#2563eb", 1.5, false);
   assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">\n\n</svg>');
 });
 
@@ -137,6 +158,58 @@ test("scatterPointsToSvgDocument: custom color/radius override drawScatter's own
 });
 
 test("scatterPointsToSvgDocument: an empty point array still produces a valid (empty) SVG document", () => {
-  const svg = scatterPointsToSvgDocument([], VIEWPORT, 50, 50);
+  const svg = scatterPointsToSvgDocument([], VIEWPORT, 50, 50, "#2563eb", 5, false);
   assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">\n\n</svg>');
+});
+
+test("scatterPointsToSvgDocument: axes default on, prepended before the <circle> markers", () => {
+  const svg = scatterPointsToSvgDocument([{ x: 0, y: 0 }], VIEWPORT, 50, 50);
+  assert.ok(svg.includes("<line"));
+  assert.ok(svg.indexOf("<line") < svg.indexOf("<circle"));
+});
+
+test("axesToSvgElements: centered viewport [0,2]x[0,2] on a 100x100 canvas, hand-computed axis lines/ticks/labels", () => {
+  // Axis lines: x-axis at data-y=0 -> screen y=100 (toScreenY flips); y-axis at data-x=0 -> screen x=0.
+  // computeNiceTicks(0, 2, 6) = [0, 0.5, 1, 1.5, 2] (step=0.5, D3-nice-number rule) for both axes.
+  // Whole viewport straddles zero on both axes, so no edge-hugging; x-labels sit below (hanging),
+  // y-labels sit left (text-anchor=end), and the origin's "0" is drawn once, only on the y-axis.
+  const svg = axesToSvgElements({ xMin: 0, xMax: 2, yMin: 0, yMax: 2 }, 100, 100);
+  assert.ok(svg.includes(`<line x1="0" y1="100" x2="100" y2="100" stroke="${MUTED}" stroke-width="1" />`), "x-axis line");
+  assert.ok(svg.includes(`<line x1="0" y1="0" x2="0" y2="100" stroke="${MUTED}" stroke-width="1" />`), "y-axis line");
+  assert.ok(svg.includes(`<line x1="25.00" y1="96.00" x2="25.00" y2="104.00" stroke="${MUTED}" stroke-width="1" />`), "x=0.5 tick");
+  assert.ok(
+    svg.includes(`<text x="25.00" y="106.00" fill="${INK}" font-size="11" font-family="system-ui, sans-serif" text-anchor="middle" dominant-baseline="hanging">0.5</text>`),
+    "x=0.5 label below the axis",
+  );
+  assert.ok(svg.includes(`<line x1="-4.00" y1="75.00" x2="4.00" y2="75.00" stroke="${MUTED}" stroke-width="1" />`), "y=0.5 tick");
+  assert.ok(
+    svg.includes(`<text x="-8.00" y="75.00" fill="${INK}" font-size="11" font-family="system-ui, sans-serif" text-anchor="end" dominant-baseline="middle">0.5</text>`),
+    "y=0.5 label left of the axis",
+  );
+  assert.equal((svg.match(/>0</g) ?? []).length, 1, "the origin's \"0\" label is only drawn once, on the y-axis");
+});
+
+test("axesToSvgElements: viewport entirely above y=0 hugs the x-axis to the bottom edge and flips its labels above the line", () => {
+  const svg = axesToSvgElements({ xMin: -1, xMax: 1, yMin: 1, yMax: 3 }, 100, 100);
+  assert.ok(svg.includes(`<line x1="0" y1="100" x2="100" y2="100" stroke="${MUTED}" stroke-width="1" />`), "x-axis hugs the bottom edge (y=100)");
+  assert.ok(svg.includes('dominant-baseline="auto"'), "x-axis labels flip above the hugging line");
+  assert.ok(!svg.includes('dominant-baseline="hanging"'));
+});
+
+test("axesToSvgElements: viewport entirely left of x=0 hugs the y-axis to the right edge, labels stay on their default left side (still on-canvas)", () => {
+  const svg = axesToSvgElements({ xMin: -3, xMax: -1, yMin: -1, yMax: 1 }, 100, 100);
+  assert.ok(svg.includes(`<line x1="100" y1="0" x2="100" y2="100" stroke="${MUTED}" stroke-width="1" />`), "y-axis hugs the right edge (x=100)");
+  assert.ok(svg.includes('text-anchor="end"'), "left-of-axis default labels are still on-canvas when hugging the right edge, so no flip");
+  assert.ok(!svg.includes('text-anchor="start"'));
+});
+
+test("axesToSvgElements: viewport entirely right of x=0 hugs the y-axis to the left edge and flips its labels to the right (default left side would be off-canvas)", () => {
+  const svg = axesToSvgElements({ xMin: 1, xMax: 3, yMin: -1, yMax: 1 }, 100, 100);
+  assert.ok(svg.includes(`<line x1="0" y1="0" x2="0" y2="100" stroke="${MUTED}" stroke-width="1" />`), "y-axis hugs the left edge (x=0)");
+  assert.ok(svg.includes('text-anchor="start"'), "labels flip to the right of the hugging line");
+});
+
+test("axesToSvgElements: a degenerate viewport (max <= min) produces no elements rather than throwing", () => {
+  assert.equal(axesToSvgElements({ xMin: 2, xMax: 2, yMin: 0, yMax: 2 }, 100, 100), "");
+  assert.equal(axesToSvgElements({ xMin: 0, xMax: 2, yMin: 5, yMax: 1 }, 100, 100), "");
 });
