@@ -36,6 +36,7 @@ import { Route as AppMlRouteImport } from './routes/_app/ml'
 import { Route as AppNotesRouteImport } from './routes/_app/notes'
 import { Route as AppPracticeRouteImport } from './routes/_app/practice'
 import { Route as AppSignalRouteImport } from './routes/_app/signal'
+import { Route as AppStreamingDatasetRouteImport } from './routes/_app/streaming-dataset'
 import { Route as AppTilesRouteImport } from './routes/_app/tiles'
 import { Route as AppWorkspaceRouteImport } from './routes/_app/workspace'
 import { Route as ApiMcpRouteImport } from './routes/api.mcp'
@@ -175,6 +176,11 @@ const AppSignalRoute = AppSignalRouteImport.update({
   path: '/signal',
   getParentRoute: () => AppRoute,
 } as any)
+const AppStreamingDatasetRoute = AppStreamingDatasetRouteImport.update({
+  id: '/streaming-dataset',
+  path: '/streaming-dataset',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTilesRoute = AppTilesRouteImport.update({
   id: '/tiles',
   path: '/tiles',
@@ -223,6 +229,7 @@ export interface FileRoutesByFullPath {
   '/notes': typeof AppNotesRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
+  '/streaming-dataset': typeof AppStreamingDatasetRoute
   '/tiles': typeof AppTilesRoute
   '/workspace': typeof AppWorkspaceRoute
   '/api/mcp': typeof ApiMcpRoute
@@ -254,6 +261,7 @@ export interface FileRoutesByTo {
   '/notes': typeof AppNotesRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
+  '/streaming-dataset': typeof AppStreamingDatasetRoute
   '/tiles': typeof AppTilesRoute
   '/workspace': typeof AppWorkspaceRoute
   '/api/mcp': typeof ApiMcpRoute
@@ -288,6 +296,7 @@ export interface FileRoutesById {
   '/_app/notes': typeof AppNotesRoute
   '/_app/practice': typeof AppPracticeRoute
   '/_app/signal': typeof AppSignalRoute
+  '/_app/streaming-dataset': typeof AppStreamingDatasetRoute
   '/_app/tiles': typeof AppTilesRoute
   '/_app/workspace': typeof AppWorkspaceRoute
   '/api/mcp': typeof ApiMcpRoute
@@ -323,6 +332,7 @@ export interface FileRouteTypes {
     | '/notes'
     | '/practice'
     | '/signal'
+    | '/streaming-dataset'
     | '/tiles'
     | '/workspace'
     | '/api/mcp'
@@ -354,6 +364,7 @@ export interface FileRouteTypes {
     | '/notes'
     | '/practice'
     | '/signal'
+    | '/streaming-dataset'
     | '/tiles'
     | '/workspace'
     | '/api/mcp'
@@ -387,6 +398,7 @@ export interface FileRouteTypes {
     | '/_app/notes'
     | '/_app/practice'
     | '/_app/signal'
+    | '/_app/streaming-dataset'
     | '/_app/tiles'
     | '/_app/workspace'
     | '/api/mcp'
@@ -604,6 +616,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSignalRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/streaming-dataset': {
+      id: '/_app/streaming-dataset'
+      path: '/streaming-dataset'
+      fullPath: '/streaming-dataset'
+      preLoaderRoute: typeof AppStreamingDatasetRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/tiles': {
       id: '/_app/tiles'
       path: '/tiles'
@@ -648,6 +667,7 @@ interface AppRouteChildren {
   AppNotesRoute: typeof AppNotesRoute
   AppPracticeRoute: typeof AppPracticeRoute
   AppSignalRoute: typeof AppSignalRoute
+  AppStreamingDatasetRoute: typeof AppStreamingDatasetRoute
   AppTilesRoute: typeof AppTilesRoute
   AppWorkspaceRoute: typeof AppWorkspaceRoute
   AppIndexRoute: typeof AppIndexRoute
@@ -666,6 +686,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppNotesRoute: AppNotesRoute,
   AppPracticeRoute: AppPracticeRoute,
   AppSignalRoute: AppSignalRoute,
+  AppStreamingDatasetRoute: AppStreamingDatasetRoute,
   AppTilesRoute: AppTilesRoute,
   AppWorkspaceRoute: AppWorkspaceRoute,
   AppIndexRoute: AppIndexRoute,

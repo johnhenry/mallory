@@ -1,0 +1,242 @@
+import { useEffect, useRef, useState } from "react";
+import { drawAxes, drawPolyline, type Viewport } from "../lib/render-path.ts";
+import { runShuffleEpochsDemo, simulatePrefetchTiming } from "../lib/streaming-dataset-demo.ts";
+import { PngExportButton } from "./PngExportButton.tsx";
+
+const SWATCH_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#db2777", "#65a30d", "#4f46e5", "#ea580c"];
+function swatchColor(originalIndex: number): string {
+  return SWATCH_COLORS[originalIndex % SWATCH_COLORS.length];
+}
+
+const TIMING_WIDTH = 480;
+const TIMING_HEIGHT = 260;
+
+/**
+ * Demo B's chart: two arrival-time polylines (item index -> ms since the
+ * run started) on shared axes, plus the raw arrays for the legend text.
+ * Extracted so both the live effect and the PNG 2x re-render call the same
+ * drawing code (the `drawGraphCanvas` precedent from issue #45's 2x work).
+ */
+export function drawPrefetchTimingChart(ctx: CanvasRenderingContext2D, width: number, height: number, withPrefetch: number[], withoutPrefetch: number[]): void {
+  ctx.clearRect(0, 0, width, height);
+  const allArrivals = [...withPrefetch, ...withoutPrefetch];
+  const maxItems = Math.max(withPrefetch.length, withoutPrefetch.length, 1);
+  const maxMs = Math.max(...allArrivals, 1);
+  const viewport: Viewport = { xMin: 0, xMax: maxItems - 1 || 1, yMin: 0, yMax: maxMs * 1.1 };
+  drawAxes(ctx, viewport, width, height);
+  if (withoutPrefetch.length > 0) {
+    drawPolyline(
+      ctx,
+      withoutPrefetch.map((ms, i) => ({ x: i, y: ms })),
+      viewport,
+      width,
+      height,
+      "#dc2626",
+    );
+  }
+  if (withPrefetch.length > 0) {
+    drawPolyline(
+      ctx,
+      withPrefetch.map((ms, i) => ({ x: i, y: ms })),
+      viewport,
+      width,
+      height,
+      "#2563eb",
+    );
+  }
+}
+
+/**
+ * Issue #58: two bounded demos making `mallory-data`'s `Dataset` pipeline
+ * visible -- (A) watch a synthetic dataset's order reshuffle across
+ * epochs, and (B) watch `.prefetch()` overlap producer/consumer latency
+ * against a run without it, as a live-updating timing chart (not just the
+ * final numbers). Deliberately a standalone demo with plain React state,
+ * not a CellGraph-backed panel: neither view represents a "current
+ * calculator state" worth bookmarking/sharing, unlike the rest of this
+ * app's panels.
+ */
+export function StreamingDatasetPanel() {
+  // Demo A: shuffle-across-epochs
+  const [size, setSize] = useState("8");
+  const [epochCount, setEpochCount] = useState("5");
+  const [seed, setSeed] = useState("1");
+  const [bufferSize, setBufferSize] = useState("");
+  const [epochs, setEpochs] = useState<number[][] | null>(null);
+  const [epochIndex, setEpochIndex] = useState(0);
+  const [shufflePlaying, setShufflePlaying] = useState(false);
+  const [shuffleRunning, setShuffleRunning] = useState(false);
+  const [shuffleError, setShuffleError] = useState<string | null>(null);
+
+  async function handleRunShuffle() {
+    setShuffleRunning(true);
+    setShuffleError(null);
+    setShufflePlaying(false);
+    try {
+      const n = Number(size);
+      const e = Number(epochCount);
+      const s = Number(seed);
+      const buf = bufferSize.trim() === "" ? undefined : Number(bufferSize);
+      if (Number.isNaN(n) || Number.isNaN(e) || Number.isNaN(s) || (bufferSize.trim() !== "" && Number.isNaN(buf))) {
+        throw new Error("Size, epoch count, seed, and buffer size must all be numbers.");
+      }
+      const result = await runShuffleEpochsDemo(n, e, s, buf);
+      setEpochs(result);
+      setEpochIndex(0);
+    } catch (e) {
+      setShuffleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setShuffleRunning(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!shufflePlaying || !epochs) return;
+    const id = setInterval(() => {
+      setEpochIndex((i) => {
+        if (i + 1 >= epochs.length) {
+          setShufflePlaying(false);
+          return i;
+        }
+        return i + 1;
+      });
+    }, 700);
+    return () => clearInterval(id);
+  }, [shufflePlaying, epochs]);
+
+  // Demo B: prefetch-vs-no-prefetch timing
+  const [itemCount, setItemCount] = useState("8");
+  const [produceMs, setProduceMs] = useState("150");
+  const [consumeMs, setConsumeMs] = useState("150");
+  const [prefetchN, setPrefetchN] = useState("2");
+  const [timingRunning, setTimingRunning] = useState(false);
+  const [timingError, setTimingError] = useState<string | null>(null);
+  const [withPrefetchArrivals, setWithPrefetchArrivals] = useState<number[]>([]);
+  const [withoutPrefetchArrivals, setWithoutPrefetchArrivals] = useState<number[]>([]);
+  const timingCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  async function handleRunTiming() {
+    setTimingRunning(true);
+    setTimingError(null);
+    setWithPrefetchArrivals([]);
+    setWithoutPrefetchArrivals([]);
+    try {
+      const n = Number(itemCount);
+      const produce = Number(produceMs);
+      const consume = Number(consumeMs);
+      const pf = Number(prefetchN);
+      if (Number.isNaN(n) || Number.isNaN(produce) || Number.isNaN(consume) || Number.isNaN(pf)) {
+        throw new Error("Item count, produce/consume ms, and prefetch buffer must all be numbers.");
+      }
+      await simulatePrefetchTiming(n, produce, consume, pf, undefined, (config, _index, ms) => {
+        if (config === "withPrefetch") setWithPrefetchArrivals((prev) => [...prev, ms]);
+        else setWithoutPrefetchArrivals((prev) => [...prev, ms]);
+      });
+    } catch (e) {
+      setTimingError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTimingRunning(false);
+    }
+  }
+
+  useEffect(() => {
+    const canvas = timingCanvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return;
+    drawPrefetchTimingChart(ctx, TIMING_WIDTH, TIMING_HEIGHT, withPrefetchArrivals, withoutPrefetchArrivals);
+  }, [withPrefetchArrivals, withoutPrefetchArrivals]);
+
+  const currentEpoch = epochs?.[epochIndex] ?? null;
+
+  return (
+    <div>
+      <h2>Watch epochs reshuffle</h2>
+      <p style={{ color: "var(--muted)" }}>
+        A synthetic dataset of <code>size</code> items run through <code>Dataset.epochs(epochCount, {"{"}reshuffle: {"{"}seed, bufferSize{"}"}
+        {"}"})</code> -- each swatch is one item (color = its original position), and its position in the row is where that epoch put it.
+      </p>
+      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center", margin: "0.25rem 0" }}>
+        <label>
+          size <input value={size} onChange={(e) => setSize(e.target.value)} style={{ width: "5ch" }} />
+        </label>
+        <label>
+          epochs <input value={epochCount} onChange={(e) => setEpochCount(e.target.value)} style={{ width: "5ch" }} />
+        </label>
+        <label>
+          seed <input value={seed} onChange={(e) => setSeed(e.target.value)} style={{ width: "5ch" }} />
+        </label>
+        <label>
+          buffer size <input value={bufferSize} onChange={(e) => setBufferSize(e.target.value)} placeholder="full" style={{ width: "6ch" }} />
+        </label>
+        <button type="button" onClick={handleRunShuffle} disabled={shuffleRunning}>
+          {shuffleRunning ? "Running…" : "Run"}
+        </button>
+      </div>
+      {shuffleError && <p style={{ color: "var(--danger)" }}>{shuffleError}</p>}
+      {epochs && currentEpoch && (
+        <div>
+          <div style={{ display: "flex", gap: "2px", margin: "0.5rem 0", flexWrap: "wrap" }}>
+            {currentEpoch.map((originalIndex) => (
+              <div
+                key={originalIndex}
+                style={{ width: "1.75rem", height: "1.75rem", background: swatchColor(originalIndex), borderRadius: "3px" }}
+                title={`original index ${originalIndex}`}
+              />
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+            <button type="button" onClick={() => setShufflePlaying((p) => !p)}>
+              {shufflePlaying ? "Pause" : "Play"}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={epochs.length - 1}
+              value={epochIndex}
+              onChange={(e) => {
+                setShufflePlaying(false);
+                setEpochIndex(Number(e.target.value));
+              }}
+              style={{ flex: "1 1 auto", minWidth: "10rem" }}
+            />
+            <span>
+              epoch {epochIndex + 1} / {epochs.length}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <h2>Prefetch vs. no-prefetch timing</h2>
+      <p style={{ color: "var(--muted)" }}>
+        Two pipelines process the same <code>itemCount</code> synthetic items, each taking <code>produceMs</code> to produce and{" "}
+        <code>consumeMs</code> to consume. One is wrapped with <code>.prefetch(prefetchN)</code>, overlapping the next item's production with the
+        current item's consumption; the other isn't. The chart fills in live as each pipeline actually runs.
+      </p>
+      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center", margin: "0.25rem 0" }}>
+        <label>
+          items <input value={itemCount} onChange={(e) => setItemCount(e.target.value)} style={{ width: "5ch" }} />
+        </label>
+        <label>
+          produce ms <input value={produceMs} onChange={(e) => setProduceMs(e.target.value)} style={{ width: "6ch" }} />
+        </label>
+        <label>
+          consume ms <input value={consumeMs} onChange={(e) => setConsumeMs(e.target.value)} style={{ width: "6ch" }} />
+        </label>
+        <label>
+          prefetch n <input value={prefetchN} onChange={(e) => setPrefetchN(e.target.value)} style={{ width: "5ch" }} />
+        </label>
+        <button type="button" onClick={handleRunTiming} disabled={timingRunning}>
+          {timingRunning ? "Running…" : "Run"}
+        </button>
+      </div>
+      {timingError && <p style={{ color: "var(--danger)" }}>{timingError}</p>}
+      <canvas ref={timingCanvasRef} width={TIMING_WIDTH} height={TIMING_HEIGHT} style={{ border: "1px solid var(--muted)", maxWidth: "100%" }} />
+      <p style={{ fontSize: "0.85rem" }}>
+        <span style={{ color: "#2563eb" }}>■</span> with prefetch ({withPrefetchArrivals.length} arrived)
+        {"  "}
+        <span style={{ color: "#dc2626" }}>■</span> without prefetch ({withoutPrefetchArrivals.length} arrived)
+      </p>
+      <PngExportButton getCanvas={() => timingCanvasRef.current} label="streaming-dataset-prefetch-timing" />
+    </div>
+  );
+}
