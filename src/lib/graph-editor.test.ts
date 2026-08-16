@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeLayout, findVertexAt, nextVertexLabel } from "./graph-editor.ts";
+import { appendEdgeLine, appendVertexLine, computeLayout, findVertexAt, nextVertexLabel } from "./graph-editor.ts";
 import { circularLayout } from "./graph-ops.ts";
 
 test("nextVertexLabel: an empty graph starts at A", () => {
@@ -90,4 +90,21 @@ test("computeLayout: a stored position for a vertex NOT in the current vertex li
   const result = computeLayout(vertices, { A: { x: 1, y: 1 }, ghost: { x: 42, y: 42 } }, true);
   assert.equal(result.has("ghost"), false);
   assert.equal(result.size, 2);
+});
+
+test("appendVertexLine: appends a new vertex line to non-empty existing text, hand-computed", () => {
+  assert.equal(appendVertexLine("A B 4\nA C 2", "G"), "A B 4\nA C 2\nG");
+});
+
+test("appendVertexLine: an empty starting text gets just the vertex line, no leading blank line", () => {
+  assert.equal(appendVertexLine("", "A"), "A");
+  assert.equal(appendVertexLine("   ", "A"), "A");
+});
+
+test("appendEdgeLine: appends a 'from to weight' line to non-empty existing text, hand-computed", () => {
+  assert.equal(appendEdgeLine("A B 4\nA C 2", "C", "D", 5), "A B 4\nA C 2\nC D 5");
+});
+
+test("appendEdgeLine: an empty starting text gets just the edge line, no leading blank line", () => {
+  assert.equal(appendEdgeLine("", "A", "B", 3), "A B 3");
 });

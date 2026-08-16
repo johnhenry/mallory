@@ -2,7 +2,7 @@ import type { Edge, Graph } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsGraphTheory, TIME_CELL, type CellIdsGraphTheory } from "../lib/cell-ids.ts";
-import { computeLayout, findVertexAt, nextVertexLabel } from "../lib/graph-editor.ts";
+import { appendEdgeLine, appendVertexLine, computeLayout, findVertexAt, nextVertexLabel } from "../lib/graph-editor.ts";
 import {
   bfsDistances,
   bfsLayerSteps,
@@ -33,6 +33,7 @@ import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/po
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
 import { drawHeatmap } from "../lib/heatmap.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -182,6 +183,60 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   const graph = useGraphTheoryGraph(cellId);
   useCellGraphTools(`data_graphtheory_${cellId}`, graph);
   const ids = cellIdsGraphTheory(cellId);
+
+  // geo-style per-tool WebMCP construction tools (issue #24's remaining
+  // scope, last item) -- an agent-drivable counterpart to the visual
+  // editor's click-to-add-vertex/drag-to-add-edge, mirroring
+  // GeometryPanel's own graphthy_add_point/graphthy_add_line convention,
+  // including its per-instance `${toolPrefix}_...` namespacing (matches
+  // this panel's own existing `data_graphtheory_${cellId}` prefix on
+  // useCellGraphTools above) -- without it, two GraphTheoryPanel
+  // instances on screen at once would register colliding tool names.
+  // Both append to the same edgeListText cell every other input path
+  // (text box, visual editor) writes to, via the same appendVertexLine/
+  // appendEdgeLine helpers those paths now share.
+  useModelContextTool({
+    name: `graphthy_${cellId}_add_vertex`,
+    description:
+      "Add a vertex to the graph-theory panel's graph. If label is omitted, the next unused spreadsheet-style label (A, B, ..., Z, AA, ...) is assigned. If x/y are both given, the vertex is placed at that position (as if added via the visual editor); otherwise it falls back to the panel's default circular layout. Returns the vertex's label.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        label: { type: "string", description: "Vertex label. Auto-generated if omitted." },
+        x: { type: "number", description: "Data-space x position (visual editor placement). Requires y." },
+        y: { type: "number", description: "Data-space y position (visual editor placement). Requires x." },
+      },
+    },
+    handler: (input: Record<string, unknown>) => {
+      const existing = graph.get<Result<Graph<string>>>(ids.graphResult);
+      const existingLabels = existing.ok ? existing.value.vertices() : [];
+      const label = typeof input.label === "string" && input.label.trim() ? input.label : nextVertexLabel(existingLabels);
+      graph.set(ids.edgeListText, appendVertexLine(graph.get<string>(ids.edgeListText), label));
+      if (typeof input.x === "number" && typeof input.y === "number") {
+        graph.set(ids.vertexPositions, { ...graph.get<Record<string, LayoutPoint>>(ids.vertexPositions), [label]: { x: input.x, y: input.y } }, { auxiliary: true });
+      }
+      return { label };
+    },
+  });
+
+  useModelContextTool({
+    name: `graphthy_${cellId}_add_edge`,
+    description: "Add a weighted edge between two vertices (by label) to the graph-theory panel's graph. Vertices that don't already exist are created implicitly, same as typing a new edge line in the text box. weight defaults to 1.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        to: { type: "string" },
+        weight: { type: "number" },
+      },
+      required: ["from", "to"],
+    },
+    handler: (input: Record<string, unknown>) => {
+      const weight = typeof input.weight === "number" ? input.weight : 1;
+      graph.set(ids.edgeListText, appendEdgeLine(graph.get<string>(ids.edgeListText), String(input.from), String(input.to), weight));
+      return { ok: true };
+    },
+  });
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const heatmapCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -338,8 +393,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
     const x = toDataX(sx, VIEWPORT, WIDTH);
     const y = toDataY(sy, VIEWPORT, HEIGHT);
     graph.set(ids.vertexPositions, { ...vertexPositions, [label]: { x, y } }, { auxiliary: true });
-    const currentText = graph.get<string>(ids.edgeListText);
-    graph.set(ids.edgeListText, currentText.trim().length > 0 ? `${currentText}\n${label}` : label);
+    graph.set(ids.edgeListText, appendVertexLine(graph.get<string>(ids.edgeListText), label));
   }
 
   function handlePointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
@@ -352,8 +406,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
     const { sx, sy } = canvasEventPoint(e, canvas, WIDTH, HEIGHT);
     const to = findVertexAt({ sx, sy }, screenPositions(graphResult.value), hitRadiusPx());
     if (!to) return; // released over empty space -- drag cancelled, no edge added
-    const currentText = graph.get<string>(ids.edgeListText);
-    graph.set(ids.edgeListText, `${currentText}\n${from} ${to} ${edgeWeight}`);
+    graph.set(ids.edgeListText, appendEdgeLine(graph.get<string>(ids.edgeListText), from, to, Number(edgeWeight)));
   }
 
   function updateEdgeList(value: string) {
