@@ -15,9 +15,11 @@ import {
 } from "../lib/matrix-ops.ts";
 import { DEFAULT_MATRIX_STATE, decodeMatrixState, encodeMatrixState, type MatrixState } from "../lib/matrix-state.ts";
 import { drawAxes, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { scatterPointsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -111,6 +113,19 @@ function useMatrixGraph(cellId: string): CellGraph {
 
 const ROOT_CANVAS_SIZE = 220;
 
+export interface RootsPlot {
+  viewport: Viewport;
+  points: Array<{ x: number; y: number }>;
+}
+
+/** Shared between the polynomial-roots canvas's draw effect and its SVG export (issue #45). */
+export function rootsPlot(polyRoots: Result<ComplexNumber[]>): RootsPlot | null {
+  if (!polyRoots.ok) return null;
+  const points = polyRoots.value.map((r) => ({ x: r.value, y: r.iValue }));
+  const maxAbs = Math.max(1, ...points.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y))));
+  return { viewport: { xMin: -maxAbs * 1.2, xMax: maxAbs * 1.2, yMin: -maxAbs * 1.2, yMax: maxAbs * 1.2 }, points };
+}
+
 /** Matrix playground: determinant/inverse, step-through RREF, every MatrixMath decomposition over one entered matrix, and polynomial roots (any degree) via a companion matrix fed to adapter-math's eigGeneral. */
 export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
   const graph = useMatrixGraph(cellId);
@@ -145,12 +160,10 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
     const ctx = rootCanvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE);
-    if (polyRoots.ok) {
-      const points = polyRoots.value.map((r) => ({ x: r.value, y: r.iValue }));
-      const maxAbs = Math.max(1, ...points.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y))));
-      const viewport: Viewport = { xMin: -maxAbs * 1.2, xMax: maxAbs * 1.2, yMin: -maxAbs * 1.2, yMax: maxAbs * 1.2 };
-      drawAxes(ctx, viewport, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE);
-      drawScatter(ctx, points, viewport, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE, 4, "#dc2626");
+    const plot = rootsPlot(polyRoots);
+    if (plot) {
+      drawAxes(ctx, plot.viewport, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE);
+      drawScatter(ctx, plot.points, plot.viewport, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE, 4, "#dc2626");
     }
   }, [polyRoots]);
 
@@ -257,6 +270,13 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
           <canvas ref={rootCanvasRef} width={ROOT_CANVAS_SIZE} height={ROOT_CANVAS_SIZE} style={{ border: "1px solid var(--border)" }} />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton getCanvas={() => rootCanvasRef.current} label="matrix-roots" />
+            <SvgExportButton
+              getSvg={() => {
+                const plot = rootsPlot(polyRoots);
+                return plot ? scatterPointsToSvgDocument(plot.points, plot.viewport, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE, "#dc2626", 4) : null;
+              }}
+              label="matrix-roots"
+            />
           </div>
         </div>
         {polyRoots.ok ? (
