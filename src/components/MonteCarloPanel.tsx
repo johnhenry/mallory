@@ -13,9 +13,11 @@ import {
   type MonteCarloIntegrationResult,
 } from "../lib/monte-carlo.ts";
 import { DEFAULT_MONTE_CARLO_STATE, decodeMonteCarloState, encodeMonteCarloState, type MonteCarloState } from "../lib/monte-carlo-state.ts";
+import { layersToSvgDocument, type SvgLayer } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 const WIDTH = 400;
 const HEIGHT = 400;
@@ -72,6 +74,47 @@ function getCurrentMonteCarloState(graph: CellGraph, ids: CellIdsMonteCarlo): Mo
 type DartResult = { ok: true; result: DartPiResult } | { ok: false; message: string };
 type HistResult = { ok: true; result: DistributionSampleResult } | { ok: false; message: string };
 type IntegrandResult = { ok: true; result: MonteCarloIntegrationResult } | { ok: false; message: string };
+
+export interface DartPlot {
+  viewport: Viewport;
+  insidePoints: Array<{ x: number; y: number }>;
+  outsidePoints: Array<{ x: number; y: number }>;
+}
+
+/** Shared between the dart-throw canvas's draw effect and its SVG export, so the two can't drift (issue #45). */
+export function dartPlot(dartResult: DartResult): DartPlot | null {
+  if (!dartResult.ok) return null;
+  return {
+    viewport: { xMin: -1, xMax: 1, yMin: -1, yMax: 1 },
+    insidePoints: dartResult.result.points.filter((p) => p.inside).map((p) => ({ x: p.x, y: p.y })),
+    outsidePoints: dartResult.result.points.filter((p) => !p.inside).map((p) => ({ x: p.x, y: p.y })),
+  };
+}
+
+export interface ConvergencePlot {
+  viewport: Viewport;
+  points: Array<{ x: number; y: number }>;
+  /** null when pi falls entirely outside the viewport's y-range -- no reference line to draw. */
+  piReferenceLine: Array<{ x: number; y: number }> | null;
+}
+
+/** Shared between the convergence canvas's draw effect and its SVG export (issue #45). */
+export function convergencePlot(dartResult: DartResult): ConvergencePlot | null {
+  if (!dartResult.ok || dartResult.result.convergence.length === 0) return null;
+  const viewport: Viewport = { xMin: 0, xMax: dartResult.result.n, yMin: 2.5, yMax: 4 };
+  const points = dartResult.result.convergence.map((c) => ({ x: c.n, y: c.estimate }));
+  const piInRange = !(viewport.yMax - Math.PI < 0 || Math.PI < viewport.yMin);
+  return {
+    viewport,
+    points,
+    piReferenceLine: piInRange
+      ? [
+          { x: viewport.xMin, y: Math.PI },
+          { x: viewport.xMax, y: Math.PI },
+        ]
+      : null,
+  };
+}
 
 function useMonteCarloGraph(cellId: string): CellGraph {
   const ref = useRef<CellGraph | null>(null);
@@ -221,13 +264,11 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
     const ctx = dartCanvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    if (dartResult.ok) {
-      const viewport: Viewport = { xMin: -1, xMax: 1, yMin: -1, yMax: 1 };
-      drawAxes(ctx, viewport, WIDTH, HEIGHT);
-      const inside = dartResult.result.points.filter((p) => p.inside);
-      const outside = dartResult.result.points.filter((p) => !p.inside);
-      drawScatter(ctx, inside, viewport, WIDTH, HEIGHT, 1.5, "#16a34a");
-      drawScatter(ctx, outside, viewport, WIDTH, HEIGHT, 1.5, "#dc2626");
+    const plot = dartPlot(dartResult);
+    if (plot) {
+      drawAxes(ctx, plot.viewport, WIDTH, HEIGHT);
+      drawScatter(ctx, plot.insidePoints, plot.viewport, WIDTH, HEIGHT, 1.5, "#16a34a");
+      drawScatter(ctx, plot.outsidePoints, plot.viewport, WIDTH, HEIGHT, 1.5, "#dc2626");
     }
   }, [dartResult]);
 
@@ -235,22 +276,21 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
     const ctx = convergenceCanvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, 120);
-    if (dartResult.ok && dartResult.result.convergence.length > 0) {
-      const maxN = dartResult.result.n;
-      const viewport: Viewport = { xMin: 0, xMax: maxN, yMin: 2.5, yMax: 4 };
-      drawAxes(ctx, viewport, WIDTH, 120);
-      const pts = dartResult.result.convergence.map((c) => ({ x: c.n, y: c.estimate }));
-      drawScatter(ctx, pts, viewport, WIDTH, 120, 1.5, "#2563eb");
-      // pi reference line
-      const piY = viewport.yMax - Math.PI < 0 || Math.PI < viewport.yMin ? null : Math.PI;
-      if (piY !== null) {
-        const sy = 120 - ((piY - viewport.yMin) / (viewport.yMax - viewport.yMin)) * 120;
+    const plot = convergencePlot(dartResult);
+    if (plot) {
+      drawAxes(ctx, plot.viewport, WIDTH, 120);
+      drawScatter(ctx, plot.points, plot.viewport, WIDTH, 120, 1.5, "#2563eb");
+      if (plot.piReferenceLine) {
         ctx.save();
         ctx.strokeStyle = "#9ca3af";
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
-        ctx.moveTo(0, sy);
-        ctx.lineTo(WIDTH, sy);
+        plot.piReferenceLine.forEach((p, i) => {
+          const sx = ((p.x - plot.viewport.xMin) / (plot.viewport.xMax - plot.viewport.xMin)) * WIDTH;
+          const sy = 120 - ((p.y - plot.viewport.yMin) / (plot.viewport.yMax - plot.viewport.yMin)) * 120;
+          if (i === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        });
         ctx.stroke();
         ctx.restore();
       }
@@ -361,7 +401,29 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
       <canvas ref={convergenceCanvasRef} width={WIDTH} height={120} style={{ border: "1px solid var(--border)", display: "block", marginTop: "0.25rem" }} />
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.5rem" }}>
         <PngExportButton getCanvas={() => dartCanvasRef.current} label="monte-carlo-darts" />
+        <SvgExportButton
+          getSvg={() => {
+            const plot = dartPlot(dartResult);
+            if (!plot) return null;
+            const layers: SvgLayer[] = [
+              { kind: "scatter", points: plot.insidePoints, color: "#16a34a", radius: 1.5 },
+              { kind: "scatter", points: plot.outsidePoints, color: "#dc2626", radius: 1.5 },
+            ];
+            return layersToSvgDocument(layers, plot.viewport, WIDTH, HEIGHT);
+          }}
+          label="monte-carlo-darts"
+        />
         <PngExportButton getCanvas={() => convergenceCanvasRef.current} label="monte-carlo-convergence" />
+        <SvgExportButton
+          getSvg={() => {
+            const plot = convergencePlot(dartResult);
+            if (!plot) return null;
+            const layers: SvgLayer[] = [{ kind: "scatter", points: plot.points, color: "#2563eb", radius: 1.5 }];
+            if (plot.piReferenceLine) layers.push({ kind: "polyline", points: plot.piReferenceLine, color: "#9ca3af", dash: [4, 4] });
+            return layersToSvgDocument(layers, plot.viewport, WIDTH, 120);
+          }}
+          label="monte-carlo-convergence"
+        />
       </div>
       {dartResult.ok ? (
         <p>π estimate = {dartResult.result.piEstimate.toFixed(5)} (actual π ≈ 3.14159)</p>

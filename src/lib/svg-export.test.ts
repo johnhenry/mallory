@@ -205,6 +205,23 @@ test("layersToSvgDocument: polyline layer defaults to drawPolyline's own blue/1.
   assert.ok(svg.includes('r="5" fill="#2563eb"'));
 });
 
+test("layersToSvgDocument: a polyline layer's dash produces a stroke-dasharray attribute matching setLineDash's own array", () => {
+  const svg = layersToSvgDocument(
+    [{ kind: "polyline", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], color: "#9ca3af", dash: [4, 4] }],
+    VIEWPORT,
+    100,
+    100,
+  );
+  assert.ok(svg.includes('stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 4" />'));
+});
+
+test("layersToSvgDocument: a polyline layer with no dash (or an empty dash array) omits stroke-dasharray entirely, matching a solid ctx line", () => {
+  const noDash = layersToSvgDocument([{ kind: "polyline", points: [{ x: 0, y: 0 }] }], VIEWPORT, 100, 100);
+  assert.ok(!noDash.includes("stroke-dasharray"));
+  const emptyDash = layersToSvgDocument([{ kind: "polyline", points: [{ x: 0, y: 0 }], dash: [] }], VIEWPORT, 100, 100);
+  assert.ok(!emptyDash.includes("stroke-dasharray"));
+});
+
 test("layersToSvgDocument: a layer with an empty points array is skipped entirely, not emitted as a stray empty element", () => {
   const svg = layersToSvgDocument(
     [
