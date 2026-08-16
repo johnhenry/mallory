@@ -19,6 +19,8 @@ export interface GraphTheoryStateV1 {
    */
   showEditor?: boolean;
   edgeWeight?: string;
+  /** Step-by-step algorithm animation (issue #24's remaining scope, item 2) -- optional, same incrementally-added-field convention as showEditor above. */
+  showAnimation?: boolean;
 }
 
 export type GraphTheoryState = GraphTheoryStateV1;
@@ -32,6 +34,7 @@ export const DEFAULT_GRAPH_THEORY_STATE: GraphTheoryState = {
   algorithm: "bfs",
   showEditor: false,
   edgeWeight: "1",
+  showAnimation: false,
 };
 
 export function encodeGraphTheoryState(state: GraphTheoryState): string {
@@ -54,6 +57,7 @@ export function isGraphTheoryStateV1(value: unknown): value is GraphTheoryStateV
   if (v.v !== 1 || typeof v.directed !== "boolean") return false;
   if (v.showEditor !== undefined && typeof v.showEditor !== "boolean") return false;
   if (v.edgeWeight !== undefined && typeof v.edgeWeight !== "string") return false;
+  if (v.showAnimation !== undefined && typeof v.showAnimation !== "boolean") return false;
   const fields = ["edgeListText", "startVertex", "endVertex", "algorithm"] as const;
   return fields.every((f) => typeof v[f] === "string");
 }

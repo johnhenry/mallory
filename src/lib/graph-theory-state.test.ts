@@ -28,3 +28,19 @@ test("encodeGraphTheoryState/decodeGraphTheoryState: round-trips the full state 
   const decoded = decodeGraphTheoryState(encodeGraphTheoryState(state));
   assert.deepEqual(decoded, state);
 });
+
+test("isGraphTheoryStateV1: accepts a pre-animation state missing showAnimation entirely (an old encoded URL hash)", () => {
+  const preAnimationState = { v: 1, edgeListText: "A B 1", directed: false, startVertex: "A", endVertex: "B", algorithm: "bfs", showEditor: false, edgeWeight: "1" };
+  assert.equal(isGraphTheoryStateV1(preAnimationState), true);
+});
+
+test("isGraphTheoryStateV1: rejects a showAnimation field with the wrong type when present", () => {
+  const badShowAnimation = { ...DEFAULT_GRAPH_THEORY_STATE, showAnimation: "yes" };
+  assert.equal(isGraphTheoryStateV1(badShowAnimation), false);
+});
+
+test("encodeGraphTheoryState/decodeGraphTheoryState: round-trips showAnimation=true", () => {
+  const state = { ...DEFAULT_GRAPH_THEORY_STATE, showAnimation: true };
+  const decoded = decodeGraphTheoryState(encodeGraphTheoryState(state));
+  assert.deepEqual(decoded, state);
+});

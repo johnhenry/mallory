@@ -1,8 +1,17 @@
 import type { Edge, Graph } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
-import { cellIdsGraphTheory, type CellIdsGraphTheory } from "../lib/cell-ids.ts";
+import { cellIdsGraphTheory, TIME_CELL, type CellIdsGraphTheory } from "../lib/cell-ids.ts";
 import { computeLayout, findVertexAt, nextVertexLabel } from "../lib/graph-editor.ts";
+import {
+  bfsDistances,
+  bfsLayerSteps,
+  dijkstraSteps,
+  mstSteps,
+  pathSteps,
+  traversalSteps,
+  type AlgorithmStep,
+} from "../lib/graph-algorithm-steps.ts";
 import {
   analyzeGraph,
   parseEdgeListText,
@@ -25,7 +34,9 @@ import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport
 import { drawHeatmap } from "../lib/heatmap.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { TransportControls } from "./TransportControls.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 type Algorithm = "bfs" | "dfs" | "dijkstra" | "shortest-path" | "mst";
@@ -40,6 +51,12 @@ const WIDTH = 500;
 const HEIGHT = 500;
 const VIEWPORT: Viewport = { xMin: -1.3, xMax: 1.3, yMin: -1.3, yMax: 1.3 };
 const HEATMAP_SIZE = 360;
+// Step-by-step algorithm animation (issue #24's remaining scope, item 2):
+// 1 algorithm step = this many seconds of the shared TIME_CELL clock.
+// Coarser than GradientDescentPanel's 0.1s/step (each step here is a whole
+// vertex/edge/layer event, not a numeric optimizer step, so it reads
+// better paced slower).
+const STEP_SECONDS = 0.6;
 
 function seedState(graph: CellGraph, ids: CellIdsGraphTheory, state: GraphTheoryState): void {
   graph.set(ids.edgeListText, state.edgeListText);
@@ -49,6 +66,7 @@ function seedState(graph: CellGraph, ids: CellIdsGraphTheory, state: GraphTheory
   graph.set(ids.algorithm, state.algorithm);
   graph.set(ids.showEditor, state.showEditor ?? DEFAULT_GRAPH_THEORY_STATE.showEditor);
   graph.set(ids.edgeWeight, state.edgeWeight ?? DEFAULT_GRAPH_THEORY_STATE.edgeWeight);
+  graph.set(ids.showAnimation, state.showAnimation ?? DEFAULT_GRAPH_THEORY_STATE.showAnimation);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsGraphTheory): GraphTheoryState {
@@ -61,6 +79,7 @@ function getCurrentState(graph: CellGraph, ids: CellIdsGraphTheory): GraphTheory
     algorithm: graph.get<string>(ids.algorithm),
     showEditor: graph.get<boolean>(ids.showEditor),
     edgeWeight: graph.get<string>(ids.edgeWeight),
+    showAnimation: graph.get<boolean>(ids.showAnimation),
   };
 }
 
@@ -77,6 +96,7 @@ function useGraphTheoryGraph(cellId: string): CellGraph {
     // the URL-codable schema, same convention as MlPlaygroundPanel's
     // drawnPoints (cell-ids.ts's own doc comment explains why).
     if (!graph.has(ids.vertexPositions)) graph.set(ids.vertexPositions, {} as Record<string, LayoutPoint>, { auxiliary: true });
+    if (!graph.has(TIME_CELL)) graph.set(TIME_CELL, 0, { auxiliary: true });
 
     graph.define(ids.graphResult, (): Result<Graph<string>> => {
       try {
@@ -124,6 +144,29 @@ function useGraphTheoryGraph(cellId: string): CellGraph {
       }
     });
 
+    // Step-by-step algorithm animation (issue #24's remaining scope, item
+    // 2): derives an AlgorithmStep[] from the already-computed
+    // algorithmResult, one animation frame per array entry -- no algorithm
+    // is reimplemented here, see graph-algorithm-steps.ts's own doc
+    // comment for why each step order is authentic to what mallory-math
+    // itself returned.
+    graph.define(ids.algorithmSteps, (): AlgorithmStep[] => {
+      const parsed = graph.get<Result<Graph<string>>>(ids.graphResult);
+      const result = graph.get<Result<AlgorithmResult>>(ids.algorithmResult);
+      if (!parsed.ok || !result.ok) return [];
+      const r = result.value;
+      if (r.kind === "order") {
+        if (graph.get<Algorithm>(ids.algorithm) === "bfs") {
+          const distances = bfsDistances((v) => parsed.value.neighbors(v), graph.get<string>(ids.startVertex));
+          return bfsLayerSteps(r.order, distances);
+        }
+        return traversalSteps(r.order);
+      }
+      if (r.kind === "distances") return dijkstraSteps(r.distances);
+      if (r.kind === "path") return pathSteps(r.path);
+      return mstSteps(r.edges);
+    });
+
     ref.current = graph;
   }
   return ref.current;
@@ -148,7 +191,26 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   const showEditor = useCell<boolean>(graph, ids.showEditor);
   const edgeWeight = useCell<string>(graph, ids.edgeWeight);
   const vertexPositions = useCell<Record<string, LayoutPoint>>(graph, ids.vertexPositions);
+  const showAnimation = useCell<boolean>(graph, ids.showAnimation);
+  const algorithmSteps = useCell<AlgorithmStep[]>(graph, ids.algorithmSteps);
+  const time = useCell<number>(graph, TIME_CELL);
   const dragFromRef = useRef<string | null>(null);
+
+  const [playing, setPlaying] = useState(false);
+  const [loop, setLoop] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const duration = showAnimation ? algorithmSteps.length * STEP_SECONDS : 0;
+  useTimelinePlayback(graph, playing, loop, speed, duration, setPlaying);
+  // A changed algorithm result (new graph, new algorithm, new start/end
+  // vertex) restarts the animation from the beginning rather than leaving
+  // the scrub head wherever it was, same reasoning as GradientDescentPanel's
+  // own analogous reset effect.
+  useEffect(() => {
+    graph.set(TIME_CELL, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [algorithmSteps]);
+  const currentStepIndex = algorithmSteps.length > 0 ? Math.min(algorithmSteps.length - 1, Math.floor(time / STEP_SECONDS)) : -1;
+  const currentStep = currentStepIndex >= 0 ? algorithmSteps[currentStepIndex] : undefined;
 
   const [edgeListInput, setEdgeListInput] = useState(edgeListText);
   useEffect(() => {
@@ -174,7 +236,12 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
     const layout = computeLayout(g.vertices(), vertexPositions, showEditor);
     const highlightedEdges = new Set<string>();
     const highlightedVertices = new Set<string>();
-    if (algorithmResult.ok) {
+    if (showAnimation && currentStep) {
+      // Animation on: only the current step's cumulative reveal is
+      // highlighted, not the whole result at once.
+      for (const v of currentStep.visitedVertices) highlightedVertices.add(v);
+      for (const e of currentStep.visitedEdges) highlightedEdges.add(`${e.from} ${e.to}`);
+    } else if (algorithmResult.ok) {
       const r = algorithmResult.value;
       if (r.kind === "path") for (let i = 0; i < r.path.length - 1; i++) highlightedEdges.add(`${r.path[i]} ${r.path[i + 1]}`);
       if (r.kind === "mst") for (const e of r.edges) highlightedEdges.add(`${e.from} ${e.to}`);
@@ -222,7 +289,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
       ctx.fillText(v, sx, sy);
     }
     ctx.restore();
-  }, [graphResult, algorithmResult, startVertex, vertexPositions, showEditor]);
+  }, [graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep]);
 
   useEffect(() => {
     const ctx = heatmapCanvasRef.current?.getContext("2d");
@@ -352,7 +419,16 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
             end: <input value={endVertex} onChange={(e) => graph.set(ids.endVertex, e.target.value)} style={{ font: "inherit", width: "6ch" }} />
           </label>
         )}
+        <label>
+          <input type="checkbox" checked={showAnimation} onChange={(e) => graph.set(ids.showAnimation, e.target.checked)} /> Animate step by step
+        </label>
       </div>
+      {showAnimation && algorithmResult.ok && (
+        <>
+          <TransportControls graph={graph} time={time} duration={duration} playing={playing} setPlaying={setPlaying} loop={loop} setLoop={setLoop} speed={speed} setSpeed={setSpeed} />
+          {currentStep && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{currentStep.label}</p>}
+        </>
+      )}
       {algorithmResult.ok ? (
         <div>
           {algorithmResult.value.kind === "order" && <p>Visit order: {algorithmResult.value.order.join(" → ")}</p>}

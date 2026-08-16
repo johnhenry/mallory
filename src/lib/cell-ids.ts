@@ -350,6 +350,10 @@ export function cellIdsGraphTheory(cellId: string) {
     edgeWeight: `graphEdgeWeight:${cellId}`,
     /** vertex label -> data-space {x,y}, editor-placed positions only (issue #24's interactive editor). Auxiliary/ephemeral, not URL-coded -- same convention as MlPlaygroundPanel's drawnPoints. */
     vertexPositions: `graphVertexPositions:${cellId}`,
+    /** Whether the current algorithm result plays back step by step on the shared TIME_CELL clock (issue #24's remaining scope: "step-by-step algorithm animation") instead of revealing the whole result at once. */
+    showAnimation: `graphShowAnimation:${cellId}`,
+    /** Derived `AlgorithmStep[]` for the current algorithm result -- see graph-algorithm-steps.ts. */
+    algorithmSteps: `graphAlgorithmSteps:${cellId}`,
   };
 }
 
