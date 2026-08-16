@@ -792,3 +792,28 @@ export function cellIdsGeometry(cellId: string) {
 }
 
 export type CellIdsGeometry = ReturnType<typeof cellIdsGeometry>;
+
+/**
+ * Cell-id namespacing for the Wang tile laboratory (TilesPanel.tsx, issue
+ * #92 M1). `solveSteps`/`solveGrid`/`solveStatus` are free cells (not
+ * `define`d) because solving drains an async generator -- inherently
+ * asynchronous work a synchronous `compute` fn can't do -- so a "Solve"
+ * action writes the collected result via `graph.set` instead of the usual
+ * derive-on-read pattern the rest of this panel's cells use.
+ */
+export function cellIdsTiles(cellId: string) {
+  return {
+    tilesText: `tilesText:${cellId}`,
+    tileSetResult: `tilesTileSetResult:${cellId}`,
+    width: `tilesWidth:${cellId}`,
+    height: `tilesHeight:${cellId}`,
+    solver: `tilesSolver:${cellId}`,
+    showAnimation: `tilesShowAnimation:${cellId}`,
+    solveStatus: `tilesSolveStatus:${cellId}`,
+    solveSteps: `tilesSolveSteps:${cellId}`,
+    solveGrid: `tilesSolveGrid:${cellId}`,
+    solveError: `tilesSolveError:${cellId}`,
+  };
+}
+
+export type CellIdsTiles = ReturnType<typeof cellIdsTiles>;

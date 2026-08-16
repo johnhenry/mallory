@@ -81,6 +81,11 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Workspace",
     icon: '<rect x="2" y="3" width="12" height="10" rx="1.2"/><path d="M2 6.2h12" stroke-linecap="round"/><circle cx="4.3" cy="4.6" r="0.5" fill="currentColor" stroke="none"/>',
   },
+  {
+    to: "/tiles",
+    label: "Tiles",
+    icon: '<rect x="1.8" y="1.8" width="5.4" height="5.4" rx="0.6"/><rect x="8.8" y="1.8" width="5.4" height="5.4" rx="0.6"/><rect x="1.8" y="8.8" width="5.4" height="5.4" rx="0.6"/><rect x="8.8" y="8.8" width="5.4" height="5.4" rx="0.6"/>',
+  },
 ];
 
 export const SECTION_PATHS = NAV_SECTIONS.map((item) => item.to).concat(["/demos"]);
