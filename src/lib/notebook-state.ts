@@ -31,11 +31,19 @@ export interface NotebookGraphBlockStateV1 {
   viewport: { xMin: number; xMax: number; yMin: number; yMax: number };
 }
 
-/** Numeric derivative/integral of a named published curve (issue #35 item 2), computed via `mallory-iteration`'s `pairwiseSync`/`transducers.accumulate` -- see `curve-transform.ts`. */
+/**
+ * Numeric derivative/integral/difference of one or two named published
+ * curves (issue #35 item 2), computed via `mallory-iteration`'s
+ * `pairwiseSync`/`transducers.accumulate`, or (for `"difference"`) plain
+ * linear interpolation -- see `curve-transform.ts`. `curveName2` is only
+ * meaningful for `op: "difference"`; optional (not a schema version bump)
+ * so an old saved derivative/integral block still decodes.
+ */
 export interface NotebookCurveTransformBlockStateV1 {
   type: "curve-transform";
   curveName: string;
-  op: "derivative" | "integral";
+  op: "derivative" | "integral" | "difference";
+  curveName2?: string;
 }
 
 export interface NotebookSurface3DBlockStateV1 {
@@ -182,7 +190,8 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
     return b.opArg === undefined || typeof b.opArg === "number";
   }
   if (b.type === "curve-transform") {
-    return typeof b.curveName === "string" && (b.op === "derivative" || b.op === "integral");
+    if (typeof b.curveName !== "string" || (b.op !== "derivative" && b.op !== "integral" && b.op !== "difference")) return false;
+    return b.curveName2 === undefined || typeof b.curveName2 === "string";
   }
   return false;
 }

@@ -40,6 +40,31 @@ test("round-trips a named graph row and a curve-transform block (issue #35 item 
   assert.deepEqual(decodeNotebookState(fragment), state);
 });
 
+test("round-trips a difference curve-transform block with curveName2 set", () => {
+  const state = {
+    v: 1 as const,
+    blocks: [{ type: "curve-transform" as const, curveName: "f", op: "difference" as const, curveName2: "g" }],
+  };
+  const fragment = encodeNotebookState(state);
+  assert.deepEqual(decodeNotebookState(fragment), state);
+});
+
+test("decodeNotebookState accepts a pre-difference curve-transform block missing curveName2 entirely (an old encoded URL hash)", () => {
+  const badFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const decoded = decodeNotebookState(
+    badFragment({ v: 1, blocks: [{ type: "curve-transform", curveName: "f", op: "derivative" }] }),
+  );
+  assert.notEqual(decoded, null);
+});
+
+test("decodeNotebookState rejects a curve-transform block with a wrongly-typed curveName2 when present", () => {
+  const badFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  assert.equal(
+    decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "curve-transform", curveName: "f", op: "difference", curveName2: 4 }] })),
+    null,
+  );
+});
+
 test("encoded fragment is URL-fragment-safe (no +, /, or = padding)", () => {
   const fragment = encodeNotebookState(DEFAULT_NOTEBOOK_STATE);
   assert.ok(!/[+/=]/.test(fragment), `fragment contains unsafe characters: ${fragment}`);
