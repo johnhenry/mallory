@@ -3,9 +3,11 @@ import { useEffect, useRef } from "react";
 import type { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, cellIdsNotebookBlock, notebookCurveCellId } from "../lib/cell-ids.ts";
 import { drawAxes, drawExpressionLayer, drawPath, type Viewport } from "../lib/render-path.ts";
+import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { ExpressionRow } from "./ExpressionRow.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 /** A row's optional publish-name (issue #35 item 2) -- a plain controlled input against `ids.curveName`, since renaming is infrequent (unlike `expr`'s per-keystroke parse cost, nothing here justifies ExpressionRow's local-state-mirror pattern). */
 function CurveNameInput({ graph, rowId, onRename }: { graph: CellGraph; rowId: string; onRename: (name: string) => void }) {
@@ -29,6 +31,26 @@ const WIDTH = 400;
 const HEIGHT = 400;
 const DEFAULT_VIEWPORT: Viewport = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
 const PALETTE = [0x2563eb, 0xdc2626, 0x16a34a];
+
+/**
+ * Every currently-visible row's `Path2D`, in row order -- shared by the SVG
+ * export getter and (indirectly, via the same `graph.get` calls) the
+ * Canvas2D draw effect, so the two can't drift. `hasValue` (not a try/catch)
+ * gates a row whose `path` cell hasn't registered yet -- `get()` on an
+ * unregistered cell auto-creates a placeholder and returns `undefined`
+ * rather than throwing (see cell-graph.ts's own `ensure()`), so a plain
+ * truthiness/try check would silently push `undefined` into the result.
+ * Derivative overlays aren't included -- `pathsToSvgDocument` has no
+ * dashed-stroke support yet, unlike `drawPath`'s own `dashed` param.
+ */
+export function visiblePaths(graph: CellGraph, blockIds: ReturnType<typeof cellIdsNotebookBlock>): Path2D[] {
+  const paths: Path2D[] = [];
+  for (const id of graph.get<string[]>(blockIds.expressionList)) {
+    const ids = cellIdsMultiRow(id);
+    if (graph.hasValue(ids.path) && graph.get<boolean>(ids.visible)) paths.push(graph.get<Path2D>(ids.path));
+  }
+  return paths;
+}
 
 /**
  * A graph cell for the notebook surface (NotebookPanel.tsx): its own
@@ -144,7 +166,15 @@ export function NotebookGraphBlock({
       <div>
         <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
         <div style={{ margin: "0.25rem 0" }}>
-          <PngExportButton getCanvas={() => canvasRef.current} label="notebook-graph" />
+          <PngExportButton getCanvas={() => canvasRef.current} label="notebook-graph" />{" "}
+          <SvgExportButton
+            getSvg={() => {
+              const paths = visiblePaths(graph, blockIds);
+              if (paths.length === 0) return null;
+              return pathsToSvgDocument(paths, graph.get<Viewport>(blockIds.viewport), WIDTH, HEIGHT);
+            }}
+            label="notebook-graph"
+          />
         </div>
       </div>
     </div>
