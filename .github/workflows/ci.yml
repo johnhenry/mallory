@@ -24,6 +24,14 @@ jobs:
 
       - run: npm ci
 
+      - name: Set up Python (SciPy/SymPy verification oracle)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install oracle dependencies (scipy, sympy)
+        run: pip install scipy sympy
+
       - name: Unit tests
         run: npm test
 
