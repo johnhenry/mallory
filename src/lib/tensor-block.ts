@@ -1,3 +1,4 @@
+import type { Path2D } from "mallory-math";
 import { Tensor } from "mallory-tensor-core";
 
 export type TensorOpType = "none" | "abs" | "neg" | "exp" | "sqrt" | "clip01" | "transpose" | "fliplr" | "flipud" | "roll" | "pad" | "repeat";
@@ -118,6 +119,33 @@ export function applyTensorOp(grid: readonly (readonly number[])[], op: TensorOp
     case "repeat":
       return tensorToGrid(tensor.repeat(Math.max(1, Math.trunc(arg)), { axis: 0 }));
   }
+}
+
+const MAX_CURVE_TENSOR_SAMPLES = 16;
+
+/**
+ * Converts a published curve's sampled points into a 2xN tensor grid (row
+ * 0 = x-values, row 1 = y-values) -- issue #35's remaining-scope "tensor
+ * block built from a curve's samples," now unblocked by the curve-
+ * publishing convention curve-transform blocks already use (see
+ * `notebookCurveCellId` in cell-ids.ts). Downsampled to at most
+ * `maxSamples` evenly-strided points: a real sampled curve can have
+ * hundreds of points, while a notebook tensor block is deliberately for
+ * looking at a SMALL tensor (`parseTensorGrid`'s own `MAX_DIM=16` cap) --
+ * striding keeps the curve's overall shape recognizable rather than
+ * truncating to just its first 16 points.
+ */
+export function curveToTensorGrid(path: Path2D, maxSamples = MAX_CURVE_TENSOR_SAMPLES): number[][] {
+  const points = path.commands;
+  if (points.length === 0) throw new Error("This curve has no samples yet.");
+  const stride = Math.max(1, Math.ceil(points.length / maxSamples));
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let i = 0; i < points.length; i += stride) {
+    xs.push(points[i]!.x);
+    ys.push(points[i]!.y);
+  }
+  return [xs, ys];
 }
 
 export interface TensorSummary {

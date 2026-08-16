@@ -48,7 +48,7 @@ import { type TensorOpType } from "../lib/tensor-block.ts";
 import { NotebookComplexBlock } from "./NotebookComplexBlock.tsx";
 import { NotebookCurveTransformBlock } from "./NotebookCurveTransformBlock.tsx";
 import { NotebookGeometryBlock } from "./NotebookGeometryBlock.tsx";
-import { NotebookTensorBlock } from "./NotebookTensorBlock.tsx";
+import { NotebookTensorBlock, type TensorSourceMode } from "./NotebookTensorBlock.tsx";
 import { NotebookGraph3DBlock } from "./NotebookGraph3DBlock.tsx";
 import { NotebookGraphBlock } from "./NotebookGraphBlock.tsx";
 import { NotebookOdeBlock } from "./NotebookOdeBlock.tsx";
@@ -70,7 +70,7 @@ type Block =
   | { id: string; type: "statistics"; initialState: StatisticsState }
   | { id: string; type: "systems"; initialState: SystemState }
   | { id: string; type: "geometry"; initialOps: GeometryOp[] }
-  | { id: string; type: "tensor"; source: string; op: TensorOpType; opArg: number }
+  | { id: string; type: "tensor"; source: string; op: TensorOpType; opArg: number; sourceMode: TensorSourceMode; curveName: string }
   | { id: string; type: "complex"; initialState: ComplexState }
   | { id: string; type: "curve-transform"; initialCurveName: string; initialOp: CurveTransformOp; initialCurveName2: string };
 
@@ -128,7 +128,9 @@ function hydrateBlocks(graph: CellGraph, state: NotebookState): Block[] {
     if (b.type === "regression") return { id, type: "regression", initialState: b.state };
     if (b.type === "statistics") return { id, type: "statistics", initialState: b.state };
     if (b.type === "systems") return { id, type: "systems", initialState: b.state };
-    if (b.type === "tensor") return { id, type: "tensor", source: b.source, op: b.op, opArg: b.opArg ?? 1 };
+    if (b.type === "tensor") {
+      return { id, type: "tensor", source: b.source, op: b.op, opArg: b.opArg ?? 1, sourceMode: b.sourceMode ?? "literal", curveName: b.curveName ?? "" };
+    }
     if (b.type === "complex") return { id, type: "complex", initialState: b.state };
     if (b.type === "curve-transform") {
       return { id, type: "curve-transform", initialCurveName: b.curveName, initialOp: b.op, initialCurveName2: b.curveName2 ?? "" };
@@ -184,7 +186,15 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
         return { type: "statistics", state: getCurrentStatisticsState(graph, cellIdsStatistics(block.id)) };
       }
       if (block.type === "systems") return { type: "systems", state: getCurrentSystemState(graph, cellIdsSystem(block.id)) };
-      if (block.type === "tensor") return { type: "tensor", source: block.source, op: block.op, opArg: block.opArg };
+      if (block.type === "tensor") {
+        return {
+          type: "tensor",
+          source: block.source,
+          op: block.op,
+          opArg: block.opArg,
+          ...(block.sourceMode === "curve" ? { sourceMode: block.sourceMode, curveName: block.curveName } : {}),
+        };
+      }
       if (block.type === "complex") return { type: "complex", state: getCurrentComplexState(graph, cellIdsComplex(block.id)) };
       if (block.type === "curve-transform") {
         const ids = cellIdsCurveTransform(block.id);
@@ -390,7 +400,10 @@ export function NotebookPanel() {
   }
 
   function addTensorBlock() {
-    setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "tensor", source: "1 2 3\n4 5 6\n7 8 9", op: "none", opArg: 1 }]);
+    setBlocks((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), type: "tensor", source: "1 2 3\n4 5 6\n7 8 9", op: "none", opArg: 1, sourceMode: "literal", curveName: "" },
+    ]);
   }
 
   function addComplexBlock() {
@@ -414,6 +427,14 @@ export function NotebookPanel() {
 
   function updateTensorOpArg(id: string, opArg: number) {
     setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, opArg } : b)));
+  }
+
+  function updateTensorSourceMode(id: string, sourceMode: TensorSourceMode) {
+    setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, sourceMode } : b)));
+  }
+
+  function updateTensorCurveName(id: string, curveName: string) {
+    setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, curveName } : b)));
   }
 
   // Single-letter names only: implicit-mult.ts's tokenizer splits any
@@ -723,6 +744,11 @@ export function NotebookPanel() {
           type: "number",
           description: 'Only read by "pad" (border width, default 1) and "repeat" (row-repeat count, default 1); ignored by every other op.',
         },
+        curveName: {
+          type: "string",
+          description:
+            "If set, the grid is built from this named published curve's samples instead of the literal source text (issue #35's tensor-from-curve remaining scope) -- name a graph row to publish one.",
+        },
       },
     },
     handler: (input: Record<string, unknown>) => {
@@ -730,7 +756,9 @@ export function NotebookPanel() {
       const source = typeof input.source === "string" && input.source.trim() ? input.source : "1 2 3\n4 5 6\n7 8 9";
       const op = (typeof input.op === "string" ? input.op : "none") as TensorOpType;
       const opArg = typeof input.opArg === "number" ? input.opArg : 1;
-      setBlocks((prev) => [...prev, { id, type: "tensor", source, op, opArg }]);
+      const curveName = typeof input.curveName === "string" ? input.curveName : "";
+      const sourceMode: TensorSourceMode = curveName ? "curve" : "literal";
+      setBlocks((prev) => [...prev, { id, type: "tensor", source, op, opArg, sourceMode, curveName }]);
       return { id };
     },
   });
@@ -822,10 +850,15 @@ export function NotebookPanel() {
               <NotebookSystemsBlock graph={graph} blockId={block.id} initialState={block.initialState} />
             ) : block.type === "tensor" ? (
               <NotebookTensorBlock
+                graph={graph}
                 source={block.source}
+                sourceMode={block.sourceMode}
+                curveName={block.curveName}
                 op={block.op}
                 opArg={block.opArg}
                 onSourceChange={(source) => updateTensorSource(block.id, source)}
+                onSourceModeChange={(sourceMode) => updateTensorSourceMode(block.id, sourceMode)}
+                onCurveNameChange={(curveName) => updateTensorCurveName(block.id, curveName)}
                 onOpChange={(op) => updateTensorOp(block.id, op)}
                 onOpArgChange={(opArg) => updateTensorOpArg(block.id, opArg)}
               />

@@ -94,6 +94,16 @@ export interface NotebookTensorBlockStateV1 {
   op: TensorOpType;
   /** Read only by ops in `TENSOR_OPS_WITH_ARG` (pad's border width, repeat's row count). Optional (not a schema version bump) -- an additive field defaulting to 1 downstream, same convention StatisticsPanel's own inference fields already use for a reload-safe default rather than forcing every existing saved tensor block through a migration. */
   opArg?: number;
+  /**
+   * "curve" source (issue #35's remaining scope: "a tensor block built
+   * from a curve's samples") reads a named published curve instead of
+   * parsing `source` as a literal grid -- see `curveToTensorGrid`. Both
+   * fields optional (not a schema version bump), same additive-field
+   * convention as `opArg` above; an old saved block with neither still
+   * decodes as the literal-grid default.
+   */
+  sourceMode?: "literal" | "curve";
+  curveName?: string;
 }
 
 export type NotebookBlockStateV1 =
@@ -187,7 +197,9 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
   if (b.type === "complex") return isComplexStateV2(b.state);
   if (b.type === "tensor") {
     if (typeof b.source !== "string" || typeof b.op !== "string" || !(b.op in TENSOR_OP_LABELS)) return false;
-    return b.opArg === undefined || typeof b.opArg === "number";
+    if (b.opArg !== undefined && typeof b.opArg !== "number") return false;
+    if (b.sourceMode !== undefined && b.sourceMode !== "literal" && b.sourceMode !== "curve") return false;
+    return b.curveName === undefined || typeof b.curveName === "string";
   }
   if (b.type === "curve-transform") {
     if (typeof b.curveName !== "string" || (b.op !== "derivative" && b.op !== "integral" && b.op !== "difference")) return false;
