@@ -346,6 +346,10 @@ export function cellIdsGraphTheory(cellId: string) {
     endVertex: `graphEndVertex:${cellId}`,
     algorithm: `graphAlgorithm:${cellId}`,
     algorithmResult: `graphAlgorithmResult:${cellId}`,
+    showEditor: `graphShowEditor:${cellId}`,
+    edgeWeight: `graphEdgeWeight:${cellId}`,
+    /** vertex label -> data-space {x,y}, editor-placed positions only (issue #24's interactive editor). Auxiliary/ephemeral, not URL-coded -- same convention as MlPlaygroundPanel's drawnPoints. */
+    vertexPositions: `graphVertexPositions:${cellId}`,
   };
 }
 

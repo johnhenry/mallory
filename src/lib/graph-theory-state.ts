@@ -9,6 +9,16 @@ export interface GraphTheoryStateV1 {
   startVertex: string;
   endVertex: string;
   algorithm: string;
+  /**
+   * Interactive editor (issue #24's remaining scope, item 1) -- optional,
+   * same reasoning as every other panel's incrementally-added field: an old
+   * encoded URL hash from before this existed still decodes. Vertex
+   * POSITIONS are deliberately NOT part of this schema (ephemeral, see
+   * cellIdsGraphTheory's own doc comment) -- only the toggle and the
+   * default weight applied to the next drag-created edge.
+   */
+  showEditor?: boolean;
+  edgeWeight?: string;
 }
 
 export type GraphTheoryState = GraphTheoryStateV1;
@@ -20,6 +30,8 @@ export const DEFAULT_GRAPH_THEORY_STATE: GraphTheoryState = {
   startVertex: "A",
   endVertex: "F",
   algorithm: "bfs",
+  showEditor: false,
+  edgeWeight: "1",
 };
 
 export function encodeGraphTheoryState(state: GraphTheoryState): string {
@@ -40,6 +52,8 @@ export function isGraphTheoryStateV1(value: unknown): value is GraphTheoryStateV
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   if (v.v !== 1 || typeof v.directed !== "boolean") return false;
+  if (v.showEditor !== undefined && typeof v.showEditor !== "boolean") return false;
+  if (v.edgeWeight !== undefined && typeof v.edgeWeight !== "string") return false;
   const fields = ["edgeListText", "startVertex", "endVertex", "algorithm"] as const;
   return fields.every((f) => typeof v[f] === "string");
 }
