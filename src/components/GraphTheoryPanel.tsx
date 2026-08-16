@@ -2,9 +2,9 @@ import type { Edge, Graph } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsGraphTheory, type CellIdsGraphTheory } from "../lib/cell-ids.ts";
+import { computeLayout, findVertexAt, nextVertexLabel } from "../lib/graph-editor.ts";
 import {
   analyzeGraph,
-  circularLayout,
   parseEdgeListText,
   runBfs,
   runDfs,
@@ -12,6 +12,7 @@ import {
   runMst,
   runShortestPath,
   type GraphAnalysis,
+  type LayoutPoint,
 } from "../lib/graph-ops.ts";
 import {
   DEFAULT_GRAPH_THEORY_STATE,
@@ -19,7 +20,8 @@ import {
   encodeGraphTheoryState,
   type GraphTheoryState,
 } from "../lib/graph-theory-state.ts";
-import { toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
+import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
+import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
 import { drawHeatmap } from "../lib/heatmap.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -45,6 +47,8 @@ function seedState(graph: CellGraph, ids: CellIdsGraphTheory, state: GraphTheory
   graph.set(ids.startVertex, state.startVertex);
   graph.set(ids.endVertex, state.endVertex);
   graph.set(ids.algorithm, state.algorithm);
+  graph.set(ids.showEditor, state.showEditor ?? DEFAULT_GRAPH_THEORY_STATE.showEditor);
+  graph.set(ids.edgeWeight, state.edgeWeight ?? DEFAULT_GRAPH_THEORY_STATE.edgeWeight);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsGraphTheory): GraphTheoryState {
@@ -55,8 +59,12 @@ function getCurrentState(graph: CellGraph, ids: CellIdsGraphTheory): GraphTheory
     startVertex: graph.get<string>(ids.startVertex),
     endVertex: graph.get<string>(ids.endVertex),
     algorithm: graph.get<string>(ids.algorithm),
+    showEditor: graph.get<boolean>(ids.showEditor),
+    edgeWeight: graph.get<string>(ids.edgeWeight),
   };
 }
+
+const VERTEX_RADIUS = 14;
 
 function useGraphTheoryGraph(cellId: string): CellGraph {
   const ref = useRef<CellGraph | null>(null);
@@ -65,6 +73,10 @@ function useGraphTheoryGraph(cellId: string): CellGraph {
     const ids = cellIdsGraphTheory(cellId);
     const decoded = typeof window !== "undefined" ? decodeGraphTheoryState(window.location.hash.slice(1)) : null;
     seedState(graph, ids, decoded ?? DEFAULT_GRAPH_THEORY_STATE);
+    // Editor-placed vertex positions (issue #24) -- ephemeral, not part of
+    // the URL-codable schema, same convention as MlPlaygroundPanel's
+    // drawnPoints (cell-ids.ts's own doc comment explains why).
+    if (!graph.has(ids.vertexPositions)) graph.set(ids.vertexPositions, {} as Record<string, LayoutPoint>, { auxiliary: true });
 
     graph.define(ids.graphResult, (): Result<Graph<string>> => {
       try {
@@ -133,6 +145,10 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   const endVertex = useCell<string>(graph, ids.endVertex);
   const algorithm = useCell<Algorithm>(graph, ids.algorithm);
   const algorithmResult = useCell<Result<AlgorithmResult>>(graph, ids.algorithmResult);
+  const showEditor = useCell<boolean>(graph, ids.showEditor);
+  const edgeWeight = useCell<string>(graph, ids.edgeWeight);
+  const vertexPositions = useCell<Record<string, LayoutPoint>>(graph, ids.vertexPositions);
+  const dragFromRef = useRef<string | null>(null);
 
   const [edgeListInput, setEdgeListInput] = useState(edgeListText);
   useEffect(() => {
@@ -155,7 +171,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
     if (!graphResult.ok) return;
 
     const g = graphResult.value;
-    const layout = circularLayout(g.vertices());
+    const layout = computeLayout(g.vertices(), vertexPositions, showEditor);
     const highlightedEdges = new Set<string>();
     const highlightedVertices = new Set<string>();
     if (algorithmResult.ok) {
@@ -206,7 +222,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
       ctx.fillText(v, sx, sy);
     }
     ctx.restore();
-  }, [graphResult, algorithmResult, startVertex]);
+  }, [graphResult, algorithmResult, startVertex, vertexPositions, showEditor]);
 
   useEffect(() => {
     const ctx = heatmapCanvasRef.current?.getContext("2d");
@@ -216,6 +232,57 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
     const { matrix, order } = analysis.value.adjacencyMatrix;
     drawHeatmap(ctx, matrix, order, HEATMAP_SIZE, HEATMAP_SIZE);
   }, [analysis]);
+
+  // Interactive editor (issue #24's remaining scope, item 1): click empty
+  // canvas space to add a vertex; drag from one vertex to another to add a
+  // weighted edge. Both operations append a line to the SAME edgeListText
+  // cell the text box already edits (matching #159's "the builder writes a
+  // generated string into the same cell" convention) -- the algorithm/
+  // analysis pipeline needs zero changes since it's all still just text.
+  function screenPositions(g: Graph<string>): Map<string, { sx: number; sy: number }> {
+    const layout = computeLayout(g.vertices(), vertexPositions, showEditor);
+    const screen = new Map<string, { sx: number; sy: number }>();
+    for (const [v, p] of layout) screen.set(v, { sx: toScreenX(p.x, VIEWPORT, WIDTH), sy: toScreenY(p.y, VIEWPORT, HEIGHT) });
+    return screen;
+  }
+
+  function hitRadiusPx(): number {
+    return VERTEX_RADIUS * (isCoarsePointer() ? COARSE_POINTER_HIT_RADIUS_MULTIPLIER : 1);
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!showEditor || !graphResult.ok) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const { sx, sy } = canvasEventPoint(e, canvas, WIDTH, HEIGHT);
+    const hit = findVertexAt({ sx, sy }, screenPositions(graphResult.value), hitRadiusPx());
+    if (hit) {
+      dragFromRef.current = hit;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+    // Empty space -- add a new vertex here.
+    const label = nextVertexLabel(graphResult.value.vertices());
+    const x = toDataX(sx, VIEWPORT, WIDTH);
+    const y = toDataY(sy, VIEWPORT, HEIGHT);
+    graph.set(ids.vertexPositions, { ...vertexPositions, [label]: { x, y } }, { auxiliary: true });
+    const currentText = graph.get<string>(ids.edgeListText);
+    graph.set(ids.edgeListText, currentText.trim().length > 0 ? `${currentText}\n${label}` : label);
+  }
+
+  function handlePointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    const from = dragFromRef.current;
+    dragFromRef.current = null;
+    if (!from || !showEditor || !graphResult.ok) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const { sx, sy } = canvasEventPoint(e, canvas, WIDTH, HEIGHT);
+    const to = findVertexAt({ sx, sy }, screenPositions(graphResult.value), hitRadiusPx());
+    if (!to) return; // released over empty space -- drag cancelled, no edge added
+    const currentText = graph.get<string>(ids.edgeListText);
+    graph.set(ids.edgeListText, `${currentText}\n${from} ${to} ${edgeWeight}`);
+  }
 
   function updateEdgeList(value: string) {
     setEdgeListInput(value);
@@ -235,9 +302,34 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
       <div style={{ margin: "0.25rem 0" }}>
         <label>
           <input type="checkbox" checked={directed} onChange={(e) => graph.set(ids.directed, e.target.checked)} /> Directed
+        </label>{" "}
+        <label>
+          <input type="checkbox" checked={showEditor} onChange={(e) => graph.set(ids.showEditor, e.target.checked)} /> Edit graph visually
         </label>
+        {showEditor && (
+          <label style={{ marginLeft: "0.75rem" }}>
+            new edge weight:{" "}
+            <input
+              value={edgeWeight}
+              onChange={(e) => graph.set(ids.edgeWeight, e.target.value)}
+              style={{ font: "inherit", width: "5ch" }}
+            />
+          </label>
+        )}
       </div>
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid #ccc" }} />
+      {showEditor && (
+        <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+          Click empty space to add a vertex. Drag from one vertex to another to add an edge with the weight above.
+        </p>
+      )}
+      <canvas
+        ref={canvasRef}
+        width={WIDTH}
+        height={HEIGHT}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        style={{ border: "1px solid #ccc", cursor: showEditor ? "crosshair" : "default", touchAction: showEditor ? "none" : "auto" }}
+      />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="graph-theory" />
       </div>
