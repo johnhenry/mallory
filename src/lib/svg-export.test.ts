@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   axesToSvgElements,
+  layersToSvgDocument,
   pathToSvgD,
   pathsToSvgDocument,
   polylinePointsToSvgD,
@@ -164,6 +165,67 @@ test("scatterPointsToSvgDocument: an empty point array still produces a valid (e
 
 test("scatterPointsToSvgDocument: axes default on, prepended before the <circle> markers", () => {
   const svg = scatterPointsToSvgDocument([{ x: 0, y: 0 }], VIEWPORT, 50, 50);
+  assert.ok(svg.includes("<line"));
+  assert.ok(svg.indexOf("<line") < svg.indexOf("<circle"));
+});
+
+test("layersToSvgDocument: a scatter layer under a polyline layer produces both element kinds, in array order, using drawScatter/drawPolyline's own defaults", () => {
+  const scatterPoints = [{ x: 0, y: 0 }];
+  const polylinePoints = [
+    { x: 0, y: 0 },
+    { x: 2, y: 2 },
+  ];
+  const svg = layersToSvgDocument(
+    [
+      { kind: "scatter", points: scatterPoints, color: "#93c5fd", radius: 2.5 },
+      { kind: "polyline", points: polylinePoints, color: "#dc2626" },
+    ],
+    VIEWPORT,
+    100,
+    100,
+  );
+  // toScreenX(0)=0,toScreenY(0)=100 -- matches scatterPointsToSvgDocument's own hand-computed case.
+  assert.ok(svg.includes('<circle cx="0.00" cy="100.00" r="2.5" fill="#93c5fd" />'));
+  assert.ok(svg.includes(`<path d="${polylinePointsToSvgD(polylinePoints, VIEWPORT, 100, 100)}" fill="none" stroke="#dc2626" stroke-width="1.5" />`));
+  // scatter (array index 0) must appear before polyline (index 1) -- same layering order as the draw calls it mirrors.
+  assert.ok(svg.indexOf("<circle") < svg.indexOf("<path"));
+});
+
+test("layersToSvgDocument: polyline layer defaults to drawPolyline's own blue/1.5px, scatter layer defaults to drawScatter's own blue/5px", () => {
+  const svg = layersToSvgDocument(
+    [
+      { kind: "polyline", points: [{ x: 0, y: 0 }] },
+      { kind: "scatter", points: [{ x: 1, y: 1 }] },
+    ],
+    VIEWPORT,
+    100,
+    100,
+  );
+  assert.ok(svg.includes('stroke="#2563eb" stroke-width="1.5"'));
+  assert.ok(svg.includes('r="5" fill="#2563eb"'));
+});
+
+test("layersToSvgDocument: a layer with an empty points array is skipped entirely, not emitted as a stray empty element", () => {
+  const svg = layersToSvgDocument(
+    [
+      { kind: "polyline", points: [] },
+      { kind: "scatter", points: [{ x: 0, y: 0 }] },
+    ],
+    VIEWPORT,
+    100,
+    100,
+  );
+  assert.equal((svg.match(/<path/g) ?? []).length, 0);
+  assert.equal((svg.match(/<circle/g) ?? []).length, 1);
+});
+
+test("layersToSvgDocument: an empty layers array produces a valid (empty) SVG document", () => {
+  const svg = layersToSvgDocument([], VIEWPORT, 50, 50, false);
+  assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">\n\n</svg>');
+});
+
+test("layersToSvgDocument: axes default on, prepended before every layer's own elements", () => {
+  const svg = layersToSvgDocument([{ kind: "scatter", points: [{ x: 0, y: 0 }] }], VIEWPORT, 50, 50);
   assert.ok(svg.includes("<line"));
   assert.ok(svg.indexOf("<line") < svg.indexOf("<circle"));
 });

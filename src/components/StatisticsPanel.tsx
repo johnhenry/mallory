@@ -14,10 +14,12 @@ import {
 import { HYPOTHESIS_TEST_LABELS, runHypothesisTest, type HypothesisTestResult, type HypothesisTestType } from "../lib/hypothesis-test.ts";
 import { buildKernel, residualSeries, smoothSeries, type KernelType, type SmoothedSeries } from "../lib/smoothing.ts";
 import { drawAxes, drawPolyline, drawScatter } from "../lib/render-path.ts";
+import { layersToSvgDocument, polylineToSvgDocument } from "../lib/svg-export.ts";
 import type { Viewport } from "../lib/viewport.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 type SummaryResult =
   | {
@@ -36,6 +38,39 @@ type SummaryResult =
 type QueryResult = { ok: true; lowerCdf: number; upperCdf: number; intervalProbability: number } | { ok: false; message: string };
 
 type SmoothingResult = { ok: true; data: number[]; smoothed: SmoothedSeries; residuals: number[] } | { ok: false; message: string };
+
+interface SmoothingPlot {
+  viewport: Viewport;
+  rawPoints: { x: number; y: number }[];
+  smoothedPoints: { x: number; y: number }[];
+}
+
+/** Shared by the smoothing canvas's draw effect and its SVG export getter, so the viewport/point math can't drift between the two (issue #45 item 1's "statistics smoothing" example). */
+export function smoothingPlot(data: number[], smoothed: SmoothedSeries): SmoothingPlot {
+  const allY = [...data, ...smoothed.values];
+  const minY = Math.min(...allY);
+  const maxY = Math.max(...allY);
+  const pad = Math.max(1e-9, (maxY - minY) * 0.1);
+  return {
+    viewport: { xMin: 0, xMax: data.length - 1, yMin: minY - pad, yMax: maxY + pad },
+    rawPoints: data.map((y, x) => ({ x, y })),
+    smoothedPoints: smoothed.indices.map((idx, i) => ({ x: idx, y: smoothed.values[i]! })),
+  };
+}
+
+interface ResidualPlot {
+  viewport: Viewport;
+  points: { x: number; y: number }[];
+}
+
+/** Shared by the residual canvas's draw effect and its SVG export getter. */
+export function residualPlot(smoothed: SmoothedSeries, residuals: number[]): ResidualPlot {
+  const maxAbs = Math.max(1e-9, ...residuals.map((r) => Math.abs(r)));
+  return {
+    viewport: { xMin: 0, xMax: smoothed.indices[smoothed.indices.length - 1] ?? 0, yMin: -maxAbs * 1.1, yMax: maxAbs * 1.1 },
+    points: smoothed.indices.map((idx, i) => ({ x: idx, y: residuals[i]! })),
+  };
+}
 
 type DistType = "normal" | "binomial" | "poisson" | "studentT" | "chiSquare";
 
@@ -345,16 +380,9 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
     if (!ctx) return;
     ctx.clearRect(0, 0, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
     if (!smoothingResult.ok) return;
-    const { data: rawData, smoothed } = smoothingResult;
-    const allY = [...rawData, ...smoothed.values];
-    const minY = Math.min(...allY);
-    const maxY = Math.max(...allY);
-    const pad = Math.max(1e-9, (maxY - minY) * 0.1);
-    const viewport: Viewport = { xMin: 0, xMax: rawData.length - 1, yMin: minY - pad, yMax: maxY + pad };
+    const { viewport, rawPoints, smoothedPoints } = smoothingPlot(smoothingResult.data, smoothingResult.smoothed);
     drawAxes(ctx, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
-    const rawPoints = rawData.map((y, x) => ({ x, y }));
     drawScatter(ctx, rawPoints, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, 2.5, "#93c5fd");
-    const smoothedPoints = smoothed.indices.map((idx, i) => ({ x: idx, y: smoothed.values[i]! }));
     drawPolyline(ctx, smoothedPoints, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, "#dc2626");
   }, [smoothingResult]);
 
@@ -365,11 +393,8 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
     if (!ctx) return;
     ctx.clearRect(0, 0, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
     if (!smoothingShowResidual || !smoothingResult.ok) return;
-    const { smoothed, residuals } = smoothingResult;
-    const maxAbs = Math.max(1e-9, ...residuals.map((r) => Math.abs(r)));
-    const viewport: Viewport = { xMin: 0, xMax: smoothed.indices[smoothed.indices.length - 1] ?? 0, yMin: -maxAbs * 1.1, yMax: maxAbs * 1.1 };
+    const { viewport, points } = residualPlot(smoothingResult.smoothed, smoothingResult.residuals);
     drawAxes(ctx, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
-    const points = smoothed.indices.map((idx, i) => ({ x: idx, y: residuals[i]! }));
     drawPolyline(ctx, points, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, "#16a34a");
   }, [smoothingResult, smoothingShowResidual]);
 
@@ -438,13 +463,37 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
       )}
       <canvas ref={smoothingCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => smoothingCanvasRef.current} label="statistics-smoothing" />
+        <PngExportButton getCanvas={() => smoothingCanvasRef.current} label="statistics-smoothing" />{" "}
+        <SvgExportButton
+          getSvg={() => {
+            if (!smoothingResult.ok) return null;
+            const { viewport, rawPoints, smoothedPoints } = smoothingPlot(smoothingResult.data, smoothingResult.smoothed);
+            return layersToSvgDocument(
+              [
+                { kind: "scatter", points: rawPoints, color: "#93c5fd", radius: 2.5 },
+                { kind: "polyline", points: smoothedPoints, color: "#dc2626" },
+              ],
+              viewport,
+              SMOOTHING_WIDTH,
+              SMOOTHING_HEIGHT,
+            );
+          }}
+          label="statistics-smoothing"
+        />
       </div>
       {smoothingShowResidual && (
         <>
           <canvas ref={residualCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%", marginTop: "0.5rem" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => residualCanvasRef.current} label="statistics-residual" />
+            <PngExportButton getCanvas={() => residualCanvasRef.current} label="statistics-residual" />{" "}
+            <SvgExportButton
+              getSvg={() => {
+                if (!smoothingResult.ok) return null;
+                const { viewport, points } = residualPlot(smoothingResult.smoothed, smoothingResult.residuals);
+                return polylineToSvgDocument(points, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, "#16a34a");
+              }}
+              label="statistics-residual"
+            />
           </div>
         </>
       )}
