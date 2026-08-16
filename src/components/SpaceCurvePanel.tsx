@@ -8,6 +8,7 @@ import { DEFAULT_SPACE_CURVE_STATE, decodeSpaceCurveState, encodeSpaceCurveState
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
+import { buildAxesLabelGroup, setupCss2DOverlay } from "../lib/axes-3d-labels.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
@@ -143,6 +144,8 @@ export function SpaceCurvePanel({ cellId = "space-curve-1" }: { cellId?: string 
     directional.position.set(5, 10, 7);
     scene.add(directional);
     scene.add(new THREE.AxesHelper(3));
+    scene.add(buildAxesLabelGroup(3));
+    const labelOverlay = setupCss2DOverlay(container, WIDTH, HEIGHT);
 
     const group = new THREE.Group();
     groupRef.current = group;
@@ -152,6 +155,7 @@ export function SpaceCurvePanel({ cellId = "space-curve-1" }: { cellId?: string 
     function tick() {
       controls.update();
       renderer.render(scene, camera);
+      labelOverlay.renderer.render(scene, camera);
       raf = requestAnimationFrame(tick);
     }
     raf = requestAnimationFrame(tick);
@@ -162,6 +166,7 @@ export function SpaceCurvePanel({ cellId = "space-curve-1" }: { cellId?: string 
       controls.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
+      labelOverlay.dispose();
       groupRef.current = null;
       rendererCanvasRef.current = null;
     };
@@ -209,7 +214,7 @@ export function SpaceCurvePanel({ cellId = "space-curve-1" }: { cellId?: string 
         </label>
       </div>
       {!pointsResult.ok && <p style={{ color: "var(--danger)" }}>{pointsResult.message}</p>}
-      <div ref={containerRef} style={{ maxWidth: WIDTH, border: "1px solid var(--border)" }} />
+      <div ref={containerRef} style={{ position: "relative", maxWidth: WIDTH, border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => rendererCanvasRef.current} label="space-curve" />
       </div>
