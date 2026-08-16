@@ -159,6 +159,47 @@ export function scatterPointsToSvgDocument(
   return svgDocument(width, height, axes ? axesToSvgElements(viewport, width, height) : "", elements.join("\n"));
 }
 
+/** One drawn layer for `layersToSvgDocument` -- either a `drawPolyline`-style connected line or a `drawScatter`-style set of markers, mirroring those two Canvas2D functions' own point-array + color/size-option shape. */
+export type SvgLayer =
+  | { kind: "polyline"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; strokeWidth?: number }
+  | { kind: "scatter"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; radius?: number };
+
+/**
+ * Wraps MULTIPLE layers of possibly-different kinds (polyline and/or
+ * scatter) into one standalone SVG document -- issue #45 item 1's next
+ * "quick win" tier: a panel like StatisticsPanel's smoothing view draws a
+ * scatter layer (raw data) UNDER a polyline layer (the smoothed curve) on
+ * the SAME canvas, a combination neither `polylineToSvgDocument` (one line
+ * only) nor `scatterPointsToSvgDocument` (markers only) can reproduce
+ * alone. Layers are drawn in array order (same as their Canvas2D draw
+ * calls), each falling back to `drawPolyline`/`drawScatter`'s own
+ * blue/1.5px and blue/5px defaults respectively. An empty `layers` array
+ * or an individual empty-points layer both degrade gracefully (no stray
+ * empty elements), matching `polylinesToSvgDocument`'s own empty-line
+ * skipping.
+ */
+export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewport, width: number, height: number, axes = true): string {
+  const elements = layers
+    .filter((layer) => layer.points.length > 0)
+    .map((layer) => {
+      if (layer.kind === "polyline") {
+        const color = layer.color ?? "#2563eb";
+        const strokeWidth = layer.strokeWidth ?? 1.5;
+        return `<path d="${polylinePointsToSvgD(layer.points, viewport, width, height)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" />`;
+      }
+      const color = layer.color ?? "#2563eb";
+      const radius = layer.radius ?? 5;
+      return layer.points
+        .map((p) => {
+          const sx = toScreenX(p.x, viewport, width);
+          const sy = toScreenY(p.y, viewport, height);
+          return `<circle cx="${sx.toFixed(2)}" cy="${sy.toFixed(2)}" r="${radius}" fill="${color}" />`;
+        })
+        .join("\n");
+    });
+  return svgDocument(width, height, axes ? axesToSvgElements(viewport, width, height) : "", elements.join("\n"));
+}
+
 /**
  * SVG counterpart to `render-path.ts`'s `drawAxes` (issue #150 item 3):
  * same nice-tick spacing, same edge-hugging when the viewport is entirely
