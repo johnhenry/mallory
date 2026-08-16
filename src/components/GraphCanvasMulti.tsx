@@ -25,6 +25,7 @@ import {
 } from "../lib/render-path.ts";
 import { findNearestPointOnRows, type PointReadout } from "../lib/point-readout.ts";
 import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
+import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
@@ -475,24 +476,20 @@ export function GraphCanvasMulti() {
       // touch UI uses. Same formula as handleCanvasWheel, anchored at the
       // pinch's own midpoint fixed at gesture start (drag.anchorX/Y) rather
       // than re-read every tick, matching how panning anchors too.
-      const factor = drag.startDistancePx / currentDistancePx;
+      const factor = pinchZoomFactor(drag.startDistancePx, currentDistancePx);
       const spanX = drag.spanX * factor;
       const spanY = drag.spanY * factor;
       const midSx = (p1.sx + p2.sx) / 2;
       const midSy = (p1.sy + p2.sy) / 2;
-      const xMin = drag.anchorX - (midSx / WIDTH) * spanX;
-      const yMin = drag.anchorY - ((HEIGHT - midSy) / HEIGHT) * spanY;
-      graph.set(LIVE_VIEWPORT_CELL, { xMin, xMax: xMin + spanX, yMin, yMax: yMin + spanY });
+      graph.set(LIVE_VIEWPORT_CELL, viewportFromAnchor(drag.anchorX, drag.anchorY, midSx, midSy, spanX, spanY, WIDTH, HEIGHT));
       return;
     }
     const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
-    const xMin = drag.anchorX - (sx / WIDTH) * drag.spanX;
-    const yMin = drag.anchorY - ((HEIGHT - sy) / HEIGHT) * drag.spanY;
     // Live-only write (issue #52): every visible curve's ids.path depends on
     // VIEWPORT_CELL, not this cell, so panning stays a pure redraw -- zero
     // resampling -- for the whole gesture. Committed to VIEWPORT_CELL (the
     // one real resample) on pointerup below.
-    graph.set(LIVE_VIEWPORT_CELL, { xMin, xMax: xMin + drag.spanX, yMin, yMax: yMin + drag.spanY });
+    graph.set(LIVE_VIEWPORT_CELL, viewportFromAnchor(drag.anchorX, drag.anchorY, sx, sy, drag.spanX, drag.spanY, WIDTH, HEIGHT));
   }
 
   function handleCanvasPointerUp(e: PointerEvent<HTMLCanvasElement>) {
@@ -528,12 +525,10 @@ export function GraphCanvasMulti() {
     const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
     const anchorX = toDataX(sx, viewport, WIDTH);
     const anchorY = toDataY(sy, viewport, HEIGHT);
-    const factor = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+    const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
     const spanX = (viewport.xMax - viewport.xMin) * factor;
     const spanY = (viewport.yMax - viewport.yMin) * factor;
-    const xMin = anchorX - (sx / WIDTH) * spanX;
-    const yMin = anchorY - ((HEIGHT - sy) / HEIGHT) * spanY;
-    graph.set(LIVE_VIEWPORT_CELL, { xMin, xMax: xMin + spanX, yMin, yMax: yMin + spanY });
+    graph.set(LIVE_VIEWPORT_CELL, viewportFromAnchor(anchorX, anchorY, sx, sy, spanX, spanY, WIDTH, HEIGHT));
     if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
     zoomCommitTimerRef.current = setTimeout(() => {
       zoomCommitTimerRef.current = null;
