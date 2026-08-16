@@ -1,5 +1,5 @@
 import type { Path2D } from "mallory-math";
-import { useEffect, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsOde2, type CellIdsOde2 } from "../lib/cell-ids.ts";
 import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
@@ -12,6 +12,8 @@ import { DEFAULT_ODE2_STATE, decodeOde2State, encodeOde2State, type Ode2State } 
 import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { canvasEventPoint, toDataX, toDataY } from "../lib/viewport.ts";
+import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
@@ -20,6 +22,8 @@ type SolutionResult = { ok: true; path: Path2D } | { ok: false; message: string 
 
 const WIDTH = 500;
 const HEIGHT = 500;
+const ZOOM_STEP = 1.1;
+const ZOOM_COMMIT_DEBOUNCE_MS = 150;
 
 const ROOT_CASE_LABEL: Record<string, string> = {
   "distinct-real": "Overdamped — two distinct real roots",
@@ -70,6 +74,7 @@ function useOde2Graph(cellId: string): CellGraph {
     const ids = cellIdsOde2(cellId);
     const decoded = typeof window !== "undefined" ? decodeOde2State(window.location.hash.slice(1)) : null;
     seedOde2State(graph, ids, decoded ?? DEFAULT_ODE2_STATE);
+    graph.set<Viewport | null>(ids.liveViewport, null, { auxiliary: true });
 
     graph.define(ids.solution, (): SolutionResult => {
       try {
@@ -127,6 +132,7 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
   const yMax = useCell<string>(graph, ids.yMax);
   const solution = useCell<SolutionResult>(graph, ids.solution);
   const closedForm = useCell<Ode2ndOrderClosedFormAttempt>(graph, ids.closedForm);
+  const liveViewport = useCell<Viewport | null>(graph, ids.liveViewport);
 
   useEffect(() => {
     function writeUrl() {
@@ -137,12 +143,24 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
-  const viewport: Viewport = {
+  const committedViewport: Viewport = {
     xMin: Number(xMin) || -5,
     xMax: Number(xMax) || 5,
     yMin: Number(yMin) || -5,
     yMax: Number(yMax) || 5,
   };
+  const viewport = liveViewport ?? committedViewport;
+
+  // Pan/pinch gesture state (issue #53), mirroring TaylorPanel's #189
+  // xMin/xMax/yMin/yMax-cells-are-the-viewport approach. No draggable
+  // handle, so every pointerdown is a pinch (2+ pointers) or a pan.
+  const gestureRef = useRef<
+    | { kind: "pan"; anchorX: number; anchorY: number; spanX: number; spanY: number }
+    | { kind: "pinch"; anchorX: number; anchorY: number; spanX: number; spanY: number; startDistancePx: number }
+    | null
+  >(null);
+  const activePointersRef = useRef<Map<number, { sx: number; sy: number }>>(new Map());
+  const zoomCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
@@ -151,12 +169,129 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
     drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (solution.ok) drawPath(ctx, solution.path, viewport, WIDTH, HEIGHT);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [solution, xMin, xMax, yMin, yMax]);
+  }, [solution, viewport]);
+
+  useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    };
+  }, []);
 
   function applyPreset(preset: (typeof PRESETS)[number]) {
     graph.set(ids.a, preset.a);
     graph.set(ids.b, preset.b);
     graph.set(ids.c, preset.c);
+  }
+
+  /** Copies a pending live-viewport override back into the four x/y-min/max cells (the real, resample-triggering commit) and clears the override. */
+  function commitLiveViewport() {
+    const live = graph.get<Viewport | null>(ids.liveViewport);
+    if (!live) return;
+    graph.set(ids.xMin, String(live.xMin));
+    graph.set(ids.xMax, String(live.xMax));
+    graph.set(ids.yMin, String(live.yMin));
+    graph.set(ids.yMax, String(live.yMax));
+    graph.set<Viewport | null>(ids.liveViewport, null);
+  }
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLCanvasElement>) {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    commitLiveViewport();
+
+    const downPoint = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    activePointersRef.current.set(e.pointerId, downPoint);
+
+    if (activePointersRef.current.size >= 2) {
+      const [p1, p2] = [...activePointersRef.current.values()].slice(-2) as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      const vp = graph.get<Viewport | null>(ids.liveViewport) ?? committedViewport;
+      gestureRef.current = {
+        kind: "pinch",
+        anchorX: toDataX(midSx, vp, WIDTH),
+        anchorY: toDataY(midSy, vp, HEIGHT),
+        spanX: vp.xMax - vp.xMin,
+        spanY: vp.yMax - vp.yMin,
+        startDistancePx: Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy),
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    const vp = committedViewport;
+    const { sx, sy } = downPoint;
+    gestureRef.current = {
+      kind: "pan",
+      anchorX: toDataX(sx, vp, WIDTH),
+      anchorY: toDataY(sy, vp, HEIGHT),
+      spanX: vp.xMax - vp.xMin,
+      spanY: vp.yMax - vp.yMin,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handlePointerMove(e: ReactPointerEvent<HTMLCanvasElement>) {
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT));
+    }
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+    if (gesture.kind === "pinch") {
+      const points = [...activePointersRef.current.values()].slice(-2);
+      if (points.length < 2) return;
+      const [p1, p2] = points as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const currentDistancePx = Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy);
+      if (currentDistancePx < 1) return;
+      const factor = pinchZoomFactor(gesture.startDistancePx, currentDistancePx);
+      const spanX = gesture.spanX * factor;
+      const spanY = gesture.spanY * factor;
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, midSx, midSy, spanX, spanY, WIDTH, HEIGHT));
+      return;
+    }
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, sx, sy, gesture.spanX, gesture.spanY, WIDTH, HEIGHT));
+  }
+
+  function handlePointerUp(e: ReactPointerEvent<HTMLCanvasElement>) {
+    activePointersRef.current.delete(e.pointerId);
+    if (gestureRef.current?.kind === "pan" || gestureRef.current?.kind === "pinch") commitLiveViewport();
+    gestureRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  }
+
+  /** Wheel-to-zoom, anchored on the cursor's data point; the real commit is debounced (no pointerup to trigger it). */
+  function handleWheel(e: ReactWheelEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    const vp = graph.get<Viewport | null>(ids.liveViewport) ?? committedViewport;
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    const anchorX = toDataX(sx, vp, WIDTH);
+    const anchorY = toDataY(sy, vp, HEIGHT);
+    const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
+    const spanX = (vp.xMax - vp.xMin) * factor;
+    const spanY = (vp.yMax - vp.yMin) * factor;
+    graph.set(ids.liveViewport, viewportFromAnchor(anchorX, anchorY, sx, sy, spanX, spanY, WIDTH, HEIGHT));
+    if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    zoomCommitTimerRef.current = setTimeout(() => {
+      zoomCommitTimerRef.current = null;
+      commitLiveViewport();
+    }, ZOOM_COMMIT_DEBOUNCE_MS);
+  }
+
+  function resetView() {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    graph.set<Viewport | null>(ids.liveViewport, null);
+    graph.set(ids.xMin, DEFAULT_ODE2_STATE.xMin);
+    graph.set(ids.xMax, DEFAULT_ODE2_STATE.xMax);
+    graph.set(ids.yMin, DEFAULT_ODE2_STATE.yMin);
+    graph.set(ids.yMax, DEFAULT_ODE2_STATE.yMax);
   }
 
   return (
@@ -215,10 +350,22 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
       ) : (
         closedForm.message && <p style={{ color: "var(--danger)" }}>{closedForm.message}</p>
       )}
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <canvas
+        ref={canvasRef}
+        width={WIDTH}
+        height={HEIGHT}
+        style={{ border: "1px solid var(--border)", touchAction: "none" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onWheel={handleWheel}
+      />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="ode-2nd-order" />
-        <SvgExportButton getSvg={() => (solution.ok ? pathsToSvgDocument([solution.path], viewport, WIDTH, HEIGHT) : null)} label="ode-2nd-order" />
+        <SvgExportButton getSvg={() => (solution.ok ? pathsToSvgDocument([solution.path], viewport, WIDTH, HEIGHT) : null)} label="ode-2nd-order" />{" "}
+        <button type="button" onClick={resetView}>
+          Reset view
+        </button>
       </div>
       {!solution.ok && <p style={{ color: "var(--danger)" }}>{solution.message}</p>}
     </div>

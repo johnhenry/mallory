@@ -240,6 +240,10 @@ export function cellIdsOde2(cellId: string) {
     yMax: `ode2YMax:${cellId}`,
     solution: `ode2Solution:${cellId}`,
     closedForm: `ode2ClosedForm:${cellId}`,
+    // Pan/zoom (issue #53): same shape as TaylorPanel (#189) -- xMin/xMax/
+    // yMin/yMax above ARE the viewport, already reactive. `liveViewport`
+    // only overrides those four for a zero-resample mid-gesture redraw.
+    liveViewport: `ode2LiveViewport:${cellId}`,
   };
 }
 
