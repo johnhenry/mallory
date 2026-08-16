@@ -92,6 +92,46 @@ test("decodeNotebookState rejects a tensor block with a wrongly-typed or unrecog
   );
 });
 
+test("round-trips a tensor block with split mode fields set (issue #35's split-UI remaining scope)", () => {
+  const state = {
+    v: 1 as const,
+    blocks: [
+      {
+        type: "tensor" as const,
+        source: "1 2 3\n4 5 6\n7 8 9\n10 11 12",
+        op: "none" as const,
+        splitEnabled: true,
+        splitAxis: 0 as const,
+        splitSections: "2",
+      },
+    ],
+  };
+  const fragment = encodeNotebookState(state);
+  assert.deepEqual(decodeNotebookState(fragment), state);
+});
+
+test("decodeNotebookState accepts a pre-split tensor block missing splitEnabled/splitAxis/splitSections entirely (an old encoded URL hash)", () => {
+  const badFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const decoded = decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "tensor", source: "1 2\n3 4", op: "none" }] }));
+  assert.notEqual(decoded, null);
+});
+
+test("decodeNotebookState rejects a tensor block with a wrongly-typed splitEnabled or an unrecognized splitAxis", () => {
+  const badFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  assert.equal(
+    decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "tensor", source: "1", op: "none", splitEnabled: "yes" }] })),
+    null,
+  );
+  assert.equal(
+    decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "tensor", source: "1", op: "none", splitAxis: 2 }] })),
+    null,
+  );
+  assert.equal(
+    decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "tensor", source: "1", op: "none", splitSections: 4 }] })),
+    null,
+  );
+});
+
 test("encoded fragment is URL-fragment-safe (no +, /, or = padding)", () => {
   const fragment = encodeNotebookState(DEFAULT_NOTEBOOK_STATE);
   assert.ok(!/[+/=]/.test(fragment), `fragment contains unsafe characters: ${fragment}`);

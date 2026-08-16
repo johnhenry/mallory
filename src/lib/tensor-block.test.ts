@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Path2D } from "mallory-math";
-import { applyTensorOp, curveToTensorGrid, parseTensorGrid, summarizeTensor } from "./tensor-block.ts";
+import { applyTensorOp, curveToTensorGrid, parseSplitSections, parseTensorGrid, splitTensorGrid, summarizeTensor } from "./tensor-block.ts";
 
 /** A minimal fake Path2D -- only `commands` is read by curveToTensorGrid, so `stroke` is a throwaway placeholder (mirrors curve-transform.test.ts's own fakePath). */
 function fakePath(points: Array<{ x: number; y: number }>): Path2D {
@@ -159,4 +159,76 @@ test("curveToTensorGrid: a custom maxSamples is honored, hand-computed", () => {
 
 test("curveToTensorGrid: an empty curve (no samples yet) throws rather than returning an empty grid", () => {
   assert.throws(() => curveToTensorGrid(fakePath([])), /no samples yet/);
+});
+
+test("parseSplitSections: a bare integer parses as the equal-parts number form", () => {
+  assert.equal(parseSplitSections("2"), 2);
+  assert.equal(parseSplitSections("  7  "), 7);
+});
+
+test("parseSplitSections: comma-separated integers parse as the cut-point array form, trimmed", () => {
+  assert.deepEqual(parseSplitSections("1,3"), [1, 3]);
+  assert.deepEqual(parseSplitSections(" 1 , 3 "), [1, 3]);
+  assert.deepEqual(parseSplitSections("5"), 5); // sanity: no comma stays the number form
+});
+
+test("parseSplitSections: rejects non-integer, non-positive, empty, and non-numeric input", () => {
+  assert.throws(() => parseSplitSections("1.5"), /not a positive integer/);
+  assert.throws(() => parseSplitSections("0"), /not a positive integer/);
+  assert.throws(() => parseSplitSections("-1"), /not a positive integer/);
+  assert.throws(() => parseSplitSections("abc"), /not a positive integer/);
+  assert.throws(() => parseSplitSections(""), /not a positive integer/);
+  assert.throws(() => parseSplitSections("1,abc"), /"abc" is not an integer/);
+  assert.throws(() => parseSplitSections("1,2.5"), /"2\.5" is not an integer/);
+  assert.throws(() => parseSplitSections(",,"), /at least one cut point/);
+});
+
+test("splitTensorGrid: equal-parts form along axis 0, hand-computed on a 4x3 grid of 1..12", () => {
+  const grid = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+    [10, 11, 12],
+  ];
+  assert.deepEqual(splitTensorGrid(grid, 2, 0), [
+    [
+      [1, 2, 3],
+      [4, 5, 6],
+    ],
+    [
+      [7, 8, 9],
+      [10, 11, 12],
+    ],
+  ]);
+});
+
+test("splitTensorGrid: cut-point array form along axis 0, hand-computed on a 4x3 grid of 1..12", () => {
+  const grid = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+    [10, 11, 12],
+  ];
+  // cut points [1,3] -> row ranges [0,1), [1,3), [3,4)
+  assert.deepEqual(splitTensorGrid(grid, [1, 3], 0), [[[1, 2, 3]], [[4, 5, 6], [7, 8, 9]], [[10, 11, 12]]]);
+});
+
+test("splitTensorGrid: equal-parts form along axis 1 (columns), hand-computed on a 4x3 grid of 1..12", () => {
+  const grid = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+    [10, 11, 12],
+  ];
+  assert.deepEqual(splitTensorGrid(grid, 3, 1), [[[1], [4], [7], [10]], [[2], [5], [8], [11]], [[3], [6], [9], [12]]]);
+});
+
+test("splitTensorGrid: throws when the section count does not evenly divide the axis size", () => {
+  const grid = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+    [10, 11, 12],
+  ];
+  assert.throws(() => splitTensorGrid(grid, 3, 0), /not evenly divisible/);
 });

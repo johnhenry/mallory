@@ -70,7 +70,18 @@ type Block =
   | { id: string; type: "statistics"; initialState: StatisticsState }
   | { id: string; type: "systems"; initialState: SystemState }
   | { id: string; type: "geometry"; initialOps: GeometryOp[] }
-  | { id: string; type: "tensor"; source: string; op: TensorOpType; opArg: number; sourceMode: TensorSourceMode; curveName: string }
+  | {
+      id: string;
+      type: "tensor";
+      source: string;
+      op: TensorOpType;
+      opArg: number;
+      sourceMode: TensorSourceMode;
+      curveName: string;
+      splitEnabled: boolean;
+      splitAxis: 0 | 1;
+      splitSections: string;
+    }
   | { id: string; type: "complex"; initialState: ComplexState }
   | { id: string; type: "curve-transform"; initialCurveName: string; initialOp: CurveTransformOp; initialCurveName2: string };
 
@@ -129,7 +140,18 @@ function hydrateBlocks(graph: CellGraph, state: NotebookState): Block[] {
     if (b.type === "statistics") return { id, type: "statistics", initialState: b.state };
     if (b.type === "systems") return { id, type: "systems", initialState: b.state };
     if (b.type === "tensor") {
-      return { id, type: "tensor", source: b.source, op: b.op, opArg: b.opArg ?? 1, sourceMode: b.sourceMode ?? "literal", curveName: b.curveName ?? "" };
+      return {
+        id,
+        type: "tensor",
+        source: b.source,
+        op: b.op,
+        opArg: b.opArg ?? 1,
+        sourceMode: b.sourceMode ?? "literal",
+        curveName: b.curveName ?? "",
+        splitEnabled: b.splitEnabled ?? false,
+        splitAxis: b.splitAxis ?? 0,
+        splitSections: b.splitSections ?? "2",
+      };
     }
     if (b.type === "complex") return { id, type: "complex", initialState: b.state };
     if (b.type === "curve-transform") {
@@ -193,6 +215,7 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
           op: block.op,
           opArg: block.opArg,
           ...(block.sourceMode === "curve" ? { sourceMode: block.sourceMode, curveName: block.curveName } : {}),
+          ...(block.splitEnabled ? { splitEnabled: block.splitEnabled, splitAxis: block.splitAxis, splitSections: block.splitSections } : {}),
         };
       }
       if (block.type === "complex") return { type: "complex", state: getCurrentComplexState(graph, cellIdsComplex(block.id)) };
@@ -402,7 +425,18 @@ export function NotebookPanel() {
   function addTensorBlock() {
     setBlocks((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), type: "tensor", source: "1 2 3\n4 5 6\n7 8 9", op: "none", opArg: 1, sourceMode: "literal", curveName: "" },
+      {
+        id: crypto.randomUUID(),
+        type: "tensor",
+        source: "1 2 3\n4 5 6\n7 8 9",
+        op: "none",
+        opArg: 1,
+        sourceMode: "literal",
+        curveName: "",
+        splitEnabled: false,
+        splitAxis: 0,
+        splitSections: "2",
+      },
     ]);
   }
 
@@ -435,6 +469,18 @@ export function NotebookPanel() {
 
   function updateTensorCurveName(id: string, curveName: string) {
     setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, curveName } : b)));
+  }
+
+  function updateTensorSplitEnabled(id: string, splitEnabled: boolean) {
+    setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, splitEnabled } : b)));
+  }
+
+  function updateTensorSplitAxis(id: string, splitAxis: 0 | 1) {
+    setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, splitAxis } : b)));
+  }
+
+  function updateTensorSplitSections(id: string, splitSections: string) {
+    setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, splitSections } : b)));
   }
 
   // Single-letter names only: implicit-mult.ts's tokenizer splits any
@@ -749,6 +795,16 @@ export function NotebookPanel() {
           description:
             "If set, the grid is built from this named published curve's samples instead of the literal source text (issue #35's tensor-from-curve remaining scope) -- name a graph row to publish one.",
         },
+        splitSections: {
+          type: "string",
+          description:
+            'If set, the block renders in "split into multiple tensors" mode instead of applying op: a bare integer ("2") means that many equal parts, comma-separated integers ("1,3") mean explicit cut-point indices (issue #35\'s split-UI remaining scope). Ignored when unset (op applies as normal).',
+        },
+        splitAxis: {
+          type: "number",
+          enum: [0, 1],
+          description: 'Only read when splitSections is set: 0 splits along rows (default), 1 splits along columns.',
+        },
       },
     },
     handler: (input: Record<string, unknown>) => {
@@ -758,7 +814,24 @@ export function NotebookPanel() {
       const opArg = typeof input.opArg === "number" ? input.opArg : 1;
       const curveName = typeof input.curveName === "string" ? input.curveName : "";
       const sourceMode: TensorSourceMode = curveName ? "curve" : "literal";
-      setBlocks((prev) => [...prev, { id, type: "tensor", source, op, opArg, sourceMode, curveName }]);
+      const splitSections = typeof input.splitSections === "string" ? input.splitSections : "";
+      const splitEnabled = splitSections.trim().length > 0;
+      const splitAxis: 0 | 1 = input.splitAxis === 1 ? 1 : 0;
+      setBlocks((prev) => [
+        ...prev,
+        {
+          id,
+          type: "tensor",
+          source,
+          op,
+          opArg,
+          sourceMode,
+          curveName,
+          splitEnabled,
+          splitAxis,
+          splitSections: splitEnabled ? splitSections : "2",
+        },
+      ]);
       return { id };
     },
   });
@@ -856,11 +929,17 @@ export function NotebookPanel() {
                 curveName={block.curveName}
                 op={block.op}
                 opArg={block.opArg}
+                splitEnabled={block.splitEnabled}
+                splitAxis={block.splitAxis}
+                splitSections={block.splitSections}
                 onSourceChange={(source) => updateTensorSource(block.id, source)}
                 onSourceModeChange={(sourceMode) => updateTensorSourceMode(block.id, sourceMode)}
                 onCurveNameChange={(curveName) => updateTensorCurveName(block.id, curveName)}
                 onOpChange={(op) => updateTensorOp(block.id, op)}
                 onOpArgChange={(opArg) => updateTensorOpArg(block.id, opArg)}
+                onSplitEnabledChange={(splitEnabled) => updateTensorSplitEnabled(block.id, splitEnabled)}
+                onSplitAxisChange={(splitAxis) => updateTensorSplitAxis(block.id, splitAxis)}
+                onSplitSectionsChange={(splitSections) => updateTensorSplitSections(block.id, splitSections)}
               />
             ) : block.type === "complex" ? (
               <NotebookComplexBlock graph={graph} blockId={block.id} initialState={block.initialState} />

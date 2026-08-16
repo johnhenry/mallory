@@ -104,6 +104,21 @@ export interface NotebookTensorBlockStateV1 {
    */
   sourceMode?: "literal" | "curve";
   curveName?: string;
+  /**
+   * "split" mode (issue #35's last remaining scope: "split's standalone
+   * multi-tensor-output UI") renders every part from `Tensor.split()`
+   * instead of applying `op` -- a genuinely different output shape (many
+   * grids, not one), so it's a sibling flag rather than another `op` value
+   * (see `TENSOR_OPS_WITH_ARG`'s own doc comment on why `split` was
+   * excluded from the op picker in the first place). `splitSections` is the
+   * raw TEXT (mid-typing invalid input must survive a save/reload round
+   * trip, same convention as `source`), parsed via `parseSplitSections`.
+   * All three optional (not a schema version bump) -- an old saved block
+   * with none of them still decodes as split-mode-off.
+   */
+  splitEnabled?: boolean;
+  splitAxis?: 0 | 1;
+  splitSections?: string;
 }
 
 export type NotebookBlockStateV1 =
@@ -199,7 +214,10 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
     if (typeof b.source !== "string" || typeof b.op !== "string" || !(b.op in TENSOR_OP_LABELS)) return false;
     if (b.opArg !== undefined && typeof b.opArg !== "number") return false;
     if (b.sourceMode !== undefined && b.sourceMode !== "literal" && b.sourceMode !== "curve") return false;
-    return b.curveName === undefined || typeof b.curveName === "string";
+    if (b.curveName !== undefined && typeof b.curveName !== "string") return false;
+    if (b.splitEnabled !== undefined && typeof b.splitEnabled !== "boolean") return false;
+    if (b.splitAxis !== undefined && b.splitAxis !== 0 && b.splitAxis !== 1) return false;
+    return b.splitSections === undefined || typeof b.splitSections === "string";
   }
   if (b.type === "curve-transform") {
     if (typeof b.curveName !== "string" || (b.op !== "derivative" && b.op !== "integral" && b.op !== "difference")) return false;
