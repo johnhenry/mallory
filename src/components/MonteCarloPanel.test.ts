@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { convergencePlot, dartPlot, histogramPlot } from "./MonteCarloPanel.tsx";
+import { convergencePlot, dartPlot, histogramPlot, integrandPlot } from "./MonteCarloPanel.tsx";
 
 test("dartPlot: a not-ok result returns null", () => {
   assert.equal(dartPlot({ ok: false, message: "bad" }), null);
@@ -132,4 +132,69 @@ test("histogramPlot: rescales the density path into count-space -- its own max s
     [0, 0.5, 1],
   );
   assert.equal(plot.densityPath.stroke, stroke);
+});
+
+test("integrandPlot: a not-ok result, or an ok result with zero shown checkpoints, returns null", () => {
+  assert.equal(integrandPlot({ ok: false, message: "bad" }, 0), null);
+  assert.equal(integrandPlot({ ok: true, result: { estimate: 2, trueValue: 2, absoluteError: 0, n: 0, convergence: [] } }, 0), null);
+});
+
+test("integrandPlot: viewport/bandPoints/estimatePoints/trueValueLine are hand-computed from convergence + trueValue, padded 10% beyond the tightest bound", () => {
+  const result = {
+    ok: true as const,
+    result: {
+      estimate: 2.2,
+      trueValue: 2.1,
+      absoluteError: 0.1,
+      n: 20,
+      convergence: [
+        { n: 10, estimate: 2, errorBand: 0.5 },
+        { n: 20, estimate: 2.2, errorBand: 0.3 },
+      ],
+    },
+  };
+  const plot = integrandPlot(result, 0);
+  assert.ok(plot);
+  // bandLo=[1.5,1.9], bandHi=[2.5,2.5] -> yMin=min(2.1,1.5,1.9)=1.5, yMax=max(2.1,2.5,2.5)=2.5, pad=(2.5-1.5)*0.1=0.1.
+  assert.deepEqual(plot.viewport, { xMin: 0, xMax: 20, yMin: 1.4, yMax: 2.6 });
+  assert.equal(plot.bandPoints.length, 2);
+  assert.deepEqual(
+    plot.bandPoints.map((p) => p.x),
+    [10, 20],
+  );
+  assert.deepEqual(
+    plot.bandPoints.map((p) => p.yHigh),
+    [2.5, 2.5],
+  );
+  // 2.2 - 0.3 is 1.9000000000000001 in floating point -- compare with tolerance rather than exact equality.
+  assert.ok(Math.abs(plot.bandPoints[0].yLow - 1.5) < 1e-12);
+  assert.ok(Math.abs(plot.bandPoints[1].yLow - 1.9) < 1e-12);
+  assert.deepEqual(plot.estimatePoints, [
+    { x: 10, y: 2 },
+    { x: 20, y: 2.2 },
+  ]);
+  assert.deepEqual(plot.trueValueLine, [
+    { x: 0, y: 2.1 },
+    { x: 20, y: 2.1 },
+  ]);
+});
+
+test("integrandPlot: revealedCheckpoints truncates the shown convergence points (the play/scrub animation), same slice the draw effect uses", () => {
+  const result = {
+    ok: true as const,
+    result: {
+      estimate: 2.2,
+      trueValue: 2.1,
+      absoluteError: 0.1,
+      n: 20,
+      convergence: [
+        { n: 10, estimate: 2, errorBand: 0.5 },
+        { n: 20, estimate: 2.2, errorBand: 0.3 },
+      ],
+    },
+  };
+  const plot = integrandPlot(result, 1);
+  assert.ok(plot);
+  assert.equal(plot.bandPoints.length, 1);
+  assert.deepEqual(plot.estimatePoints, [{ x: 10, y: 2 }]);
 });

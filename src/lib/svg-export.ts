@@ -165,11 +165,16 @@ export function scatterPointsToSvgDocument(
  * mallory-math `Path2D` (its own stroke color/alpha/thickness, same as
  * `pathsToSvgDocument`, rather than the `color`/`strokeWidth` overrides the
  * plain-point-array kinds take), a `drawHistogram`-style set of bin bars,
- * a `drawSlopeField`-style grid of undirected tangent-line segments, or a
+ * a `drawSlopeField`-style grid of undirected tangent-line segments, a
  * `drawVectorField`-style grid of directed arrows (a line + filled
  * `<polygon>` arrowhead per point; points whose magnitude is below 1e-12
- * are skipped, matching `drawVectorField`'s own `continue`). A `polyline`
- * layer's optional `dash` maps straight to SVG's
+ * are skipped, matching `drawVectorField`'s own `continue`), or a filled
+ * confidence-band-style region between an upper and lower boundary sharing
+ * the same x-coordinates (e.g. MonteCarloPanel's integrand error band) --
+ * one `<polygon>` tracing the upper boundary forward then the lower
+ * boundary backward, matching the `ctx.fill()`-a-closed-path technique the
+ * Canvas2D draw effect uses. A `polyline` layer's optional `dash` maps
+ * straight to SVG's
  * `stroke-dasharray` -- for a `ctx.setLineDash([...])` reference line (e.g.
  * MonteCarloPanel's dashed pi-estimate line) alongside solid layers on the
  * same canvas.
@@ -180,7 +185,8 @@ export type SvgLayer =
   | { kind: "path"; path: MalloryPath }
   | { kind: "histogram"; bins: ReadonlyArray<{ x0: number; x1: number; count: number }>; color?: string; strokeColor?: string }
   | { kind: "slopefield"; points: ReadonlyArray<{ x: number; y: number; slope: number }>; halfLengthPx?: number; color?: string }
-  | { kind: "vectorfield"; points: ReadonlyArray<{ x: number; y: number; dx: number; dy: number }>; halfLengthPx?: number; color?: string };
+  | { kind: "vectorfield"; points: ReadonlyArray<{ x: number; y: number; dx: number; dy: number }>; halfLengthPx?: number; color?: string }
+  | { kind: "band"; points: ReadonlyArray<{ x: number; yLow: number; yHigh: number }>; color?: string };
 
 /**
  * Wraps MULTIPLE layers of possibly-different kinds (polyline, scatter,
@@ -283,6 +289,14 @@ export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewp
             return `${shaft}\n${head}`;
           })
           .join("\n");
+      }
+      if (layer.kind === "band") {
+        const color = layer.color ?? "rgba(37, 99, 235, 0.15)";
+        const upper = layer.points.map((p) => `${toScreenX(p.x, viewport, width).toFixed(2)},${toScreenY(p.yHigh, viewport, height).toFixed(2)}`);
+        const lower = [...layer.points]
+          .reverse()
+          .map((p) => `${toScreenX(p.x, viewport, width).toFixed(2)},${toScreenY(p.yLow, viewport, height).toFixed(2)}`);
+        return `<polygon points="${[...upper, ...lower].join(" ")}" fill="${color}" />`;
       }
       const color = layer.color ?? "#2563eb";
       const radius = layer.radius ?? 5;

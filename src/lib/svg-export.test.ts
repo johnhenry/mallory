@@ -352,6 +352,41 @@ test("layersToSvgDocument: a vectorfield point with near-zero magnitude is skipp
   assert.equal((empty.match(/<line/g) ?? []).length, 0);
 });
 
+test("layersToSvgDocument: a band layer's polygon traces the upper boundary forward then the lower boundary backward, hand-computed", () => {
+  // viewport [0,2]x[0,10] on a 100x100 canvas: toScreenX(0)=0, toScreenX(2)=100.
+  // toScreenY(8)=20, toScreenY(6)=40, toScreenY(4)=60, toScreenY(2)=80.
+  const svg = layersToSvgDocument(
+    [
+      {
+        kind: "band",
+        points: [
+          { x: 0, yLow: 2, yHigh: 8 },
+          { x: 2, yLow: 4, yHigh: 6 },
+        ],
+      },
+    ],
+    { xMin: 0, xMax: 2, yMin: 0, yMax: 10 },
+    100,
+    100,
+  );
+  assert.ok(svg.includes('<polygon points="0.00,20.00 100.00,40.00 100.00,60.00 0.00,80.00" fill="rgba(37, 99, 235, 0.15)" />'));
+});
+
+test("layersToSvgDocument: a band layer's custom color overrides its own default fill", () => {
+  const svg = layersToSvgDocument(
+    [{ kind: "band", points: [{ x: 0, yLow: 0, yHigh: 1 }], color: "#fecaca" }],
+    { xMin: 0, xMax: 1, yMin: 0, yMax: 1 },
+    100,
+    100,
+  );
+  assert.ok(svg.includes('fill="#fecaca"'));
+});
+
+test("layersToSvgDocument: a band layer with an empty points array is skipped entirely, not emitted as a stray empty <polygon>", () => {
+  const svg = layersToSvgDocument([{ kind: "band", points: [] }], VIEWPORT, 100, 100);
+  assert.equal((svg.match(/<polygon/g) ?? []).length, 0);
+});
+
 test("layersToSvgDocument: a layer with an empty points array is skipped entirely, not emitted as a stray empty element", () => {
   const svg = layersToSvgDocument(
     [
