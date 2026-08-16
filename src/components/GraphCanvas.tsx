@@ -48,6 +48,49 @@ const STRUCTURE_OPTIONS: Array<{ label: string; modulus: number | null }> = [
 
 const WIDTH = 600;
 const HEIGHT = 600;
+
+interface GraphCanvasDrawParams {
+  viewport: Viewport;
+  scatter: ScatterPoint[] | null;
+  regionMask: boolean[] | null;
+  showArea: boolean;
+  area: { path: Path2D } | null;
+  path: Path2D;
+  showExtrema: boolean;
+  extrema: CurveExtrema | null;
+  point: { x: number; y: number } | null;
+}
+
+/**
+ * The main draw effect's logic, extracted as a pure `(ctx, width, height,
+ * params)` function (issue #45's remaining scope, item 2: "2x-scale crisp
+ * PNG" needs each panel's draw effect exposed this way so a re-render at a
+ * higher resolution is a real re-render, not an upscaled blur of the
+ * on-screen raster). The live `useEffect` below calls this against the
+ * on-screen canvas at `WIDTH x HEIGHT`; `PngExportButton`'s `renderAtScale`
+ * calls it again against a fresh offscreen canvas at `2*WIDTH x 2*HEIGHT`.
+ * Every `draw*` helper here already takes `width`/`height` as parameters
+ * (render-path.ts's own existing contract), so this extraction is a pure
+ * mechanical pull-out -- no drawing logic changes.
+ */
+export function drawGraphCanvas(ctx: CanvasRenderingContext2D, width: number, height: number, params: GraphCanvasDrawParams): void {
+  const { viewport, scatter, regionMask, showArea, area, path, showExtrema, extrema, point } = params;
+  ctx.clearRect(0, 0, width, height);
+  drawAxes(ctx, viewport, width, height);
+  if (scatter) {
+    drawScatter(ctx, scatter, viewport, width, height);
+  } else {
+    // Shading/fill draws before the curve/handle, so those render on top.
+    if (regionMask) drawRegionMask(ctx, regionMask, viewport, width, height);
+    if (showArea && area) drawFilledArea(ctx, area.path, viewport, width, height);
+    drawPath(ctx, path, viewport, width, height);
+    if (showExtrema && extrema) {
+      for (const m of extrema.maxima) drawPoint(ctx, m, viewport, width, height, 4, "#16a34a");
+      for (const m of extrema.minima) drawPoint(ctx, m, viewport, width, height, 4, "#dc2626");
+    }
+    if (point) drawPoint(ctx, point, viewport, width, height);
+  }
+}
 const RESOLUTION = 400;
 const AXIS_VARIABLE = "x";
 const HANDLE_HIT_RADIUS = 12;
@@ -677,21 +720,7 @@ export function GraphCanvas({
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    drawAxes(ctx, viewport, WIDTH, HEIGHT);
-    if (scatter) {
-      drawScatter(ctx, scatter, viewport, WIDTH, HEIGHT);
-    } else {
-      // Shading/fill draws before the curve/handle, so those render on top.
-      if (regionMask) drawRegionMask(ctx, regionMask, viewport, WIDTH, HEIGHT);
-      if (showArea && area) drawFilledArea(ctx, area.path, viewport, WIDTH, HEIGHT);
-      drawPath(ctx, path, viewport, WIDTH, HEIGHT);
-      if (showExtrema && extrema) {
-        for (const m of extrema.maxima) drawPoint(ctx, m, viewport, WIDTH, HEIGHT, 4, "#16a34a");
-        for (const m of extrema.minima) drawPoint(ctx, m, viewport, WIDTH, HEIGHT, 4, "#dc2626");
-      }
-      if (point) drawPoint(ctx, point, viewport, WIDTH, HEIGHT);
-    }
+    drawGraphCanvas(ctx, WIDTH, HEIGHT, { viewport, scatter, regionMask, showArea, area, path, showExtrema, extrema, point });
   }, [path, point, scatter, viewport, regionMask, showArea, area, showExtrema, extrema]);
 
   /** Copies a pending live-viewport override into the real, sampled-against viewport (the gesture-end resample) and clears the override -- shared by pan/pinch release and the wheel-zoom debounce below. */
@@ -1033,7 +1062,13 @@ export function GraphCanvas({
         />
       </div>
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="graphing" />{" "}
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="graphing"
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+          renderAtScale={(ctx, width, height) => drawGraphCanvas(ctx, width, height, { viewport, scatter, regionMask, showArea, area, path, showExtrema, extrema, point })}
+        />{" "}
         <SvgExportButton
           getSvg={() => (scatter ? scatterPointsToSvgDocument(scatter, viewport, WIDTH, HEIGHT) : pathsToSvgDocument([path], viewport, WIDTH, HEIGHT))}
           label="graphing"

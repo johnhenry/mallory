@@ -42,3 +42,33 @@ export function downloadCanvasPng(canvas: HTMLCanvasElement, filename: string): 
     }, "image/png");
   });
 }
+
+/**
+ * The 2x-scale "crisp" export (issue #45's remaining scope, item 2): a
+ * genuine higher-resolution RE-RENDER, not an interpolated upscale of the
+ * on-screen raster -- `render` is the panel's own pure draw function
+ * (already parameterized over `(ctx, width, height)`, matching every
+ * `draw*` helper in render-path.ts/heatmap.ts/etc.), called against a
+ * fresh offscreen canvas sized `baseWidth*scale x baseHeight*scale`. Every
+ * data-space-to-screen-space calculation inside `render` naturally scales
+ * with `width`/`height`, so text/line widths that are already computed
+ * relative to canvas size come out crisp; anything hardcoded in absolute
+ * pixels (a fixed `ctx.lineWidth = 1`, say) won't scale -- same caveat
+ * `render`'s own panel-specific implementation is responsible for, same as
+ * the on-screen 1x render already is.
+ */
+export function downloadCanvasPngAtScale(
+  baseWidth: number,
+  baseHeight: number,
+  scale: number,
+  render: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
+  filename: string,
+): Promise<void> {
+  const canvas = document.createElement("canvas");
+  canvas.width = baseWidth * scale;
+  canvas.height = baseHeight * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return Promise.reject(new Error("Could not get a 2D context for the offscreen export canvas."));
+  render(ctx, canvas.width, canvas.height);
+  return downloadCanvasPng(canvas, filename);
+}
