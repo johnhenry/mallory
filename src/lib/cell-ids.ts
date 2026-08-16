@@ -416,6 +416,16 @@ export function cellIdsComplex(cellId: string) {
     freeVars: `complexFreeVars:${cellId}`,
     params: `complexParams:${cellId}`,
     param: (name: string) => `complexParam:${cellId}:${name}`,
+    // Pan/zoom (issue #53, z-plane only -- w-plane keeps its own
+    // `autoFitViewport` derived reactively off `conformalGridResult`, which
+    // itself reads this committed viewport, so it re-fits automatically on
+    // every z-plane gesture commit with no separate wiring). `zerosResult`/
+    // `polesResult`/`rootsResult` deliberately do NOT read this viewport --
+    // those are intrinsic features of f(z) itself (found once over a fixed
+    // default analysis domain), not properties of the current framing, so
+    // panning/zooming moves them on screen without recomputing their values.
+    viewport: `complexViewport:${cellId}`,
+    liveViewport: `complexLiveViewport:${cellId}`,
   };
 }
 
