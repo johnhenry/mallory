@@ -321,6 +321,12 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
               layers.push({ kind: "path", path: trajectory.path });
               layers.push({ kind: "scatter", points: [{ x: Number(x0), y: Number(y0) }], color: "#dc2626", radius: 5 });
             }
+            if (fixedPoints.ok) {
+              layers.push({
+                kind: "labeled-markers",
+                points: fixedPoints.points.map((fp) => ({ x: fp.x, y: fp.y, color: FIXED_POINT_COLOR[fp.kind], label: FIXED_POINT_LABEL[fp.kind] })),
+              });
+            }
             return layers.length > 0 ? layersToSvgDocument(layers, viewport, WIDTH, HEIGHT) : null;
           }}
           label="ode-system"
