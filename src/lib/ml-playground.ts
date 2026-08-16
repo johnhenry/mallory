@@ -1,5 +1,6 @@
 import { nn, optim, trainer, variable } from "mallory-tensor-autograd";
 import { Rng, Tensor } from "mallory-tensor-core";
+import { setSink, type TrainingEvent } from "mallory-telemetry";
 
 export type DatasetType = "xor" | "moons" | "rings" | "drawn";
 
@@ -171,6 +172,26 @@ export interface TrainResult {
   lossHistory: number[];
 }
 
+/**
+ * Issue #34 item 2's "novel part": installs a `mallory-telemetry` sink
+ * scoped to `runId`, forwarding every `"metric"` event whose `runId`
+ * matches to `onMetric(name, value)` -- `setSink` is global/single-
+ * installed (not per-call), so a `runId` filter is what keeps one
+ * MlPlaygroundPanel instance's training run from writing into a
+ * DIFFERENT instance's cells if two happen to be mounted at once.
+ * Returns an uninstall function (`setSink(null)`) the caller MUST call
+ * once the run finishes, in a `finally` block -- an installed sink left
+ * in place after its run ends would silently swallow (or worse,
+ * misattribute) telemetry from whatever runs next.
+ */
+export function installMetricSink(runId: string, onMetric: (name: string, value: number) => void): () => void {
+  setSink((event: TrainingEvent) => {
+    if (event.runId !== runId || event.type !== "metric") return;
+    onMetric(event.name, event.value);
+  });
+  return () => setSink(null);
+}
+
 const MAX_EPOCHS = 2000;
 
 /**
@@ -198,12 +219,35 @@ const MAX_EPOCHS = 2000;
  * matching `StepLR`'s own documented `initialLr * gamma^floor(n/stepSize)`
  * contract exactly.
  */
+export interface EpochEvent {
+  epoch: number;
+  loss: number;
+}
+
+/**
+ * Issue #34 item 2's prerequisite: an optional per-epoch observer. Passing
+ * one (regardless of `schedule`) switches to the same one-`fit()`-call-per-
+ * epoch chunking `schedule` already required (#156) -- calling `fit()` N
+ * times with `epochs:1` each, reusing the same `optimizer` instance, is
+ * numerically identical to one `fit()` call with `epochs:N` (each internal
+ * `step()` does the exact same zeroGrad/forward/backward/optimizer.step
+ * regardless of which `Trainer` instance issued it), so this doesn't change
+ * training results -- only how often the caller gets to observe/yield. The
+ * caller decides what "observe" means (a synchronous callback keeps this
+ * function's own fast path; an async one that itself awaits a
+ * `requestAnimationFrame`-style yield turns each epoch into a real
+ * mid-training checkpoint an agent or the UI can read a live cell during --
+ * see MlPlaygroundPanel.tsx's `onEpoch`, which does exactly that via
+ * `mallory-telemetry`'s `metric()`/`setSink` handshake, issue #34's own
+ * "novel part").
+ */
 export async function trainModel(
   model: TinyMlp,
   points: readonly LabeledPoint[],
   lr: number,
   epochs: number,
   schedule?: { stepSize: number; gamma: number },
+  onEpoch?: (event: EpochEvent) => void | Promise<void>,
 ): Promise<TrainResult> {
   if (points.length === 0) throw new Error("Dataset is empty.");
   if (!Number.isFinite(lr) || lr <= 0) throw new Error("Learning rate must be a positive number.");
@@ -214,18 +258,20 @@ export async function trainModel(
   }
   const { x, y } = datasetToBatch(points);
   const optimizer = new optim.Adam(model.parameters(), { lr });
-  if (!schedule) {
+  if (!schedule && !onEpoch) {
     const fit = trainer.configure({ model, optimizer, lossFn: stableBinaryCrossEntropy, epochs });
     const { lossHistory } = await fit.fit({ x, y });
     return { lossHistory: [...lossHistory] };
   }
-  const scheduler = new optim.StepLR(optimizer, schedule);
+  const scheduler = schedule ? new optim.StepLR(optimizer, schedule) : undefined;
   const lossHistory: number[] = [];
   for (let epoch = 0; epoch < epochs; epoch++) {
     const fit = trainer.configure({ model, optimizer, lossFn: stableBinaryCrossEntropy, epochs: 1 });
     const result = await fit.fit({ x, y });
-    lossHistory.push(...result.lossHistory);
-    scheduler.step();
+    const loss = result.lossHistory[0] as number;
+    lossHistory.push(loss);
+    scheduler?.step();
+    if (onEpoch) await onEpoch({ epoch, loss });
   }
   return { lossHistory };
 }

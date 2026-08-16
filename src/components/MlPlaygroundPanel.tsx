@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { metric } from "mallory-telemetry";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMlPlayground, type CellIdsMlPlayground } from "../lib/cell-ids.ts";
 import {
@@ -10,6 +11,7 @@ import {
 import {
   TinyMlp,
   generateDataset,
+  installMetricSink,
   predictProbabilityGrid,
   trainModel,
   type DatasetType,
@@ -79,6 +81,12 @@ function useMlGraph(cellId: string): CellGraph {
     // state, not part of the URL-codable schema (unlike every other config
     // input here) -- same reasoning as TIME_CELL: auxiliary, seeded once.
     if (!graph.has(ids.drawnPoints)) graph.set(ids.drawnPoints, [] as LabeledPoint[], { auxiliary: true });
+    // Live training-observation cells (issue #34 item 2) -- written mid-run
+    // by handleTrain's mallory-telemetry sink, so an agent (via
+    // useCellGraphTools) or a human (via the Objects list) can watch an
+    // in-progress run, not just the final result. Seeded once, same as
+    // drawnPoints above.
+    if (!graph.has(ids.isTraining)) graph.set(ids.isTraining, false, { auxiliary: true });
 
     graph.define(ids.points, (): Result<LabeledPoint[]> => {
       try {
@@ -144,6 +152,8 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
   const stepSize = useCell<string>(graph, ids.stepSize);
   const gamma = useCell<string>(graph, ids.gamma);
   const pointsResult = useCell<Result<LabeledPoint[]>>(graph, ids.points);
+  const isTrainingCell = useCell<boolean>(graph, ids.isTraining);
+  const liveLoss = useCell<number | undefined>(graph, ids.metric("loss"));
 
   const [lossHistory, setLossHistory] = useState<number[]>([]);
   const [probabilityGrid, setProbabilityGrid] = useState<number[][] | null>(null);
@@ -177,22 +187,51 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
+  // Issue #34 item 2's "novel part": mallory-telemetry's setSink/metric
+  // handshake as the reactive bridge from an in-progress training run into
+  // CellGraph, so the loss curve becomes just another live cell an agent
+  // (or the Objects list) can watch mid-run -- not just the final,
+  // post-completion result handleTrain used to write. `runId` scopes each
+  // call's sink to its own events (setSink is global/single-installed, and
+  // this panel is cellId-parameterized, so a stray event from a different
+  // MlPlaygroundPanel instance's run must never write into this one's cells).
   async function handleTrain() {
     if (!pointsResult.ok || training) return;
     setTraining(true);
+    graph.set(ids.isTraining, true, { auxiliary: true });
     setTrainError(null);
+    const runId = crypto.randomUUID();
+    const startingEpoch = totalEpochs;
+    const uninstallSink = installMetricSink(runId, (name, value) => {
+      graph.set(ids.metric(name), value, { auxiliary: true });
+    });
     try {
       if (!modelRef.current) {
         modelRef.current = new TinyMlp(Number(hidden), Number(modelSeed), Number(dropout));
       }
       const schedule = useSchedule ? { stepSize: Number(stepSize), gamma: Number(gamma) } : undefined;
-      const result = await trainModel(modelRef.current, pointsResult.value, Number(lr), Number(epochs), schedule);
-      setLossHistory((prev) => [...prev, ...result.lossHistory]);
+      const result = await trainModel(modelRef.current, pointsResult.value, Number(lr), Number(epochs), schedule, async ({ epoch, loss }) => {
+        metric(runId, startingEpoch + epoch, "loss", loss);
+        setLossHistory((prev) => [...prev, loss]);
+        // Yields a real animation-frame boundary (not just a microtask, which
+        // `await`ing an already-resolved promise would give) so the browser
+        // actually paints the updated loss cell/curve between epochs, and an
+        // agent polling via get_cell has a genuine window to observe it.
+        await new Promise((resolve) => {
+          // Falls back to a macrotask when requestAnimationFrame isn't available
+          // (SSR/no-DOM test environments) -- the yield itself is what matters
+          // here, not which scheduling primitive provides it.
+          if (typeof requestAnimationFrame === "function") requestAnimationFrame(resolve);
+          else setTimeout(resolve, 0);
+        });
+      });
       setTotalEpochs((prev) => prev + result.lossHistory.length);
       setProbabilityGrid(predictProbabilityGrid(modelRef.current, DOMAIN, GRID_RESOLUTION));
     } catch (e) {
       setTrainError(e instanceof Error ? e.message : String(e));
     } finally {
+      uninstallSink();
+      graph.set(ids.isTraining, false, { auxiliary: true });
       setTraining(false);
     }
   }
@@ -406,6 +445,7 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
         <div>
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
             Loss{totalEpochs > 0 ? ` -- ${totalEpochs} epochs, last ${lastLoss?.toExponential(3)}` : ""}
+            {isTrainingCell && liveLoss !== undefined ? ` (live: ${liveLoss.toExponential(3)})` : ""}
           </p>
           <canvas ref={lossCanvasRef} width={LOSS_WIDTH} height={LOSS_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
