@@ -21,7 +21,34 @@ test("resolveFilterCommand: a fractional cutoff frequency parses correctly", () 
   assert.deepEqual(resolveFilterCommand("low-pass at 12.5 Hz"), { filterType: "lowpass", filterCutoffHz: "12.5" });
 });
 
-test("resolveFilterCommand: bandpass/bandstop phrasings are NOT recognized -- mallory-signal's butter() doesn't offer them (blocked on mallory-plus#90)", () => {
+test("resolveFilterCommand: 'band-pass between 200 and 800 Hz' resolves to bandpass/[200,800], hand-computed", () => {
+  assert.deepEqual(resolveFilterCommand("band-pass between 200 and 800 Hz"), {
+    filterType: "bandpass",
+    filterCutoffHz: "200",
+    filterCutoffHzHigh: "800",
+  });
+});
+
+test("resolveFilterCommand: 'bandstop from 100 to 300 hz' resolves to bandstop/[100,300]", () => {
+  assert.deepEqual(resolveFilterCommand("bandstop from 100 to 300 hz"), {
+    filterType: "bandstop",
+    filterCutoffHz: "100",
+    filterCutoffHzHigh: "300",
+  });
+});
+
+test("resolveFilterCommand: band phrasing accepts spacing/casing/'filter' variants and a fractional cutoff", () => {
+  assert.deepEqual(resolveFilterCommand("bandpass between 200 and 800 hz"), { filterType: "bandpass", filterCutoffHz: "200", filterCutoffHzHigh: "800" });
+  assert.deepEqual(resolveFilterCommand("band stop filter from 100 to 300 hz"), {
+    filterType: "bandstop",
+    filterCutoffHz: "100",
+    filterCutoffHzHigh: "300",
+  });
+  assert.deepEqual(resolveFilterCommand("BAND-PASS BETWEEN 200 AND 800 HZ"), { filterType: "bandpass", filterCutoffHz: "200", filterCutoffHzHigh: "800" });
+  assert.deepEqual(resolveFilterCommand("band-pass between 12.5 and 30 hz"), { filterType: "bandpass", filterCutoffHz: "12.5", filterCutoffHzHigh: "30" });
+});
+
+test("resolveFilterCommand: an old-style 'band-pass at 40 Hz' (single frequency, no range) does not match -- band types need two frequencies", () => {
   assert.equal(resolveFilterCommand("band-pass at 40 Hz"), null);
   assert.equal(resolveFilterCommand("bandstop at 40 Hz"), null);
 });

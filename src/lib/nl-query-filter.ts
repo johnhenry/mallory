@@ -3,23 +3,40 @@
  * remaining scope: 'NL query patterns ("low-pass at 40 Hz")'). A separate
  * module from `nl-query.ts`, same reasoning as `nl-query-matrix.ts`: the
  * target here is a set of filter-design CELLS (showFilter/filterType/
- * filterCutoffHz), not an expression string, so it doesn't fit
+ * filterCutoffHz[High]), not an expression string, so it doesn't fit
  * `nl-query.ts`'s `PATTERNS` contract (every pattern there resolves to an
- * expression). Only "lowpass"/"highpass" are recognized -- matches
- * `filterType`'s own current constraint: `mallory-signal`'s `butter()`
- * only implements lowpass/highpass in v1 (bandpass/bandstop blocked on
- * johnhenry/mallory-plus#90, see SignalPanel's own filter section).
+ * expression).
+ *
+ * Bandpass/bandstop phrasings ("band-pass between 200 and 800 Hz")
+ * shipped alongside `mallory-signal`'s own bandpass/bandstop support
+ * (johnhenry/mallory-plus#90) -- previously unsupported here too, tracked
+ * by the same upstream issue.
  */
-export interface FilterCommand {
-  filterType: "lowpass" | "highpass";
-  filterCutoffHz: string;
-}
+export type FilterCommand =
+  | { filterType: "lowpass" | "highpass"; filterCutoffHz: string }
+  | { filterType: "bandpass" | "bandstop"; filterCutoffHz: string; filterCutoffHzHigh: string };
 
-const FILTER_PATTERN = /^(low|high)[\s-]?pass(?:\s+filter)?\s+at\s+(\d+(?:\.\d+)?)\s*hz$/i;
+const LOW_HIGH_PATTERN = /^(low|high)[\s-]?pass(?:\s+filter)?\s+at\s+(\d+(?:\.\d+)?)\s*hz$/i;
+const BAND_PATTERN = /^band[\s-]?(pass|stop)(?:\s+filter)?\s+(?:between|from)\s+(\d+(?:\.\d+)?)\s*(?:hz)?\s+(?:and|to)\s+(\d+(?:\.\d+)?)\s*hz$/i;
 
 export function resolveFilterCommand(input: string): FilterCommand | null {
-  const match = input.trim().match(FILTER_PATTERN);
-  if (!match) return null;
-  const band = (match[1] as string).toLowerCase();
-  return { filterType: band === "low" ? "lowpass" : "highpass", filterCutoffHz: match[2] as string };
+  const trimmed = input.trim();
+
+  const lowHighMatch = trimmed.match(LOW_HIGH_PATTERN);
+  if (lowHighMatch) {
+    const band = (lowHighMatch[1] as string).toLowerCase();
+    return { filterType: band === "low" ? "lowpass" : "highpass", filterCutoffHz: lowHighMatch[2] as string };
+  }
+
+  const bandMatch = trimmed.match(BAND_PATTERN);
+  if (bandMatch) {
+    const kind = (bandMatch[1] as string).toLowerCase();
+    return {
+      filterType: kind === "pass" ? "bandpass" : "bandstop",
+      filterCutoffHz: bandMatch[2] as string,
+      filterCutoffHzHigh: bandMatch[3] as string,
+    };
+  }
+
+  return null;
 }

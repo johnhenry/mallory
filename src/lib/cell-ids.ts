@@ -460,6 +460,10 @@ export function cellIdsSignal(cellId: string) {
     filterType: `signalFilterType:${cellId}`,
     filterOrder: `signalFilterOrder:${cellId}`,
     filterCutoffHz: `signalFilterCutoffHz:${cellId}`,
+    // Only read/shown for bandpass/bandstop (issue #90's unblock): the
+    // filter's high cutoff, `filterCutoffHz` doubling as the LOW cutoff
+    // for those two types (matches designFilter's own [low, high] pair).
+    filterCutoffHzHigh: `signalFilterCutoffHzHigh:${cellId}`,
     filterResult: `signalFilterResult:${cellId}`,
     filteredWaveformResult: `signalFilteredWaveformResult:${cellId}`,
     bodeResult: `signalBodeResult:${cellId}`,

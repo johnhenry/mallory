@@ -28,6 +28,61 @@ test("designFilter: rejects a cutoff outside (0, Nyquist)", () => {
   assert.throws(() => designFilter(4, 60, 100, "lowpass"), /Cutoff frequency must be strictly between/); // above Nyquist
 });
 
+test("designFilter: bandpass/bandstop reject a single-number cutoff (need a [low, high] pair)", () => {
+  // @ts-expect-error -- deliberately calling the wrong overload to check the runtime guard.
+  assert.throws(() => designFilter(4, 15, 100, "bandpass"), /needs two cutoff frequencies/);
+  // @ts-expect-error
+  assert.throws(() => designFilter(4, 15, 100, "bandstop"), /needs two cutoff frequencies/);
+});
+
+test("designFilter: lowpass/highpass reject a [low, high] pair (need a single number)", () => {
+  // @ts-expect-error -- deliberately calling the wrong overload to check the runtime guard.
+  assert.throws(() => designFilter(4, [10, 20], 100, "lowpass"), /needs a single cutoff frequency/);
+});
+
+test("designFilter: bandpass rejects a low cutoff that isn't strictly less than the high cutoff", () => {
+  assert.throws(() => designFilter(4, [20, 10], 100, "bandpass"), /low cutoff frequency must be less than/);
+  assert.throws(() => designFilter(4, [15, 15], 100, "bandpass"), /low cutoff frequency must be less than/);
+});
+
+test("applyFilter: a bandpass filter keeps a mid-band tone, removes both a low and a high tone from a three-tone mix", () => {
+  const sr = 100;
+  const n = 512;
+  const t: number[] = [];
+  const y: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const ti = i / sr;
+    t.push(ti);
+    y.push(Math.sin(2 * Math.PI * 2 * ti) + Math.sin(2 * Math.PI * 20 * ti) + Math.sin(2 * Math.PI * 45 * ti));
+  }
+  const mixed: Waveform = { t, y, sampleRate: sr };
+  const sos = designFilter(4, [10, 30], sr, "bandpass");
+  const filtered = applyFilter(sos, mixed);
+  assert.equal(filtered.y.length, mixed.y.length);
+  const outputRms = rms(filtered.y.slice(200));
+  // Three independent unit-amplitude tones would mix to rms ~= sqrt(3)*0.7071 ~= 1.2247;
+  // keeping only the mid tone should land back near a single tone's own 0.7071.
+  assert.ok(outputRms > 0.6 && outputRms < 0.8, `expected filtered rms near the single 20Hz tone's 0.7071, got ${outputRms}`);
+});
+
+test("applyFilter: a bandstop filter (mirror-image cutoffs) removes the mid-band tone, keeps the low and high tones", () => {
+  const sr = 100;
+  const n = 512;
+  const t: number[] = [];
+  const y: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const ti = i / sr;
+    t.push(ti);
+    y.push(Math.sin(2 * Math.PI * 2 * ti) + Math.sin(2 * Math.PI * 20 * ti) + Math.sin(2 * Math.PI * 45 * ti));
+  }
+  const mixed: Waveform = { t, y, sampleRate: sr };
+  const sos = designFilter(4, [10, 30], sr, "bandstop");
+  const filtered = applyFilter(sos, mixed);
+  const outputRms = rms(filtered.y.slice(200));
+  // Removing the mid tone leaves the low+high pair: rms ~= sqrt(2)*0.7071 ~= 1.
+  assert.ok(outputRms > 0.9 && outputRms < 1.1, `expected filtered rms near the two-tone (low+high) ~1.0, got ${outputRms}`);
+});
+
 test("computeBodePlot: order-4 lowpass at cutoffHz=15,sampleRate=100 matches hand-verified freqz magnitudes at worN=4", () => {
   // Hand-verified directly against the real installed mallory-signal package
   // before writing this test: butter(4, 0.3, {btype:"lowpass"}) then
