@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsSeries, type CellIdsSeries } from "../lib/cell-ids.ts";
-import { analyzeSeries, type SeriesResult } from "../lib/series-analysis.ts";
+import { analyzeSeries, computeSeriesViewport, type SeriesResult } from "../lib/series-analysis.ts";
 import { DEFAULT_SERIES_STATE, decodeSeriesState, encodeSeriesState, type SeriesState } from "../lib/series-state.ts";
-import { drawAxes, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { drawAxes, drawScatter } from "../lib/render-path.ts";
+import { scatterPointsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -102,14 +104,8 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
     if (!result.ok) return;
     const { partialSums, finalSum } = result.value;
-    if (partialSums.length === 0) return;
-    const ns = partialSums.map((p) => p.n);
-    const sums = partialSums.map((p) => p.sum);
-    const yValues = finalSum === null ? sums : [...sums, finalSum];
-    const yMin = Math.min(...yValues);
-    const yMax = Math.max(...yValues);
-    const pad = Math.max((yMax - yMin) * 0.1, 1e-6);
-    const viewport: Viewport = { xMin: ns[0] ?? 0, xMax: ns[ns.length - 1] ?? 1, yMin: yMin - pad, yMax: yMax + pad };
+    const viewport = computeSeriesViewport(partialSums, finalSum);
+    if (!viewport) return;
     drawAxes(ctx, viewport, WIDTH, HEIGHT);
     drawScatter(ctx, partialSums.map((p) => ({ x: p.n, y: p.sum })), viewport, WIDTH, HEIGHT, 3, "#2563eb");
 
@@ -164,6 +160,23 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="series" />
+        <SvgExportButton
+          getSvg={() => {
+            if (!result.ok) return null;
+            const { partialSums, finalSum } = result.value;
+            const viewport = computeSeriesViewport(partialSums, finalSum);
+            if (!viewport) return null;
+            return scatterPointsToSvgDocument(
+              partialSums.map((p) => ({ x: p.n, y: p.sum })),
+              viewport,
+              WIDTH,
+              HEIGHT,
+              "#2563eb",
+              3,
+            );
+          }}
+          label="series"
+        />
       </div>
       {result.ok ? (
         result.value.diverges ? (
