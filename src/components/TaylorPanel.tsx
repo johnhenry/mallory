@@ -1,5 +1,5 @@
 import type { Path2D } from "mallory-math";
-import { useEffect, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsTaylor, type CellIdsTaylor } from "../lib/cell-ids.ts";
 import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
@@ -9,6 +9,8 @@ import { DEFAULT_TAYLOR_STATE, decodeTaylorState, encodeTaylorState, type Taylor
 import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { canvasEventPoint, toDataX, toDataY } from "../lib/viewport.ts";
+import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
@@ -18,6 +20,8 @@ type LimitResult = { ok: true; value: number } | { ok: false; message: string };
 
 const WIDTH = 500;
 const HEIGHT = 500;
+const ZOOM_STEP = 1.1;
+const ZOOM_COMMIT_DEBOUNCE_MS = 150;
 
 function seedTaylorState(graph: CellGraph, ids: CellIdsTaylor, state: TaylorState): void {
   graph.set(ids.expr, state.expr);
@@ -53,6 +57,7 @@ function useTaylorGraph(cellId: string): CellGraph {
     const ids = cellIdsTaylor(cellId);
     const decoded = typeof window !== "undefined" ? decodeTaylorState(window.location.hash.slice(1)) : null;
     seedTaylorState(graph, ids, decoded ?? DEFAULT_TAYLOR_STATE);
+    graph.set<Viewport | null>(ids.liveViewport, null, { auxiliary: true });
 
     graph.define(ids.taylorPath, (): ApproxResult => {
       try {
@@ -104,6 +109,7 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
   const limitDirection = useCell<LimitDirection>(graph, ids.limitDirection);
   const approx = useCell<ApproxResult>(graph, ids.taylorPath);
   const limitResult = useCell<LimitResult>(graph, ids.limitResult);
+  const liveViewport = useCell<Viewport | null>(graph, ids.liveViewport);
 
   const [exprInput, setExprInput] = useState(expr);
   useEffect(() => {
@@ -119,12 +125,24 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
-  const viewport: Viewport = {
+  const committedViewport: Viewport = {
     xMin: Number(xMin) || -5,
     xMax: Number(xMax) || 5,
     yMin: Number(yMin) || -5,
     yMax: Number(yMax) || 5,
   };
+  const viewport = liveViewport ?? committedViewport;
+
+  // Pan/pinch gesture state (issue #53), mirroring GraphCanvas/ParametricPanel/
+  // FourierPanel. No draggable handle, so every pointerdown is a pinch (2+
+  // pointers) or a pan.
+  const gestureRef = useRef<
+    | { kind: "pan"; anchorX: number; anchorY: number; spanX: number; spanY: number }
+    | { kind: "pinch"; anchorX: number; anchorY: number; spanX: number; spanY: number; startDistancePx: number }
+    | null
+  >(null);
+  const activePointersRef = useRef<Map<number, { sx: number; sy: number }>>(new Map());
+  const zoomCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
@@ -136,11 +154,135 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
       drawPath(ctx, approx.taylorPath, viewport, WIDTH, HEIGHT);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [approx, xMin, xMax, yMin, yMax]);
+  }, [approx, viewport]);
+
+  useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    };
+  }, []);
 
   function updateExpr(value: string) {
     setExprInput(value);
     graph.set(ids.expr, resolveNaturalLanguageQuery(value) ?? value);
+  }
+
+  /**
+   * Copies a pending live-viewport override back into the four x/y-min/max
+   * cells (the real, resample-triggering commit) and clears the override --
+   * shared by pan/pinch release and the wheel-zoom debounce below. Unlike
+   * GraphCanvas/FourierPanel's single `ids.viewport` cell, there's no
+   * separate committed-viewport cell to write here -- this IS the commit,
+   * straight into the same cells the text inputs edit.
+   */
+  function commitLiveViewport() {
+    const live = graph.get<Viewport | null>(ids.liveViewport);
+    if (!live) return;
+    graph.set(ids.xMin, String(live.xMin));
+    graph.set(ids.xMax, String(live.xMax));
+    graph.set(ids.yMin, String(live.yMin));
+    graph.set(ids.yMax, String(live.yMax));
+    graph.set<Viewport | null>(ids.liveViewport, null);
+  }
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLCanvasElement>) {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    commitLiveViewport();
+
+    const downPoint = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    activePointersRef.current.set(e.pointerId, downPoint);
+
+    if (activePointersRef.current.size >= 2) {
+      const [p1, p2] = [...activePointersRef.current.values()].slice(-2) as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      const vp = graph.get<Viewport | null>(ids.liveViewport) ?? committedViewport;
+      gestureRef.current = {
+        kind: "pinch",
+        anchorX: toDataX(midSx, vp, WIDTH),
+        anchorY: toDataY(midSy, vp, HEIGHT),
+        spanX: vp.xMax - vp.xMin,
+        spanY: vp.yMax - vp.yMin,
+        startDistancePx: Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy),
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    const vp = committedViewport;
+    const { sx, sy } = downPoint;
+    gestureRef.current = {
+      kind: "pan",
+      anchorX: toDataX(sx, vp, WIDTH),
+      anchorY: toDataY(sy, vp, HEIGHT),
+      spanX: vp.xMax - vp.xMin,
+      spanY: vp.yMax - vp.yMin,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handlePointerMove(e: ReactPointerEvent<HTMLCanvasElement>) {
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT));
+    }
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+    if (gesture.kind === "pinch") {
+      const points = [...activePointersRef.current.values()].slice(-2);
+      if (points.length < 2) return;
+      const [p1, p2] = points as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const currentDistancePx = Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy);
+      if (currentDistancePx < 1) return;
+      const factor = pinchZoomFactor(gesture.startDistancePx, currentDistancePx);
+      const spanX = gesture.spanX * factor;
+      const spanY = gesture.spanY * factor;
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, midSx, midSy, spanX, spanY, WIDTH, HEIGHT));
+      return;
+    }
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, sx, sy, gesture.spanX, gesture.spanY, WIDTH, HEIGHT));
+  }
+
+  function handlePointerUp(e: ReactPointerEvent<HTMLCanvasElement>) {
+    activePointersRef.current.delete(e.pointerId);
+    if (gestureRef.current?.kind === "pan" || gestureRef.current?.kind === "pinch") commitLiveViewport();
+    gestureRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  }
+
+  /** Wheel-to-zoom, anchored on the cursor's data point; the real commit is debounced (no pointerup to trigger it). */
+  function handleWheel(e: ReactWheelEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    const vp = graph.get<Viewport | null>(ids.liveViewport) ?? committedViewport;
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    const anchorX = toDataX(sx, vp, WIDTH);
+    const anchorY = toDataY(sy, vp, HEIGHT);
+    const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
+    const spanX = (vp.xMax - vp.xMin) * factor;
+    const spanY = (vp.yMax - vp.yMin) * factor;
+    graph.set(ids.liveViewport, viewportFromAnchor(anchorX, anchorY, sx, sy, spanX, spanY, WIDTH, HEIGHT));
+    if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    zoomCommitTimerRef.current = setTimeout(() => {
+      zoomCommitTimerRef.current = null;
+      commitLiveViewport();
+    }, ZOOM_COMMIT_DEBOUNCE_MS);
+  }
+
+  function resetView() {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    graph.set<Viewport | null>(ids.liveViewport, null);
+    graph.set(ids.xMin, DEFAULT_TAYLOR_STATE.xMin);
+    graph.set(ids.xMax, DEFAULT_TAYLOR_STATE.xMax);
+    graph.set(ids.yMin, DEFAULT_TAYLOR_STATE.yMin);
+    graph.set(ids.yMax, DEFAULT_TAYLOR_STATE.yMax);
   }
 
   return (
@@ -186,13 +328,25 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
       ) : (
         <p style={{ color: "var(--danger)" }}>{approx.message}</p>
       )}
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <canvas
+        ref={canvasRef}
+        width={WIDTH}
+        height={HEIGHT}
+        style={{ border: "1px solid var(--border)", touchAction: "none" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onWheel={handleWheel}
+      />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="taylor" />
         <SvgExportButton
           getSvg={() => (approx.ok ? pathsToSvgDocument([approx.fPath, approx.taylorPath], viewport, WIDTH, HEIGHT) : null)}
           label="taylor"
-        />
+        />{" "}
+        <button type="button" onClick={resetView}>
+          Reset view
+        </button>
       </div>
       <h2>Limit</h2>
       <div style={{ margin: "0.25rem 0" }}>

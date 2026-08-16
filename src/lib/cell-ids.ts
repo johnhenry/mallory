@@ -260,6 +260,13 @@ export function cellIdsTaylor(cellId: string) {
     taylorPath: `taylorPolyPath:${cellId}`,
     taylorLatex: `taylorPolyLatex:${cellId}`,
     limitResult: `taylorLimitResult:${cellId}`,
+    // Pan/zoom (issue #53): unlike GraphCanvas/FourierPanel, there's no
+    // separate committed-viewport cell -- `xMin`/`xMax`/`yMin`/`yMax` above
+    // ARE the viewport, already reactive (taylorPath's compute already
+    // reads them, so committing a gesture there gets the resample for
+    // free). `liveViewport` only overrides those four for a zero-resample
+    // mid-gesture redraw, same convention as every other panel.
+    liveViewport: `taylorLiveViewport:${cellId}`,
   };
 }
 
