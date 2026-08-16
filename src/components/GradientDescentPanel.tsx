@@ -97,6 +97,8 @@ function seedState(graph: CellGraph, ids: CellIdsGradientDescent, state: Gradien
   graph.set(ids.useSchedule, state.useSchedule ?? DEFAULT_GRADIENT_DESCENT_STATE.useSchedule);
   graph.set(ids.stepSize, state.stepSize ?? DEFAULT_GRADIENT_DESCENT_STATE.stepSize);
   graph.set(ids.gamma, state.gamma ?? DEFAULT_GRADIENT_DESCENT_STATE.gamma);
+  graph.set(ids.momentum, state.momentum ?? DEFAULT_GRADIENT_DESCENT_STATE.momentum);
+  graph.set(ids.nesterov, state.nesterov ?? DEFAULT_GRADIENT_DESCENT_STATE.nesterov);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsGradientDescent): GradientDescentState {
@@ -113,6 +115,8 @@ function getCurrentState(graph: CellGraph, ids: CellIdsGradientDescent): Gradien
     useSchedule: graph.get<boolean>(ids.useSchedule),
     stepSize: graph.get<string>(ids.stepSize),
     gamma: graph.get<string>(ids.gamma),
+    momentum: graph.get<string>(ids.momentum),
+    nesterov: graph.get<boolean>(ids.nesterov),
   };
 }
 
@@ -160,12 +164,16 @@ function useGradientDescentGraph(cellId: string): CellGraph {
           if (!Number.isFinite(gamma) || gamma <= 0) throw new Error("Schedule gamma must be a positive number.");
           schedule = { stepSize, gamma };
         }
-        // Same expression, same start, same lr/steps/schedule -- the runs
-        // differ ONLY by optimizer, which is what makes the overlay a
-        // genuine race.
+        const momentum = Number(graph.get<string>(ids.momentum));
+        if (!Number.isFinite(momentum)) throw new Error("SGD momentum must be a number.");
+        const sgdMomentum = { momentum, nesterov: graph.get<boolean>(ids.nesterov) };
+        // Same expression, same start, same lr/steps/schedule/momentum --
+        // the runs differ ONLY by optimizer, which is what makes the
+        // overlay a genuine race. sgdMomentum is harmlessly ignored by
+        // runGradientDescent for the adam/rmsprop runs.
         const runs = enabled.map((optimizer) => ({
           optimizer,
-          result: runGradientDescent(exprText, startX, startY, optimizer, lr, steps, schedule),
+          result: runGradientDescent(exprText, startX, startY, optimizer, lr, steps, schedule, sgdMomentum),
         }));
         return { ok: true, value: runs };
       } catch (e) {
@@ -220,6 +228,8 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   const useSchedule = useCell<boolean>(graph, ids.useSchedule);
   const stepSize = useCell<string>(graph, ids.stepSize);
   const gamma = useCell<string>(graph, ids.gamma);
+  const momentum = useCell<string>(graph, ids.momentum);
+  const nesterov = useCell<boolean>(graph, ids.nesterov);
   const contoursResult = useCell<Result<ContourLevel[]>>(graph, ids.contoursResult);
   const descentResults = useCell<Result<OptimizerRun[]>>(graph, ids.descentResults);
   const surfaceMeshResult = useCell<Result<Mesh[]>>(graph, ids.surfaceMesh);
@@ -472,6 +482,31 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
           </>
         )}
       </div>
+      {showSgd && (
+        <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+          <label style={{ color: OPTIMIZER_COLORS.sgd }}>
+            SGD momentum:{" "}
+            <input
+              type="number"
+              min={0}
+              max={0.999}
+              step="any"
+              value={momentum}
+              onChange={(e) => graph.set(ids.momentum, e.target.value)}
+              style={{ font: "inherit", width: "6ch" }}
+            />
+          </label>
+          <label style={{ color: OPTIMIZER_COLORS.sgd }}>
+            <input
+              type="checkbox"
+              checked={nesterov}
+              disabled={Number(momentum) === 0}
+              onChange={(e) => graph.set(ids.nesterov, e.target.checked)}
+            />{" "}
+            Nesterov
+          </label>
+        </div>
+      )}
       {!contoursResult.ok && <p style={{ color: "var(--danger)" }}>{contoursResult.message}</p>}
       {!descentResults.ok && <p style={{ color: "var(--danger)" }}>{descentResults.message}</p>}
       {!surfaceMeshResult.ok && <p style={{ color: "var(--danger)" }}>{surfaceMeshResult.message}</p>}

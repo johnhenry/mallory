@@ -91,3 +91,46 @@ test("runGradientDescent: without a schedule, lr never changes -- every step use
   // stepSize=1000 with only 2 steps run means the schedule never actually fires (n never reaches 1000) -- identical path to no schedule at all.
   assert.deepEqual(withNoopSchedule.path, withoutSchedule.path);
 });
+
+// ---- SGD momentum (issue #33's last remaining item, mallory-plus#89) --------
+
+test("runGradientDescent: SGD momentum matches hand-computed buf = momentum*buf + grad, param -= lr*buf (verified via a standalone node -e script)", () => {
+  const result = runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 2, undefined, { momentum: 0.9, nesterov: false });
+  assert.equal(result.path.length, 3);
+  assert.equal(result.path[1]?.x, 3.4);
+  assert.equal(result.path[1]?.y, 2);
+  assert.ok(Math.abs((result.path[2]?.x ?? Number.NaN) - 2.38) < 1e-12);
+  assert.ok(Math.abs((result.path[2]?.y ?? Number.NaN) - 0.3) < 1e-12);
+});
+
+test("runGradientDescent: sgdMomentum with momentum=0 is byte-identical to no sgdMomentum at all", () => {
+  const withoutMomentum = runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 5);
+  const withZeroMomentum = runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 5, undefined, { momentum: 0, nesterov: false });
+  assert.deepEqual(withZeroMomentum.path, withoutMomentum.path);
+});
+
+test("runGradientDescent: momentum is harmlessly ignored for adam/rmsprop -- identical path with or without sgdMomentum set", () => {
+  for (const optimizer of ["adam", "rmsprop"] as const) {
+    const without = runGradientDescent(BOWL, 4, 3, optimizer, 0.1, 5);
+    const withMomentum = runGradientDescent(BOWL, 4, 3, optimizer, 0.1, 5, undefined, { momentum: 0.9, nesterov: true });
+    assert.deepEqual(withMomentum.path, without.path, optimizer);
+  }
+});
+
+test("runGradientDescent: SGD momentum reaches lower loss than plain SGD in the same 40 steps on an anisotropic, ill-conditioned bowl (verified via a standalone node -e sweep: momentum's advantage only shows up here, not on the isotropic BOWL above, which is already well-conditioned for plain SGD)", () => {
+  const ANISOTROPIC = "x^2 + 10*y^2"; // same shape as GradientDescentPanel's own default expression
+  const withMomentum = runGradientDescent(ANISOTROPIC, 4, 2, "sgd", 0.02, 40, undefined, { momentum: 0.9, nesterov: false });
+  const plain = runGradientDescent(ANISOTROPIC, 4, 2, "sgd", 0.02, 40);
+  const lastM = withMomentum.path[withMomentum.path.length - 1]!;
+  const lastP = plain.path[plain.path.length - 1]!;
+  assert.ok(lastM.f < lastP.f, `momentum should reach lower loss in the same 40 steps: momentum=${lastM.f}, plain=${lastP.f}`);
+});
+
+test("runGradientDescent: rejects a momentum outside [0, 1)", () => {
+  assert.throws(() => runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 10, undefined, { momentum: -0.1, nesterov: false }), /momentum must be a number in \[0, 1\)/);
+  assert.throws(() => runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 10, undefined, { momentum: 1, nesterov: false }), /momentum must be a number in \[0, 1\)/);
+});
+
+test("runGradientDescent: nesterov without a nonzero momentum propagates optim.SGD's own RangeError", () => {
+  assert.throws(() => runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 10, undefined, { momentum: 0, nesterov: true }), /nesterov requires a nonzero momentum/);
+});
