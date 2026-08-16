@@ -284,6 +284,15 @@ export function cellIdsSeries(cellId: string) {
     toN: `seriesToN:${cellId}`,
     plotCount: `seriesPlotCount:${cellId}`,
     result: `seriesResult:${cellId}`,
+    // Pan/zoom (issue #53): unlike fourierViewport, `result`'s partial-sum
+    // scatter points don't depend on the viewport at all (every n in
+    // [from,to] is always computed, regardless of what's currently in
+    // view) -- viewport here is pure display framing, not a resample
+    // driver. The live/committed split is kept anyway for consistency
+    // with every other pan/zoom panel in this app (GraphCanvas #184,
+    // FourierPanel #188, ...), not because it saves any real work here.
+    viewport: `seriesViewport:${cellId}`,
+    liveViewport: `seriesLiveViewport:${cellId}`,
   };
 }
 
