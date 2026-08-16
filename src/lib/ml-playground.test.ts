@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { constant, nn, optim, variable } from "mallory-tensor-autograd";
 import { Tensor } from "mallory-tensor-core";
+import { hasSink, metric } from "mallory-telemetry";
 import {
   TinyMlp,
   datasetToBatch,
   generateDataset,
+  installMetricSink,
   predictProbabilityGrid,
   stableBinaryCrossEntropy,
   trainModel,
@@ -152,6 +154,84 @@ test("trainModel: a StepLR schedule matches a hand-rolled reference loop bit-for
   }
 
   assert.deepEqual(resultA.lossHistory, lossHistoryB);
+});
+
+test("trainModel: onEpoch fires exactly once per epoch, in order, with the epoch index and that epoch's own loss value", async () => {
+  const model = new TinyMlp(4, 5);
+  const points = generateDataset("moons", 8, 6);
+  const events: { epoch: number; loss: number }[] = [];
+  const result = await trainModel(model, points, 0.05, 6, undefined, (event) => {
+    events.push(event);
+  });
+  assert.equal(events.length, 6);
+  assert.deepEqual(
+    events.map((e) => e.epoch),
+    [0, 1, 2, 3, 4, 5],
+  );
+  assert.deepEqual(
+    events.map((e) => e.loss),
+    result.lossHistory,
+  );
+});
+
+test("trainModel: onEpoch does not change training results -- with or without it, same seeds give the exact same lossHistory (chunking for observation is numerically transparent)", async () => {
+  const withoutObserver = async () => {
+    const model = new TinyMlp(6, 9);
+    return (await trainModel(model, generateDataset("moons", 12, 8), 0.05, 10)).lossHistory;
+  };
+  const withObserver = async () => {
+    const model = new TinyMlp(6, 9);
+    return (await trainModel(model, generateDataset("moons", 12, 8), 0.05, 10, undefined, () => {})).lossHistory;
+  };
+  assert.deepEqual(await withoutObserver(), await withObserver());
+});
+
+test("trainModel: an async onEpoch is awaited before the next epoch starts -- a callback that appends to a shared log sees strictly increasing epoch numbers with no interleaving", async () => {
+  const model = new TinyMlp(4, 13);
+  const points = generateDataset("xor", 6, 14);
+  const log: number[] = [];
+  await trainModel(model, points, 0.05, 5, undefined, async (event) => {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    log.push(event.epoch);
+  });
+  assert.deepEqual(log, [0, 1, 2, 3, 4]);
+});
+
+test("installMetricSink: forwards a matching-runId metric event's name and value to onMetric", () => {
+  const received: { name: string; value: number }[] = [];
+  const uninstall = installMetricSink("run-a", (name, value) => received.push({ name, value }));
+  try {
+    metric("run-a", 0, "loss", 0.42);
+    metric("run-a", 1, "loss", 0.31);
+  } finally {
+    uninstall();
+  }
+  assert.deepEqual(received, [
+    { name: "loss", value: 0.42 },
+    { name: "loss", value: 0.31 },
+  ]);
+});
+
+test("installMetricSink: ignores metric events from a DIFFERENT runId -- the scoping that keeps two concurrent panel instances' telemetry from cross-contaminating", () => {
+  const received: { name: string; value: number }[] = [];
+  const uninstall = installMetricSink("run-a", (name, value) => received.push({ name, value }));
+  try {
+    metric("run-b", 0, "loss", 0.99); // different runId -- must be ignored
+    metric("run-a", 0, "loss", 0.5); // matching runId -- must be forwarded
+  } finally {
+    uninstall();
+  }
+  assert.deepEqual(received, [{ name: "loss", value: 0.5 }]);
+});
+
+test("installMetricSink: the returned uninstall function removes the sink -- hasSink() is false afterward, and a subsequent metric() call reaches nothing", () => {
+  const uninstall = installMetricSink("run-c", () => {
+    throw new Error("must not be called after uninstall");
+  });
+  assert.equal(hasSink(), true);
+  uninstall();
+  assert.equal(hasSink(), false);
+  metric("run-c", 0, "loss", 1); // no sink installed -- must not throw, must not call the (throwing) handler
 });
 
 test("predictProbabilityGrid: values are sigmoid(logit), hand-computed against known weights (not raw logits)", async () => {
