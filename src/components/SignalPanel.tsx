@@ -24,6 +24,7 @@ import { polylineToSvgDocument } from "../lib/svg-export.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useCell } from "../lib/use-cell.ts";
 import type { Viewport } from "../lib/viewport.ts";
 
@@ -357,12 +358,36 @@ function useSignalGraph(cellId: string): CellGraph {
   return ref.current;
 }
 
+type SignalTab = "waveform" | "spectrum" | "spectrogram" | "filter" | "analyze";
+
+const SIGNAL_TABS: readonly SignalTab[] = ["waveform", "spectrum", "spectrogram", "filter", "analyze"];
+
+const SIGNAL_TAB_LABELS: Record<SignalTab, string> = {
+  waveform: "Waveform",
+  spectrum: "Spectrum",
+  spectrogram: "Spectrogram",
+  filter: "Filter",
+  analyze: "Analyze",
+};
+
 /**
  * Signal panel (part of #31): compose f(t), see its waveform, its one-sided
  * amplitude spectrum via `mallory-fft`'s `rfft`, and its time-varying
  * spectrogram via `mallory-signal`'s windowed `stft` -- pipeline stage 3.
  * Filter design/Bode plot, PSD, cross-correlation, and Phase 2 live audio
  * are deferred (see the trimmed issue body).
+ *
+ * The pipeline-stage sections below (issue #31's remaining "CategoryTabs"
+ * item) are grouped under a Waveform/Spectrum/Spectrogram/Filter/Analyze
+ * tab row -- Analyze bundles cross-correlation and resample, the two
+ * "extras" that don't have their own dedicated stage. Unlike
+ * `CategoryTabs.tsx` (built to swap between otherwise-independent,
+ * already-built panels), an inactive tab's section here is unmounted with a
+ * plain conditional rather than that shared component: switching tabs
+ * detaches a section's canvas ref, so `activeTab` is threaded into every
+ * affected draw effect's own dependency array below to force a redraw when
+ * a canvas remounts (a stale ref from before the unmount would otherwise
+ * leave it blank until some unrelated cell next changed).
  */
 export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const graph = useSignalGraph(cellId);
@@ -408,6 +433,26 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const bodeResult = useCell<Result<BodePoint[]>>(graph, ids.bodeResult);
   const psdBeforeResult = useCell<Result<PsdPoint[]>>(graph, ids.psdBeforeResult);
   const psdAfterResult = useCell<Result<PsdPoint[]>>(graph, ids.psdAfterResult);
+
+  const [activeTab, setActiveTab] = useState<SignalTab>("waveform");
+  useModelContextTool({
+    name: `signal_${cellId}_switch_tab`,
+    description: `Switch the active tab on this signal panel. Available tabs: ${SIGNAL_TABS.map((t) => SIGNAL_TAB_LABELS[t]).join(", ")}.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        label: { type: "string", description: `One of: ${SIGNAL_TABS.map((t) => SIGNAL_TAB_LABELS[t]).join(", ")}` },
+      },
+      required: ["label"],
+    },
+    handler: (input: Record<string, unknown>) => {
+      const label = String(input.label ?? "");
+      const tab = SIGNAL_TABS.find((t) => SIGNAL_TAB_LABELS[t] === label);
+      if (!tab) throw new Error(`Unknown tab "${label}". Available tabs: ${SIGNAL_TABS.map((t) => SIGNAL_TAB_LABELS[t]).join(", ")}.`);
+      setActiveTab(tab);
+      return { ok: true, label };
+    },
+  });
 
   const [exprInput, setExprInput] = useState(exprText);
   const [exprInputB, setExprInputB] = useState(exprTextB);
@@ -496,7 +541,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     const { points, viewport } = waveformPlot(waveformResult.value);
     drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
     drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
-  }, [waveformResult]);
+  }, [waveformResult, activeTab]);
 
   useEffect(() => {
     const canvas = spectrumCanvasRef.current;
@@ -513,7 +558,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
         drawPoint(ctx, { x: peak.frequency, y: peak.amplitude }, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, 5, "#16a34a");
       }
     }
-  }, [spectrumResult, showPeaks, peaksResult]);
+  }, [spectrumResult, showPeaks, peaksResult, activeTab]);
 
   useEffect(() => {
     const canvas = spectrogramCanvasRef.current;
@@ -523,7 +568,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     ctx.clearRect(0, 0, SPECTROGRAM_WIDTH, SPECTROGRAM_HEIGHT);
     if (!spectrogramResult.ok) return;
     drawSpectrogram(ctx, spectrogramResult.value, SPECTROGRAM_WIDTH, SPECTROGRAM_HEIGHT);
-  }, [spectrogramResult]);
+  }, [spectrogramResult, activeTab]);
 
   useEffect(() => {
     const canvas = correlationCanvasRef.current;
@@ -544,7 +589,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       5,
       "#16a34a",
     );
-  }, [showCorrelation, correlationResult]);
+  }, [showCorrelation, correlationResult, activeTab]);
 
   useEffect(() => {
     const canvas = resampleCanvasRef.current;
@@ -556,7 +601,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     const { points, viewport } = waveformPlot(resampleResult.value);
     drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
     drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0891b2");
-  }, [showResample, resampleResult]);
+  }, [showResample, resampleResult, activeTab]);
 
   useEffect(() => {
     const canvas = filteredWaveformCanvasRef.current;
@@ -568,7 +613,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     const { points, viewport } = waveformPlot(filteredWaveformResult.value);
     drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
     drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0d9488");
-  }, [showFilter, filteredWaveformResult]);
+  }, [showFilter, filteredWaveformResult, activeTab]);
 
   useEffect(() => {
     const canvas = bodeMagnitudeCanvasRef.current;
@@ -580,7 +625,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     const { points, viewport } = bodeMagnitudePlot(bodeResult.value);
     drawAxes(ctx, viewport, BODE_WIDTH, BODE_HEIGHT);
     drawPolyline(ctx, points, viewport, BODE_WIDTH, BODE_HEIGHT, "#4f46e5");
-  }, [showFilter, bodeResult]);
+  }, [showFilter, bodeResult, activeTab]);
 
   useEffect(() => {
     const canvas = bodePhaseCanvasRef.current;
@@ -592,7 +637,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     const { points, viewport } = bodePhasePlot(bodeResult.value);
     drawAxes(ctx, viewport, BODE_WIDTH, BODE_HEIGHT);
     drawPolyline(ctx, points, viewport, BODE_WIDTH, BODE_HEIGHT, "#c026d3");
-  }, [showFilter, bodeResult]);
+  }, [showFilter, bodeResult, activeTab]);
 
   useEffect(() => {
     const canvas = psdCanvasRef.current;
@@ -623,7 +668,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       PSD_HEIGHT,
       "#0d9488",
     );
-  }, [showFilter, psdBeforeResult, psdAfterResult]);
+  }, [showFilter, psdBeforeResult, psdAfterResult, activeTab]);
 
   return (
     <div>
@@ -728,330 +773,375 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
         </p>
       )}
 
-      <h3>Waveform</h3>
-      <canvas ref={waveformCanvasRef} width={WAVEFORM_WIDTH} height={WAVEFORM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
-      <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => waveformCanvasRef.current} label="signal-waveform" />{" "}
-        <SvgExportButton
-          getSvg={() => {
-            if (!waveformResult.ok) return null;
-            const { points, viewport } = waveformPlot(waveformResult.value);
-            return polylineToSvgDocument(points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
-          }}
-          label="signal-waveform"
-        />
+      <div className="tab-row" role="tablist">
+        {SIGNAL_TABS.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={tab === activeTab}
+            className={tab === activeTab ? "tab-button active" : "tab-button"}
+            onClick={() => setActiveTab(tab)}
+          >
+            {SIGNAL_TAB_LABELS[tab]}
+          </button>
+        ))}
       </div>
 
-      <h3>Amplitude spectrum</h3>
-      {!spectrumResult.ok && <p style={{ color: "var(--danger)" }}>{spectrumResult.message}</p>}
-      <canvas ref={spectrumCanvasRef} width={SPECTRUM_WIDTH} height={SPECTRUM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
-      <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="signal-spectrum" />{" "}
-        <SvgExportButton
-          getSvg={() => {
-            if (!spectrumResult.ok) return null;
-            const { points, viewport } = spectrumPlot(spectrumResult.value);
-            return polylineToSvgDocument(points, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, "#dc2626");
-          }}
-          label="signal-spectrum"
-        />
-      </div>
-      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-        <label>
-          <input type="checkbox" checked={showPeaks} onChange={(e) => graph.set(ids.showPeaks, e.target.checked)} /> Find peaks
-        </label>
-        {showPeaks && (
-          <>
-            <label>
-              min amplitude:{" "}
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={minAmplitude}
-                onChange={(e) => graph.set(ids.minAmplitude, e.target.value)}
-                style={{ font: "inherit", width: "8ch" }}
-              />
-            </label>
-            <label>
-              min spacing (Hz):{" "}
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={minSpacingHz}
-                onChange={(e) => graph.set(ids.minSpacingHz, e.target.value)}
-                style={{ font: "inherit", width: "8ch" }}
-              />
-            </label>
-            <label>
-              min prominence:{" "}
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={minProminence}
-                onChange={(e) => graph.set(ids.minProminence, e.target.value)}
-                style={{ font: "inherit", width: "8ch" }}
-              />
-            </label>
-          </>
-        )}
-      </div>
-      {showPeaks && !peaksResult.ok && <p style={{ color: "var(--danger)" }}>{peaksResult.message}</p>}
-      {showPeaks && peaksResult.ok && (
-        <ul style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
-          {peaksResult.value.length === 0 && <li>No peaks found.</li>}
-          {peaksResult.value.map((peak) => (
-            <li key={peak.frequency}>
-              {peak.frequency.toFixed(2)}Hz -- amplitude {peak.amplitude.toFixed(3)}, prominence {peak.prominence.toFixed(3)}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <h3>Spectrogram</h3>
-      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-        <label>
-          window size (nperseg):{" "}
-          <input
-            type="number"
-            min={2}
-            value={nperseg}
-            onChange={(e) => graph.set(ids.nperseg, e.target.value)}
-            style={{ font: "inherit", width: "6ch" }}
-          />
-        </label>
-        <label>
-          overlap (noverlap):{" "}
-          <input
-            type="number"
-            min={0}
-            value={noverlap}
-            onChange={(e) => graph.set(ids.noverlap, e.target.value)}
-            style={{ font: "inherit", width: "6ch" }}
-          />
-        </label>
-      </div>
-      {!spectrogramResult.ok && <p style={{ color: "var(--danger)" }}>{spectrogramResult.message}</p>}
-      <canvas
-        ref={spectrogramCanvasRef}
-        width={SPECTROGRAM_WIDTH}
-        height={SPECTROGRAM_HEIGHT}
-        style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
-      />
-      <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => spectrogramCanvasRef.current} label="signal-spectrogram" />
-      </div>
-
-      <h3>Cross-correlation</h3>
-      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-        <label>
-          <input type="checkbox" checked={showCorrelation} onChange={(e) => graph.set(ids.showCorrelation, e.target.checked)} /> Find lag vs. a second
-          signal
-        </label>
-        {showCorrelation && (
-          <label>
-            g(t) ={" "}
-            <input value={exprInputB} onChange={(e) => updateExprTextB(e.target.value)} style={{ font: "inherit", width: "28ch" }} />
-          </label>
-        )}
-      </div>
-      {showCorrelation && (
+      {activeTab === "waveform" && (
         <>
-          {!correlationResult.ok && <p style={{ color: "var(--danger)" }}>{correlationResult.message}</p>}
-          {correlationResult.ok && (
-            <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
-              Best-fit lag: g(t) is {Math.abs(correlationResult.value.peakLagSeconds).toFixed(4)}s{" "}
-              {correlationResult.value.peakLagSeconds >= 0 ? "behind" : "ahead of"} f(t).
-            </p>
-          )}
-          <canvas
-            ref={correlationCanvasRef}
-            width={CORRELATION_WIDTH}
-            height={CORRELATION_HEIGHT}
-            style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
-          />
+          <h3>Waveform</h3>
+          <canvas ref={waveformCanvasRef} width={WAVEFORM_WIDTH} height={WAVEFORM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => correlationCanvasRef.current} label="signal-correlation" />{" "}
+            <PngExportButton getCanvas={() => waveformCanvasRef.current} label="signal-waveform" />{" "}
             <SvgExportButton
               getSvg={() => {
-                if (!correlationResult.ok) return null;
-                const { points, viewport } = correlationPlot(correlationResult.value);
-                return polylineToSvgDocument(points, viewport, CORRELATION_WIDTH, CORRELATION_HEIGHT, "#7c3aed");
+                if (!waveformResult.ok) return null;
+                const { points, viewport } = waveformPlot(waveformResult.value);
+                return polylineToSvgDocument(points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
               }}
-              label="signal-correlation"
+              label="signal-waveform"
             />
           </div>
         </>
       )}
 
-      <h3>Resample</h3>
-      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-        <label>
-          <input type="checkbox" checked={showResample} onChange={(e) => graph.set(ids.showResample, e.target.checked)} /> Resample the waveform
-        </label>
-        {showResample && (
-          <>
-            <label>
-              up:{" "}
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={resampleUp}
-                onChange={(e) => graph.set(ids.resampleUp, e.target.value)}
-                style={{ font: "inherit", width: "6ch" }}
-              />
-            </label>
-            <label>
-              down:{" "}
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={resampleDown}
-                onChange={(e) => graph.set(ids.resampleDown, e.target.value)}
-                style={{ font: "inherit", width: "6ch" }}
-              />
-            </label>
-          </>
-        )}
-      </div>
-      {showResample && (
+      {activeTab === "spectrum" && (
         <>
-          {!resampleResult.ok && <p style={{ color: "var(--danger)" }}>{resampleResult.message}</p>}
-          {resampleResult.ok && (
-            <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
-              {resampleResult.value.y.length} samples at {resampleResult.value.sampleRate.toFixed(3)}Hz (was {waveformResult.ok ? waveformResult.value.y.length : "?"}{" "}
-              samples at {sampleRate}Hz).
-            </p>
-          )}
+          <h3>Amplitude spectrum</h3>
+          {!spectrumResult.ok && <p style={{ color: "var(--danger)" }}>{spectrumResult.message}</p>}
           <canvas
-            ref={resampleCanvasRef}
-            width={WAVEFORM_WIDTH}
-            height={WAVEFORM_HEIGHT}
+            ref={spectrumCanvasRef}
+            width={SPECTRUM_WIDTH}
+            height={SPECTRUM_HEIGHT}
             style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
           />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => resampleCanvasRef.current} label="signal-resample" />{" "}
+            <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="signal-spectrum" />{" "}
             <SvgExportButton
               getSvg={() => {
-                if (!resampleResult.ok) return null;
-                const { points, viewport } = waveformPlot(resampleResult.value);
-                return polylineToSvgDocument(points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0891b2");
+                if (!spectrumResult.ok) return null;
+                const { points, viewport } = spectrumPlot(spectrumResult.value);
+                return polylineToSvgDocument(points, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, "#dc2626");
               }}
-              label="signal-resample"
+              label="signal-spectrum"
             />
+          </div>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              <input type="checkbox" checked={showPeaks} onChange={(e) => graph.set(ids.showPeaks, e.target.checked)} /> Find peaks
+            </label>
+            {showPeaks && (
+              <>
+                <label>
+                  min amplitude:{" "}
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={minAmplitude}
+                    onChange={(e) => graph.set(ids.minAmplitude, e.target.value)}
+                    style={{ font: "inherit", width: "8ch" }}
+                  />
+                </label>
+                <label>
+                  min spacing (Hz):{" "}
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={minSpacingHz}
+                    onChange={(e) => graph.set(ids.minSpacingHz, e.target.value)}
+                    style={{ font: "inherit", width: "8ch" }}
+                  />
+                </label>
+                <label>
+                  min prominence:{" "}
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={minProminence}
+                    onChange={(e) => graph.set(ids.minProminence, e.target.value)}
+                    style={{ font: "inherit", width: "8ch" }}
+                  />
+                </label>
+              </>
+            )}
+          </div>
+          {showPeaks && !peaksResult.ok && <p style={{ color: "var(--danger)" }}>{peaksResult.message}</p>}
+          {showPeaks && peaksResult.ok && (
+            <ul style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+              {peaksResult.value.length === 0 && <li>No peaks found.</li>}
+              {peaksResult.value.map((peak) => (
+                <li key={peak.frequency}>
+                  {peak.frequency.toFixed(2)}Hz -- amplitude {peak.amplitude.toFixed(3)}, prominence {peak.prominence.toFixed(3)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+
+      {activeTab === "spectrogram" && (
+        <>
+          <h3>Spectrogram</h3>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              window size (nperseg):{" "}
+              <input
+                type="number"
+                min={2}
+                value={nperseg}
+                onChange={(e) => graph.set(ids.nperseg, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+            <label>
+              overlap (noverlap):{" "}
+              <input
+                type="number"
+                min={0}
+                value={noverlap}
+                onChange={(e) => graph.set(ids.noverlap, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+          </div>
+          {!spectrogramResult.ok && <p style={{ color: "var(--danger)" }}>{spectrogramResult.message}</p>}
+          <canvas
+            ref={spectrogramCanvasRef}
+            width={SPECTROGRAM_WIDTH}
+            height={SPECTROGRAM_HEIGHT}
+            style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
+          />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => spectrogramCanvasRef.current} label="signal-spectrogram" />
           </div>
         </>
       )}
 
-      <h3>Filter design</h3>
-      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-        <label>
-          <input type="checkbox" checked={showFilter} onChange={(e) => graph.set(ids.showFilter, e.target.checked)} /> Design a Butterworth filter
-        </label>
-        {showFilter && (
-          <>
-            <label>
-              type:{" "}
-              <select value={filterType} onChange={(e) => graph.set(ids.filterType, e.target.value)}>
-                <option value="lowpass">lowpass</option>
-                <option value="highpass">highpass</option>
-              </select>
-            </label>
-            <label>
-              order:{" "}
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={filterOrder}
-                onChange={(e) => graph.set(ids.filterOrder, e.target.value)}
-                style={{ font: "inherit", width: "6ch" }}
-              />
-            </label>
-            <label>
-              cutoff (Hz):{" "}
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={filterCutoffHz}
-                onChange={(e) => graph.set(ids.filterCutoffHz, e.target.value)}
-                style={{ font: "inherit", width: "8ch" }}
-              />
-            </label>
-          </>
-        )}
-      </div>
-      {showFilter && (
+      {activeTab === "analyze" && (
         <>
-          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0" }}>
-            Bandpass/bandstop aren't available yet -- mallory-signal's <code>butter()</code> only implements lowpass/highpass
-            (johnhenry/mallory-plus#90 tracks the upstream gap).
-          </p>
-          {!bodeResult.ok && <p style={{ color: "var(--danger)" }}>{bodeResult.message}</p>}
-
-          <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Bode plot -- magnitude (dB)</p>
-          <canvas ref={bodeMagnitudeCanvasRef} width={BODE_WIDTH} height={BODE_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
-          <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => bodeMagnitudeCanvasRef.current} label="signal-bode-magnitude" />{" "}
-            <SvgExportButton
-              getSvg={() => {
-                if (!bodeResult.ok) return null;
-                const { points, viewport } = bodeMagnitudePlot(bodeResult.value);
-                return polylineToSvgDocument(points, viewport, BODE_WIDTH, BODE_HEIGHT, "#4f46e5");
-              }}
-              label="signal-bode-magnitude"
-            />
+          <h3>Cross-correlation</h3>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              <input type="checkbox" checked={showCorrelation} onChange={(e) => graph.set(ids.showCorrelation, e.target.checked)} /> Find lag vs. a
+              second signal
+            </label>
+            {showCorrelation && (
+              <label>
+                g(t) ={" "}
+                <input value={exprInputB} onChange={(e) => updateExprTextB(e.target.value)} style={{ font: "inherit", width: "28ch" }} />
+              </label>
+            )}
           </div>
+          {showCorrelation && (
+            <>
+              {!correlationResult.ok && <p style={{ color: "var(--danger)" }}>{correlationResult.message}</p>}
+              {correlationResult.ok && (
+                <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+                  Best-fit lag: g(t) is {Math.abs(correlationResult.value.peakLagSeconds).toFixed(4)}s{" "}
+                  {correlationResult.value.peakLagSeconds >= 0 ? "behind" : "ahead of"} f(t).
+                </p>
+              )}
+              <canvas
+                ref={correlationCanvasRef}
+                width={CORRELATION_WIDTH}
+                height={CORRELATION_HEIGHT}
+                style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
+              />
+              <div style={{ margin: "0.25rem 0" }}>
+                <PngExportButton getCanvas={() => correlationCanvasRef.current} label="signal-correlation" />{" "}
+                <SvgExportButton
+                  getSvg={() => {
+                    if (!correlationResult.ok) return null;
+                    const { points, viewport } = correlationPlot(correlationResult.value);
+                    return polylineToSvgDocument(points, viewport, CORRELATION_WIDTH, CORRELATION_HEIGHT, "#7c3aed");
+                  }}
+                  label="signal-correlation"
+                />
+              </div>
+            </>
+          )}
 
-          <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Bode plot -- phase (deg)</p>
-          <canvas ref={bodePhaseCanvasRef} width={BODE_WIDTH} height={BODE_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
-          <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => bodePhaseCanvasRef.current} label="signal-bode-phase" />{" "}
-            <SvgExportButton
-              getSvg={() => {
-                if (!bodeResult.ok) return null;
-                const { points, viewport } = bodePhasePlot(bodeResult.value);
-                return polylineToSvgDocument(points, viewport, BODE_WIDTH, BODE_HEIGHT, "#c026d3");
-              }}
-              label="signal-bode-phase"
-            />
+          <h3>Resample</h3>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              <input type="checkbox" checked={showResample} onChange={(e) => graph.set(ids.showResample, e.target.checked)} /> Resample the waveform
+            </label>
+            {showResample && (
+              <>
+                <label>
+                  up:{" "}
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={resampleUp}
+                    onChange={(e) => graph.set(ids.resampleUp, e.target.value)}
+                    style={{ font: "inherit", width: "6ch" }}
+                  />
+                </label>
+                <label>
+                  down:{" "}
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={resampleDown}
+                    onChange={(e) => graph.set(ids.resampleDown, e.target.value)}
+                    style={{ font: "inherit", width: "6ch" }}
+                  />
+                </label>
+              </>
+            )}
           </div>
+          {showResample && (
+            <>
+              {!resampleResult.ok && <p style={{ color: "var(--danger)" }}>{resampleResult.message}</p>}
+              {resampleResult.ok && (
+                <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+                  {resampleResult.value.y.length} samples at {resampleResult.value.sampleRate.toFixed(3)}Hz (was{" "}
+                  {waveformResult.ok ? waveformResult.value.y.length : "?"} samples at {sampleRate}Hz).
+                </p>
+              )}
+              <canvas
+                ref={resampleCanvasRef}
+                width={WAVEFORM_WIDTH}
+                height={WAVEFORM_HEIGHT}
+                style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
+              />
+              <div style={{ margin: "0.25rem 0" }}>
+                <PngExportButton getCanvas={() => resampleCanvasRef.current} label="signal-resample" />{" "}
+                <SvgExportButton
+                  getSvg={() => {
+                    if (!resampleResult.ok) return null;
+                    const { points, viewport } = waveformPlot(resampleResult.value);
+                    return polylineToSvgDocument(points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0891b2");
+                  }}
+                  label="signal-resample"
+                />
+              </div>
+            </>
+          )}
+        </>
+      )}
 
-          <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Filtered waveform</p>
-          {!filteredWaveformResult.ok && <p style={{ color: "var(--danger)" }}>{filteredWaveformResult.message}</p>}
-          <canvas
-            ref={filteredWaveformCanvasRef}
-            width={WAVEFORM_WIDTH}
-            height={WAVEFORM_HEIGHT}
-            style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
-          />
-          <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => filteredWaveformCanvasRef.current} label="signal-filtered" />{" "}
-            <SvgExportButton
-              getSvg={() => {
-                if (!filteredWaveformResult.ok) return null;
-                const { points, viewport } = waveformPlot(filteredWaveformResult.value);
-                return polylineToSvgDocument(points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0d9488");
-              }}
-              label="signal-filtered"
-            />
+      {activeTab === "filter" && (
+        <>
+          <h3>Filter design</h3>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              <input type="checkbox" checked={showFilter} onChange={(e) => graph.set(ids.showFilter, e.target.checked)} /> Design a Butterworth filter
+            </label>
+            {showFilter && (
+              <>
+                <label>
+                  type:{" "}
+                  <select value={filterType} onChange={(e) => graph.set(ids.filterType, e.target.value)}>
+                    <option value="lowpass">lowpass</option>
+                    <option value="highpass">highpass</option>
+                  </select>
+                </label>
+                <label>
+                  order:{" "}
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={filterOrder}
+                    onChange={(e) => graph.set(ids.filterOrder, e.target.value)}
+                    style={{ font: "inherit", width: "6ch" }}
+                  />
+                </label>
+                <label>
+                  cutoff (Hz):{" "}
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={filterCutoffHz}
+                    onChange={(e) => graph.set(ids.filterCutoffHz, e.target.value)}
+                    style={{ font: "inherit", width: "8ch" }}
+                  />
+                </label>
+              </>
+            )}
           </div>
+          {showFilter && (
+            <>
+              <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+                Bandpass/bandstop aren't available yet -- mallory-signal's <code>butter()</code> only implements lowpass/highpass
+                (johnhenry/mallory-plus#90 tracks the upstream gap).
+              </p>
+              {!bodeResult.ok && <p style={{ color: "var(--danger)" }}>{bodeResult.message}</p>}
 
-          <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>
-            PSD before (<span style={{ color: "#94a3b8" }}>gray</span>) vs. after (<span style={{ color: "#0d9488" }}>teal</span>) --
-            Welch's method, one-sided view (mallory-signal's <code>welch()</code> is disclosed two-sided/non-doubled; see signal-filter.ts's doc comment)
-          </p>
-          {!psdBeforeResult.ok && <p style={{ color: "var(--danger)" }}>{psdBeforeResult.message}</p>}
-          {!psdAfterResult.ok && <p style={{ color: "var(--danger)" }}>{psdAfterResult.message}</p>}
-          <canvas ref={psdCanvasRef} width={PSD_WIDTH} height={PSD_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
-          <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => psdCanvasRef.current} label="signal-psd" />
-          </div>
+              <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Bode plot -- magnitude (dB)</p>
+              <canvas
+                ref={bodeMagnitudeCanvasRef}
+                width={BODE_WIDTH}
+                height={BODE_HEIGHT}
+                style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
+              />
+              <div style={{ margin: "0.25rem 0" }}>
+                <PngExportButton getCanvas={() => bodeMagnitudeCanvasRef.current} label="signal-bode-magnitude" />{" "}
+                <SvgExportButton
+                  getSvg={() => {
+                    if (!bodeResult.ok) return null;
+                    const { points, viewport } = bodeMagnitudePlot(bodeResult.value);
+                    return polylineToSvgDocument(points, viewport, BODE_WIDTH, BODE_HEIGHT, "#4f46e5");
+                  }}
+                  label="signal-bode-magnitude"
+                />
+              </div>
+
+              <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Bode plot -- phase (deg)</p>
+              <canvas ref={bodePhaseCanvasRef} width={BODE_WIDTH} height={BODE_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+              <div style={{ margin: "0.25rem 0" }}>
+                <PngExportButton getCanvas={() => bodePhaseCanvasRef.current} label="signal-bode-phase" />{" "}
+                <SvgExportButton
+                  getSvg={() => {
+                    if (!bodeResult.ok) return null;
+                    const { points, viewport } = bodePhasePlot(bodeResult.value);
+                    return polylineToSvgDocument(points, viewport, BODE_WIDTH, BODE_HEIGHT, "#c026d3");
+                  }}
+                  label="signal-bode-phase"
+                />
+              </div>
+
+              <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Filtered waveform</p>
+              {!filteredWaveformResult.ok && <p style={{ color: "var(--danger)" }}>{filteredWaveformResult.message}</p>}
+              <canvas
+                ref={filteredWaveformCanvasRef}
+                width={WAVEFORM_WIDTH}
+                height={WAVEFORM_HEIGHT}
+                style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
+              />
+              <div style={{ margin: "0.25rem 0" }}>
+                <PngExportButton getCanvas={() => filteredWaveformCanvasRef.current} label="signal-filtered" />{" "}
+                <SvgExportButton
+                  getSvg={() => {
+                    if (!filteredWaveformResult.ok) return null;
+                    const { points, viewport } = waveformPlot(filteredWaveformResult.value);
+                    return polylineToSvgDocument(points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0d9488");
+                  }}
+                  label="signal-filtered"
+                />
+              </div>
+
+              <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>
+                PSD before (<span style={{ color: "#94a3b8" }}>gray</span>) vs. after (<span style={{ color: "#0d9488" }}>teal</span>) -- Welch's
+                method, one-sided view (mallory-signal's <code>welch()</code> is disclosed two-sided/non-doubled; see signal-filter.ts's doc comment)
+              </p>
+              {!psdBeforeResult.ok && <p style={{ color: "var(--danger)" }}>{psdBeforeResult.message}</p>}
+              {!psdAfterResult.ok && <p style={{ color: "var(--danger)" }}>{psdAfterResult.message}</p>}
+              <canvas ref={psdCanvasRef} width={PSD_WIDTH} height={PSD_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+              <div style={{ margin: "0.25rem 0" }}>
+                <PngExportButton getCanvas={() => psdCanvasRef.current} label="signal-psd" />
+              </div>
+            </>
+          )}
         </>
       )}
     </div>
