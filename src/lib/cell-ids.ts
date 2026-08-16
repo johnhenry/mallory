@@ -31,6 +31,15 @@ export function cellIds(cellId: string) {
     areaLower: `areaLower:${cellId}`,
     areaUpper: `areaUpper:${cellId}`,
     area: `area:${cellId}`,
+    // Pan/zoom (issue #53's remaining scope): `viewport` is the committed,
+    // sampled-against viewport; `liveViewport` is a mid-gesture-only
+    // override for a zero-resample redraw during a wheel/drag/pinch --
+    // same VIEWPORT_CELL/LIVE_VIEWPORT_CELL split GraphCanvasMulti's #52/
+    // #103 already established, just namespaced per-pane here since
+    // GraphCanvas (unlike Multi) supports several independent panes
+    // sharing one CellGraph (LinkedGraphPanes.tsx).
+    viewport: `viewport:${cellId}`,
+    liveViewport: `liveViewport:${cellId}`,
     param: (name: string) => `param:${cellId}:${name}`,
     track: (name: string) => `track:${cellId}:${name}`,
   };
