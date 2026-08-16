@@ -63,6 +63,17 @@ export interface SignalStateV2 {
    */
   useBuilder?: boolean;
   builderTerms?: SinusoidTerm[];
+  /**
+   * Filter design (issue #31's remaining pipeline stages 4-5) -- optional
+   * for the same reason as every other field above. `filterType` is
+   * `mallory-signal`'s own `FilterType`, kept as a plain `string` here
+   * (not re-imported) to keep this module dependency-free of the panel's
+   * own math-library imports, matching this file's existing convention.
+   */
+  showFilter?: boolean;
+  filterType?: string;
+  filterOrder?: string;
+  filterCutoffHz?: string;
 }
 
 export type SignalState = SignalStateV2;
@@ -91,6 +102,10 @@ export const DEFAULT_SIGNAL_STATE: SignalState = {
     { amplitude: "1", frequency: "5", phase: "0" },
     { amplitude: "0.5", frequency: "12", phase: "0" },
   ],
+  showFilter: false,
+  filterType: "lowpass",
+  filterOrder: "4",
+  filterCutoffHz: "10",
 };
 
 export function encodeSignalState(state: SignalState): string {
@@ -134,7 +149,18 @@ export function isSignalStateV2(value: unknown): value is SignalStateV2 {
   if (v.showResample !== undefined && typeof v.showResample !== "boolean") return false;
   if (v.useBuilder !== undefined && typeof v.useBuilder !== "boolean") return false;
   if (v.builderTerms !== undefined && !isSinusoidTermArray(v.builderTerms)) return false;
-  const optionalStringFields = ["minAmplitude", "minSpacingHz", "minProminence", "exprTextB", "resampleUp", "resampleDown"] as const;
+  if (v.showFilter !== undefined && typeof v.showFilter !== "boolean") return false;
+  const optionalStringFields = [
+    "minAmplitude",
+    "minSpacingHz",
+    "minProminence",
+    "exprTextB",
+    "resampleUp",
+    "resampleDown",
+    "filterType",
+    "filterOrder",
+    "filterCutoffHz",
+  ] as const;
   return optionalStringFields.every((f) => v[f] === undefined || typeof v[f] === "string");
 }
 

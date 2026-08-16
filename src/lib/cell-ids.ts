@@ -402,6 +402,15 @@ export function cellIdsSignal(cellId: string) {
     resampleResult: `signalResampleResult:${cellId}`,
     useBuilder: `signalUseBuilder:${cellId}`,
     builderTerms: `signalBuilderTerms:${cellId}`,
+    showFilter: `signalShowFilter:${cellId}`,
+    filterType: `signalFilterType:${cellId}`,
+    filterOrder: `signalFilterOrder:${cellId}`,
+    filterCutoffHz: `signalFilterCutoffHz:${cellId}`,
+    filterResult: `signalFilterResult:${cellId}`,
+    filteredWaveformResult: `signalFilteredWaveformResult:${cellId}`,
+    bodeResult: `signalBodeResult:${cellId}`,
+    psdBeforeResult: `signalPsdBeforeResult:${cellId}`,
+    psdAfterResult: `signalPsdAfterResult:${cellId}`,
   };
 }
 

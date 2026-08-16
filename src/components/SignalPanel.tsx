@@ -16,6 +16,7 @@ import {
   type Waveform,
 } from "../lib/signal-waveform.ts";
 import { crossCorrelate, type CorrelationResult } from "../lib/signal-correlation.ts";
+import { applyFilter, computeBodePlot, computeWelchPsd, designFilter, type BodePoint, type FilterType, type PsdPoint, type Sos } from "../lib/signal-filter.ts";
 import { resampleWaveform } from "../lib/signal-resample.ts";
 import { drawAxes, drawPoint, drawPolyline } from "../lib/render-path.ts";
 import { polylineToSvgDocument } from "../lib/svg-export.ts";
@@ -87,6 +88,32 @@ export function correlationPlot(correlation: CorrelationResult): PlotSeries {
   };
 }
 
+/** Shared by the Canvas2D draw effect and the SVG export getter, so the viewport math can't drift between the two. Magnitude only (dB) -- phase is rendered as a separate polyline sharing this same x-viewport. */
+export function bodeMagnitudePlot(bode: readonly BodePoint[]): PlotSeries {
+  const maxAbsDb = Math.max(1e-9, ...bode.map((p) => Math.abs(p.magnitudeDb)));
+  return {
+    points: bode.map((p) => ({ x: p.frequencyHz, y: p.magnitudeDb })),
+    viewport: { xMin: 0, xMax: bode[bode.length - 1]!.frequencyHz, yMin: -maxAbsDb * 1.1, yMax: maxAbsDb * 1.1 },
+  };
+}
+
+/** Shared by the Canvas2D draw effect and the SVG export getter, so the viewport math can't drift between the two. Phase, in degrees -- always in [-180,180] (no unwrapping, see computeBodePlot's own doc comment), so the viewport is fixed rather than data-fit. */
+export function bodePhasePlot(bode: readonly BodePoint[]): PlotSeries {
+  return {
+    points: bode.map((p) => ({ x: p.frequencyHz, y: p.phaseDeg })),
+    viewport: { xMin: 0, xMax: bode[bode.length - 1]!.frequencyHz, yMin: -180, yMax: 180 },
+  };
+}
+
+/** Shared by the Canvas2D draw effect and the SVG export getter, so the viewport math can't drift between the two. */
+export function psdPlot(psd: readonly PsdPoint[]): PlotSeries {
+  const maxPower = Math.max(1e-9, ...psd.map((p) => p.power));
+  return {
+    points: psd.map((p) => ({ x: p.frequencyHz, y: p.power })),
+    viewport: { xMin: 0, xMax: psd[psd.length - 1]!.frequencyHz, yMin: 0, yMax: maxPower * 1.1 },
+  };
+}
+
 const WAVEFORM_WIDTH = 640;
 const WAVEFORM_HEIGHT = 220;
 const SPECTRUM_WIDTH = 640;
@@ -95,6 +122,10 @@ const SPECTROGRAM_WIDTH = 640;
 const SPECTROGRAM_HEIGHT = 260;
 const CORRELATION_WIDTH = 640;
 const CORRELATION_HEIGHT = 200;
+const BODE_WIDTH = 640;
+const BODE_HEIGHT = 200;
+const PSD_WIDTH = 640;
+const PSD_HEIGHT = 200;
 
 function seedSignalState(graph: CellGraph, ids: CellIdsSignal, state: SignalState): void {
   graph.set(ids.exprText, state.exprText);
@@ -117,6 +148,10 @@ function seedSignalState(graph: CellGraph, ids: CellIdsSignal, state: SignalStat
     ...t,
   }));
   graph.set(ids.builderTerms, builderTerms);
+  graph.set(ids.showFilter, state.showFilter ?? DEFAULT_SIGNAL_STATE.showFilter);
+  graph.set(ids.filterType, state.filterType ?? DEFAULT_SIGNAL_STATE.filterType);
+  graph.set(ids.filterOrder, state.filterOrder ?? DEFAULT_SIGNAL_STATE.filterOrder);
+  graph.set(ids.filterCutoffHz, state.filterCutoffHz ?? DEFAULT_SIGNAL_STATE.filterCutoffHz);
 }
 
 function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalState {
@@ -138,6 +173,10 @@ function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalStat
     resampleDown: graph.get<string>(ids.resampleDown),
     useBuilder: graph.get<boolean>(ids.useBuilder),
     builderTerms: graph.get<BuilderTerm[]>(ids.builderTerms).map(({ amplitude, frequency, phase }) => ({ amplitude, frequency, phase })),
+    showFilter: graph.get<boolean>(ids.showFilter),
+    filterType: graph.get<string>(ids.filterType),
+    filterOrder: graph.get<string>(ids.filterOrder),
+    filterCutoffHz: graph.get<string>(ids.filterCutoffHz),
   };
 }
 
@@ -250,6 +289,68 @@ function useSignalGraph(cellId: string): CellGraph {
       }
     });
 
+    // Filter design (issue #31's remaining pipeline stages 4-5): a Sos
+    // design cell, a filtered-waveform cell derived from it, a Bode-plot
+    // cell derived from the design alone (no signal needed), and
+    // before/after PSD cells for comparison.
+    graph.define(ids.filterResult, (): Result<Sos> => {
+      try {
+        const waveform = graph.get<Result<Waveform>>(ids.waveformResult);
+        if (!waveform.ok) throw new Error(waveform.message);
+        const filterType = graph.get<string>(ids.filterType) as FilterType;
+        const order = Number(graph.get<string>(ids.filterOrder));
+        const cutoffHz = Number(graph.get<string>(ids.filterCutoffHz));
+        if (Number.isNaN(order) || Number.isNaN(cutoffHz)) throw new Error("Filter order and cutoff must both be numbers.");
+        return { ok: true, value: designFilter(order, cutoffHz, waveform.value.sampleRate, filterType) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.filteredWaveformResult, (): Result<Waveform> => {
+      const sos = graph.get<Result<Sos>>(ids.filterResult);
+      if (!sos.ok) return sos;
+      const waveform = graph.get<Result<Waveform>>(ids.waveformResult);
+      if (!waveform.ok) return waveform;
+      try {
+        return { ok: true, value: applyFilter(sos.value, waveform.value) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.bodeResult, (): Result<BodePoint[]> => {
+      const sos = graph.get<Result<Sos>>(ids.filterResult);
+      if (!sos.ok) return sos;
+      const waveform = graph.get<Result<Waveform>>(ids.waveformResult);
+      if (!waveform.ok) return waveform;
+      try {
+        return { ok: true, value: computeBodePlot(sos.value, waveform.value.sampleRate) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.psdBeforeResult, (): Result<PsdPoint[]> => {
+      const waveform = graph.get<Result<Waveform>>(ids.waveformResult);
+      if (!waveform.ok) return waveform;
+      try {
+        return { ok: true, value: computeWelchPsd(waveform.value) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.psdAfterResult, (): Result<PsdPoint[]> => {
+      const filtered = graph.get<Result<Waveform>>(ids.filteredWaveformResult);
+      if (!filtered.ok) return filtered;
+      try {
+        return { ok: true, value: computeWelchPsd(filtered.value) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
     ref.current = graph;
   }
   return ref.current;
@@ -271,6 +372,10 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const spectrogramCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const correlationCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const resampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const filteredWaveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bodeMagnitudeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bodePhaseCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const psdCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const exprText = useCell<string>(graph, ids.exprText);
   const sampleRate = useCell<string>(graph, ids.sampleRate);
@@ -294,6 +399,14 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const resampleResult = useCell<Result<Waveform>>(graph, ids.resampleResult);
   const useBuilder = useCell<boolean>(graph, ids.useBuilder);
   const builderTerms = useCell<BuilderTerm[]>(graph, ids.builderTerms);
+  const showFilter = useCell<boolean>(graph, ids.showFilter);
+  const filterType = useCell<string>(graph, ids.filterType);
+  const filterOrder = useCell<string>(graph, ids.filterOrder);
+  const filterCutoffHz = useCell<string>(graph, ids.filterCutoffHz);
+  const filteredWaveformResult = useCell<Result<Waveform>>(graph, ids.filteredWaveformResult);
+  const bodeResult = useCell<Result<BodePoint[]>>(graph, ids.bodeResult);
+  const psdBeforeResult = useCell<Result<PsdPoint[]>>(graph, ids.psdBeforeResult);
+  const psdAfterResult = useCell<Result<PsdPoint[]>>(graph, ids.psdAfterResult);
 
   const [exprInput, setExprInput] = useState(exprText);
   const [exprInputB, setExprInputB] = useState(exprTextB);
@@ -427,6 +540,73 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
     drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0891b2");
   }, [showResample, resampleResult]);
+
+  useEffect(() => {
+    const canvas = filteredWaveformCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
+    if (!showFilter || !filteredWaveformResult.ok) return;
+    const { points, viewport } = waveformPlot(filteredWaveformResult.value);
+    drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
+    drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0d9488");
+  }, [showFilter, filteredWaveformResult]);
+
+  useEffect(() => {
+    const canvas = bodeMagnitudeCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, BODE_WIDTH, BODE_HEIGHT);
+    if (!showFilter || !bodeResult.ok) return;
+    const { points, viewport } = bodeMagnitudePlot(bodeResult.value);
+    drawAxes(ctx, viewport, BODE_WIDTH, BODE_HEIGHT);
+    drawPolyline(ctx, points, viewport, BODE_WIDTH, BODE_HEIGHT, "#4f46e5");
+  }, [showFilter, bodeResult]);
+
+  useEffect(() => {
+    const canvas = bodePhaseCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, BODE_WIDTH, BODE_HEIGHT);
+    if (!showFilter || !bodeResult.ok) return;
+    const { points, viewport } = bodePhasePlot(bodeResult.value);
+    drawAxes(ctx, viewport, BODE_WIDTH, BODE_HEIGHT);
+    drawPolyline(ctx, points, viewport, BODE_WIDTH, BODE_HEIGHT, "#c026d3");
+  }, [showFilter, bodeResult]);
+
+  useEffect(() => {
+    const canvas = psdCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, PSD_WIDTH, PSD_HEIGHT);
+    if (!showFilter || !psdBeforeResult.ok || !psdAfterResult.ok) return;
+    const before = psdBeforeResult.value;
+    const after = psdAfterResult.value;
+    const maxPower = Math.max(1e-9, ...before.map((p) => p.power), ...after.map((p) => p.power));
+    const maxFreq = Math.max(before[before.length - 1]?.frequencyHz ?? 0, after[after.length - 1]?.frequencyHz ?? 0);
+    const viewport: Viewport = { xMin: 0, xMax: maxFreq, yMin: 0, yMax: maxPower * 1.1 };
+    drawAxes(ctx, viewport, PSD_WIDTH, PSD_HEIGHT);
+    drawPolyline(
+      ctx,
+      before.map((p) => ({ x: p.frequencyHz, y: p.power })),
+      viewport,
+      PSD_WIDTH,
+      PSD_HEIGHT,
+      "#94a3b8",
+    );
+    drawPolyline(
+      ctx,
+      after.map((p) => ({ x: p.frequencyHz, y: p.power })),
+      viewport,
+      PSD_WIDTH,
+      PSD_HEIGHT,
+      "#0d9488",
+    );
+  }, [showFilter, psdBeforeResult, psdAfterResult]);
 
   return (
     <div>
@@ -746,6 +926,114 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
               }}
               label="signal-resample"
             />
+          </div>
+        </>
+      )}
+
+      <h3>Filter design</h3>
+      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        <label>
+          <input type="checkbox" checked={showFilter} onChange={(e) => graph.set(ids.showFilter, e.target.checked)} /> Design a Butterworth filter
+        </label>
+        {showFilter && (
+          <>
+            <label>
+              type:{" "}
+              <select value={filterType} onChange={(e) => graph.set(ids.filterType, e.target.value)}>
+                <option value="lowpass">lowpass</option>
+                <option value="highpass">highpass</option>
+              </select>
+            </label>
+            <label>
+              order:{" "}
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={filterOrder}
+                onChange={(e) => graph.set(ids.filterOrder, e.target.value)}
+                style={{ font: "inherit", width: "6ch" }}
+              />
+            </label>
+            <label>
+              cutoff (Hz):{" "}
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={filterCutoffHz}
+                onChange={(e) => graph.set(ids.filterCutoffHz, e.target.value)}
+                style={{ font: "inherit", width: "8ch" }}
+              />
+            </label>
+          </>
+        )}
+      </div>
+      {showFilter && (
+        <>
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+            Bandpass/bandstop aren't available yet -- mallory-signal's <code>butter()</code> only implements lowpass/highpass
+            (johnhenry/mallory-plus#90 tracks the upstream gap).
+          </p>
+          {!bodeResult.ok && <p style={{ color: "var(--danger)" }}>{bodeResult.message}</p>}
+
+          <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Bode plot -- magnitude (dB)</p>
+          <canvas ref={bodeMagnitudeCanvasRef} width={BODE_WIDTH} height={BODE_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => bodeMagnitudeCanvasRef.current} label="signal-bode-magnitude" />{" "}
+            <SvgExportButton
+              getSvg={() => {
+                if (!bodeResult.ok) return null;
+                const { points, viewport } = bodeMagnitudePlot(bodeResult.value);
+                return polylineToSvgDocument(points, viewport, BODE_WIDTH, BODE_HEIGHT, "#4f46e5");
+              }}
+              label="signal-bode-magnitude"
+            />
+          </div>
+
+          <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Bode plot -- phase (deg)</p>
+          <canvas ref={bodePhaseCanvasRef} width={BODE_WIDTH} height={BODE_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => bodePhaseCanvasRef.current} label="signal-bode-phase" />{" "}
+            <SvgExportButton
+              getSvg={() => {
+                if (!bodeResult.ok) return null;
+                const { points, viewport } = bodePhasePlot(bodeResult.value);
+                return polylineToSvgDocument(points, viewport, BODE_WIDTH, BODE_HEIGHT, "#c026d3");
+              }}
+              label="signal-bode-phase"
+            />
+          </div>
+
+          <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Filtered waveform</p>
+          {!filteredWaveformResult.ok && <p style={{ color: "var(--danger)" }}>{filteredWaveformResult.message}</p>}
+          <canvas
+            ref={filteredWaveformCanvasRef}
+            width={WAVEFORM_WIDTH}
+            height={WAVEFORM_HEIGHT}
+            style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
+          />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => filteredWaveformCanvasRef.current} label="signal-filtered" />{" "}
+            <SvgExportButton
+              getSvg={() => {
+                if (!filteredWaveformResult.ok) return null;
+                const { points, viewport } = waveformPlot(filteredWaveformResult.value);
+                return polylineToSvgDocument(points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0d9488");
+              }}
+              label="signal-filtered"
+            />
+          </div>
+
+          <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>
+            PSD before (<span style={{ color: "#94a3b8" }}>gray</span>) vs. after (<span style={{ color: "#0d9488" }}>teal</span>) --
+            Welch's method, one-sided view (mallory-signal's <code>welch()</code> is disclosed two-sided/non-doubled; see signal-filter.ts's doc comment)
+          </p>
+          {!psdBeforeResult.ok && <p style={{ color: "var(--danger)" }}>{psdBeforeResult.message}</p>}
+          {!psdAfterResult.ok && <p style={{ color: "var(--danger)" }}>{psdAfterResult.message}</p>}
+          <canvas ref={psdCanvasRef} width={PSD_WIDTH} height={PSD_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => psdCanvasRef.current} label="signal-psd" />
           </div>
         </>
       )}
