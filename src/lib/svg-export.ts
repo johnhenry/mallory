@@ -159,29 +159,46 @@ export function scatterPointsToSvgDocument(
   return svgDocument(width, height, axes ? axesToSvgElements(viewport, width, height) : "", elements.join("\n"));
 }
 
-/** One drawn layer for `layersToSvgDocument` -- either a `drawPolyline`-style connected line or a `drawScatter`-style set of markers, mirroring those two Canvas2D functions' own point-array + color/size-option shape. */
+/**
+ * One drawn layer for `layersToSvgDocument` -- a `drawPolyline`-style
+ * connected line, a `drawScatter`-style set of markers, or a `drawPath`-
+ * style mallory-math `Path2D` (its own stroke color/alpha/thickness, same
+ * as `pathsToSvgDocument`, rather than the `color`/`strokeWidth` overrides
+ * the plain-point-array kinds take).
+ */
 export type SvgLayer =
   | { kind: "polyline"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; strokeWidth?: number }
-  | { kind: "scatter"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; radius?: number };
+  | { kind: "scatter"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; radius?: number }
+  | { kind: "path"; path: MalloryPath };
 
 /**
- * Wraps MULTIPLE layers of possibly-different kinds (polyline and/or
- * scatter) into one standalone SVG document -- issue #45 item 1's next
+ * Wraps MULTIPLE layers of possibly-different kinds (polyline, scatter,
+ * and/or path) into one standalone SVG document -- issue #45 item 1's
  * "quick win" tier: a panel like StatisticsPanel's smoothing view draws a
  * scatter layer (raw data) UNDER a polyline layer (the smoothed curve) on
- * the SAME canvas, a combination neither `polylineToSvgDocument` (one line
- * only) nor `scatterPointsToSvgDocument` (markers only) can reproduce
- * alone. Layers are drawn in array order (same as their Canvas2D draw
- * calls), each falling back to `drawPolyline`/`drawScatter`'s own
- * blue/1.5px and blue/5px defaults respectively. An empty `layers` array
- * or an individual empty-points layer both degrade gracefully (no stray
- * empty elements), matching `polylinesToSvgDocument`'s own empty-line
- * skipping.
+ * the SAME canvas, and RegressionPanel draws a scatter layer (data points)
+ * plus a `Path2D` fit line plus an outlier-highlight scatter layer --
+ * combinations no single existing document builder (`polylineToSvgDocument`
+ * one line only, `scatterPointsToSvgDocument` markers only,
+ * `pathsToSvgDocument` `Path2D`s only) can reproduce alone. Layers are
+ * drawn in array order (same as their Canvas2D draw calls), each
+ * point-array kind falling back to `drawPolyline`/`drawScatter`'s own
+ * blue/1.5px and blue/5px defaults respectively; a `path` layer's color/
+ * alpha/thickness always come from the `Path2D`'s own `stroke`, same as
+ * `pathsToSvgDocument`. An empty `layers` array or an individual empty
+ * layer (no points, or a path with no commands) both degrade gracefully
+ * (no stray empty elements), matching `polylinesToSvgDocument`'s own
+ * empty-line skipping.
  */
 export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewport, width: number, height: number, axes = true): string {
   const elements = layers
-    .filter((layer) => layer.points.length > 0)
+    .filter((layer) => (layer.kind === "path" ? layer.path.commands.length > 0 : layer.points.length > 0))
     .map((layer) => {
+      if (layer.kind === "path") {
+        const color = `#${layer.path.stroke.color.toString(16).padStart(6, "0")}`;
+        const d = pathToSvgD(layer.path, viewport, width, height);
+        return `<path d="${d}" fill="none" stroke="${color}" stroke-opacity="${layer.path.stroke.alpha}" stroke-width="${layer.path.stroke.thickness || 1}" />`;
+      }
       if (layer.kind === "polyline") {
         const color = layer.color ?? "#2563eb";
         const strokeWidth = layer.strokeWidth ?? 1.5;
