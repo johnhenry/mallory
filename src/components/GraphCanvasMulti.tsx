@@ -36,6 +36,7 @@ import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY } from "../lib
 import { ExpressionRow } from "./ExpressionRow.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { useCell } from "../lib/use-cell.ts";
+import { useCollabSession } from "../hooks/use-collab-session.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 
 const WIDTH = 600;
@@ -294,6 +295,10 @@ export function GraphCanvasMulti() {
   // reads its sibling finger's last-known position back out of it.
   const activePointersRef = useRef<Map<number, { sx: number; sy: number }>>(new Map());
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(() =>
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("session") : null,
+  );
+  const collab = useCollabSession(graph, sessionId);
   const saveGraphFn = useServerFn(saveGraph);
 
   async function handleSave() {
@@ -363,6 +368,28 @@ export function GraphCanvasMulti() {
 
   function forkView() {
     window.open(window.location.href, "_blank");
+  }
+
+  // Live collaboration (issue #47): reuses the same "current URL already
+  // carries full state in its hash" mechanism forkView() does -- adding
+  // ?session=<id> to that same URL is enough for a joiner to both hydrate
+  // the current state (existing hash-based hydration) and connect to the
+  // relay (useCollabSession, keyed off the session search param). No
+  // separate "start"/"join" code paths needed.
+  function startLiveSession() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("session", crypto.randomUUID());
+    window.history.replaceState(null, "", url.toString().replace(url.origin, ""));
+    setSessionId(url.searchParams.get("session"));
+  }
+
+  async function copySessionLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setSaveStatus("Session link copied to clipboard.");
+    } catch (e) {
+      setSaveStatus(`Could not copy link: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   function canvasToDataCoords(e: PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
@@ -750,6 +777,15 @@ export function GraphCanvasMulti() {
         <button type="button" onClick={forkView} title="Open this exact view in a new tab to explore an alternate path">
           Fork this view
         </button>
+        {sessionId === null ? (
+          <button type="button" onClick={startLiveSession} title="Share this exact view live -- edits sync to anyone with the link">
+            Start live session
+          </button>
+        ) : (
+          <button type="button" onClick={copySessionLink} style={{ background: collab.connected ? "#16a34a" : "#b8752e", color: "white" }}>
+            {collab.connected ? "● Live -- copy link" : "○ Connecting…"}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setAnnotating((a) => !a)}
@@ -812,6 +848,7 @@ export function GraphCanvasMulti() {
         Drag the canvas to pan, scroll to zoom.
       </p>
       {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{saveStatus}</p>}
+      {collab.error && <p style={{ fontSize: "0.85rem", color: "var(--danger)" }}>{collab.error}</p>}
       <div role="radiogroup" aria-label="Arithmetic mode" style={{ margin: "0.25rem 0" }}>
         <label>
           <input type="radio" name="multi-mode" checked={mode === "float"} onChange={() => graph.set(MODE_CELL, "float")} /> Float

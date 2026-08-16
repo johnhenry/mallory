@@ -49,6 +49,7 @@ export class CellGraph {
   private cells = new Map<string, CellRecord>();
   private listeners = new Map<string, Set<Listener>>();
   private globalListeners = new Set<Listener>();
+  private writeListeners = new Set<(id: string, value: unknown) => void>();
   private stack: string[] = [];
   private emitting = new Set<string>();
   private notifyingGlobal = false;
@@ -90,8 +91,30 @@ export class CellGraph {
     cell.value = value;
     cell.hasValue = true;
     cell.version++;
+    this.emitWrite(id, value);
     this.emit(id);
     this.propagateDirty(id);
+  }
+
+  /**
+   * Subscribe to raw `set()` writes -- id plus the new value -- across
+   * every cell in the graph (issue #47's live-collaboration groundwork).
+   * Deliberately narrower than `subscribeAll`: it fires ONLY for an actual
+   * `set()` call with a real (structurally-different) value, never for a
+   * `define()`-driven recompute cascade. That's the exact shape a
+   * broadcast-to-other-peers use case needs -- each peer re-derives its
+   * own dependent cells locally once a base write arrives over the wire
+   * and gets applied via `set()` there too, so only the raw user-initiated
+   * writes need to cross the network, not every recomputed cell downstream
+   * of them.
+   */
+  subscribeWrites(fn: (id: string, value: unknown) => void): () => void {
+    this.writeListeners.add(fn);
+    return () => this.writeListeners.delete(fn);
+  }
+
+  private emitWrite(id: string, value: unknown): void {
+    for (const fn of this.writeListeners) fn(id, value);
   }
 
   /**
