@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  arcToSvgD,
   axesToSvgElements,
   layersToSvgDocument,
   pathToSvgD,
@@ -551,4 +552,97 @@ test("axesToSvgElements: viewport entirely right of x=0 hugs the y-axis to the l
 test("axesToSvgElements: a degenerate viewport (max <= min) produces no elements rather than throwing", () => {
   assert.equal(axesToSvgElements({ xMin: 2, xMax: 2, yMin: 0, yMax: 2 }, 100, 100), "");
   assert.equal(axesToSvgElements({ xMin: 0, xMax: 2, yMin: 5, yMax: 1 }, 100, 100), "");
+});
+
+test("arcToSvgD: a quarter-circle anticlockwise sweep, hand-computed (verified via a standalone node script implementing the same trig)", () => {
+  // cx=0,cy=0,r=10, start angle 0 (pointing +x), end angle -pi/2 (pointing -y, i.e. "up" on screen).
+  // anticlockwise=true -> sweepAngle=pi/2 (<=pi so largeArcFlag=0), sweepFlag=0.
+  assert.equal(arcToSvgD(0, 0, 10, 0, -Math.PI / 2, true), "M10.00 0.00 A10.00 10.00 0 0 0 0.00 -10.00");
+});
+
+test("arcToSvgD: the same quarter sweep clockwise (anticlockwise=false) flips both the endpoint and the sweep-flag", () => {
+  // Same start angle, but end angle +pi/2 (pointing +y, "down" on screen) and anticlockwise=false.
+  assert.equal(arcToSvgD(0, 0, 10, 0, Math.PI / 2, false), "M10.00 0.00 A10.00 10.00 0 0 1 0.00 10.00");
+});
+
+test("arcToSvgD: a sweep exceeding 180 degrees sets largeArcFlag=1", () => {
+  // 270-degree clockwise sweep from angle 0.
+  const d = arcToSvgD(0, 0, 5, 0, (3 * Math.PI) / 2, false);
+  assert.equal(d, "M5.00 0.00 A5.00 5.00 0 1 1 -0.00 -5.00");
+});
+
+test("arcToSvgD: a sweep of EXACTLY 180 degrees stays largeArcFlag=0 (the > boundary, not >=)", () => {
+  const d = arcToSvgD(0, 0, 5, 0, Math.PI, false);
+  assert.equal(d, "M5.00 0.00 A5.00 5.00 0 0 1 -5.00 0.00");
+});
+
+test("arcToSvgD: an off-origin center offsets both endpoints by (cx,cy)", () => {
+  assert.equal(arcToSvgD(100, 50, 20, Math.PI / 2, Math.PI, false), "M100.00 70.00 A20.00 20.00 0 0 1 80.00 50.00");
+});
+
+test("layersToSvgDocument: a circle layer's radius is scaled from data-space by the viewport's x-span and WIDTH specifically (not height), matching drawCircle's own scaling exactly", () => {
+  // viewport [-5,5]x[-5,5] on a deliberately non-square 500x300 canvas (catches a width/height mixup a square
+  // canvas couldn't): toScreenX(0,...,500)=250, toScreenY(0,...,300)=150.
+  // A data-space radius of 2 scales to (2/10)*500 = 100px -- WIDTH only, unaffected by height=300.
+  const svg = layersToSvgDocument([{ kind: "circle", cx: 0, cy: 0, radius: 2 }], { xMin: -5, xMax: 5, yMin: -5, yMax: 5 }, 500, 300, false);
+  assert.ok(svg.includes('<circle cx="250.00" cy="150.00" r="100.00" fill="none" stroke="#16a34a" stroke-width="2" />'));
+});
+
+test("layersToSvgDocument: a circle layer's custom color/strokeWidth override its own defaults", () => {
+  const svg = layersToSvgDocument(
+    [{ kind: "circle", cx: 0, cy: 0, radius: 1, color: "#d97706", strokeWidth: 1 }],
+    { xMin: -1, xMax: 1, yMin: -1, yMax: 1 },
+    100,
+    100,
+    false,
+  );
+  assert.ok(svg.includes('stroke="#d97706" stroke-width="1"'));
+  assert.ok(svg.includes('fill="none"'));
+});
+
+test("layersToSvgDocument: an arc layer wraps arcToSvgD's own output verbatim, using already-screen-space coordinates (no viewport transform applied)", () => {
+  const svg = layersToSvgDocument(
+    [{ kind: "arc", cxPx: 250, cyPx: 250, radiusPx: 20, startAngle: 0, endAngle: -Math.PI / 2, anticlockwise: true, color: "#9333ea" }],
+    // A viewport/size deliberately mismatched from the pixel coordinates above -- proves the arc layer ignores them entirely.
+    { xMin: 0, xMax: 1, yMin: 0, yMax: 1 },
+    10,
+    10,
+    false,
+  );
+  const expectedD = arcToSvgD(250, 250, 20, 0, -Math.PI / 2, true);
+  assert.ok(svg.includes(`<path d="${expectedD}" fill="none" stroke="#9333ea" stroke-width="1.5" />`));
+});
+
+test("layersToSvgDocument: an arc layer defaults anticlockwise to false and uses its own default color/strokeWidth when omitted", () => {
+  const svg = layersToSvgDocument([{ kind: "arc", cxPx: 0, cyPx: 0, radiusPx: 5, startAngle: 0, endAngle: Math.PI / 2 }], VIEWPORT, 100, 100, false);
+  assert.ok(svg.includes(arcToSvgD(0, 0, 5, 0, Math.PI / 2, false)));
+  assert.ok(svg.includes('stroke="#9333ea" stroke-width="1.5"'));
+});
+
+test("layersToSvgDocument: a text layer uses already-screen-space coordinates and drawAngle/drawPolygon's own center-anchored convention", () => {
+  const svg = layersToSvgDocument([{ kind: "text", xPx: 42, yPx: 17, label: "3.14", color: "#dc2626" }], VIEWPORT, 100, 100, false);
+  assert.ok(svg.includes('<text x="42.00" y="17.00" fill="#dc2626" font-size="12" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">3.14</text>'));
+});
+
+test("layersToSvgDocument: a text layer's default color falls back to the theme's muted color, and fontSize defaults to 12", () => {
+  const svg = layersToSvgDocument([{ kind: "text", xPx: 0, yPx: 0, label: "x" }], VIEWPORT, 100, 100, false);
+  assert.ok(svg.includes(`fill="${MUTED}"`));
+  assert.ok(svg.includes('font-size="12"'));
+});
+
+test("layersToSvgDocument: circle/arc/text layers are never filtered out as 'empty' (they represent exactly one shape each, unlike the array-based kinds)", () => {
+  const svg = layersToSvgDocument(
+    [
+      { kind: "circle", cx: 0, cy: 0, radius: 1 },
+      { kind: "arc", cxPx: 0, cyPx: 0, radiusPx: 1, startAngle: 0, endAngle: 1 },
+      { kind: "text", xPx: 0, yPx: 0, label: "x" },
+    ],
+    VIEWPORT,
+    100,
+    100,
+    false,
+  );
+  assert.equal((svg.match(/<circle/g) ?? []).length, 1);
+  assert.equal((svg.match(/<path/g) ?? []).length, 1);
+  assert.equal((svg.match(/<text/g) ?? []).length, 1);
 });

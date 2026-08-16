@@ -2,6 +2,7 @@ import { type PointerEvent, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { AlgebraView } from "./AlgebraView.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { interiorAngleRadians, isSelfIntersecting, polygonCentroid, shoelaceArea } from "../lib/geometry.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -11,6 +12,8 @@ import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/po
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
 import { drawAxes } from "../lib/render-path.ts";
 import { cellIdsGeometry, type CellIdsGeometry } from "../lib/cell-ids.ts";
+import { layersToSvgDocument, type SvgLayer } from "../lib/svg-export.ts";
+import { getThemeColors } from "../lib/theme-colors.ts";
 import {
   DEFAULT_GEOMETRY_STATE,
   decodeGeometryState,
@@ -717,6 +720,67 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, pending, pendingAngle, pendingPolygon]);
 
+  /**
+   * Builds the exported SVG's layer list -- a `layersToSvgDocument`-ready
+   * mirror of `redraw()`'s own object-list loop above, covering all 5
+   * object types (points, lines, circles, angles, polygons), including
+   * the ephemeral pending-selection highlighting, so the exported SVG
+   * matches the on-screen canvas exactly rather than only the "settled"
+   * construction. `"scatter"` takes one color per layer (not per-point),
+   * so points are bucketed by their current highlight state into up to 3
+   * layers instead of drawn inline per-object like the canvas does; those
+   * 3 layers are appended after every line/circle/angle/polygon layer,
+   * so points always render on top regardless of construction order --
+   * a deliberate, minor divergence from the canvas's strict object-list
+   * z-order (where a later line can occlude an earlier point), traded for
+   * not needing a `"scatter"` layer per point.
+   */
+  function geometryExportLayers(): SvgLayer[] {
+    const layers: SvgLayer[] = [];
+    const pendingPoints: { x: number; y: number }[] = [];
+    const freePoints: { x: number; y: number }[] = [];
+    const dependentPoints: { x: number; y: number }[] = [];
+
+    for (const id of graph.get<string[]>(listIds.objectList)) {
+      if (graph.has(pointCellId(id))) {
+        const p = graph.get<PointRecord>(pointCellId(id));
+        const isFree = graph.role(pointCellId(id)) === "free";
+        const isPendingSelection = id === pending || pendingAngle.includes(id) || pendingPolygon.includes(id);
+        (isPendingSelection ? pendingPoints : isFree ? freePoints : dependentPoints).push({ x: p.x, y: p.y });
+      } else if (graph.has(lineCellId(id))) {
+        const { a, b } = graph.get<LineRecord>(lineCellId(id));
+        const pa = graph.get<PointRecord>(pointCellId(a));
+        const pb = graph.get<PointRecord>(pointCellId(b));
+        const length = graph.get<number>(lengthCellId(id));
+        layers.push({ kind: "polyline", points: [pa, pb], color: length < DEGENERATE_EPSILON ? DEGENERATE_COLOR : "#142033", strokeWidth: 2 });
+      } else if (graph.has(circleCellId(id))) {
+        const { center, radiusPoint } = graph.get<CircleRecord>(circleCellId(id));
+        const pc = graph.get<PointRecord>(pointCellId(center));
+        const radius = graph.get<number>(radiusCellId(id));
+        layers.push({ kind: "circle", cx: pc.x, cy: pc.y, radius, color: radius < DEGENERATE_EPSILON ? DEGENERATE_COLOR : "#16a34a", strokeWidth: 2 });
+      } else if (graph.has(angleRecordCellId(id))) {
+        const { a, vertex, c } = graph.get<AngleRecord>(angleRecordCellId(id));
+        const pa = graph.get<PointRecord>(pointCellId(a));
+        const pv = graph.get<PointRecord>(pointCellId(vertex));
+        const pc = graph.get<PointRecord>(pointCellId(c));
+        const angle = graph.get<number>(angleValueCellId(id));
+        layers.push(...angleExportLayers(pa, pv, pc, angle));
+      } else if (graph.has(polygonCellId(id))) {
+        const { points } = graph.get<PolygonRecord>(polygonCellId(id));
+        const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
+        const area = graph.get<number>(areaCellId(id));
+        const selfIntersecting = graph.get<boolean>(polygonSelfIntersectingCellId(id));
+        layers.push(...polygonExportLayers(pts, area, selfIntersecting));
+      }
+    }
+
+    if (dependentPoints.length > 0) layers.push({ kind: "scatter", points: dependentPoints, color: getThemeColors().muted });
+    if (freePoints.length > 0) layers.push({ kind: "scatter", points: freePoints, color: "#2563eb" });
+    if (pendingPoints.length > 0) layers.push({ kind: "scatter", points: pendingPoints, color: "#dc2626" });
+
+    return layers;
+  }
+
   const hint =
     tool === "point"
       ? "Click empty space to place a point, or drag an existing one."
@@ -788,6 +852,13 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="geometry" />
+        <SvgExportButton
+          getSvg={() => {
+            const layers = geometryExportLayers();
+            return layers.length > 0 ? layersToSvgDocument(layers, VIEWPORT, WIDTH, HEIGHT) : null;
+          }}
+          label="geometry"
+        />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{hint}</p>
       <div style={{ margin: "0.5rem 0" }}>
@@ -889,6 +960,30 @@ function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointR
   ctx.restore();
 }
 
+/** `drawAngle`'s exact theta1/theta2/diff/anticlockwise/labelX/labelY math, re-emitted as an `"arc"` + `"text"` SvgLayer pair instead of Canvas2D calls -- see that function's own doc comment for the geometry. */
+function angleExportLayers(a: PointRecord, vertex: PointRecord, c: PointRecord, angleRadians: number): SvgLayer[] {
+  const vx = toScreenX(vertex.x, VIEWPORT, WIDTH);
+  const vy = toScreenY(vertex.y, VIEWPORT, HEIGHT);
+  const ax = toScreenX(a.x, VIEWPORT, WIDTH);
+  const ay = toScreenY(a.y, VIEWPORT, HEIGHT);
+  const cx = toScreenX(c.x, VIEWPORT, WIDTH);
+  const cy = toScreenY(c.y, VIEWPORT, HEIGHT);
+  const theta1 = Math.atan2(ay - vy, ax - vx);
+  const theta2 = Math.atan2(cy - vy, cx - vx);
+  let diff = theta2 - theta1;
+  while (diff <= -Math.PI) diff += 2 * Math.PI;
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  const anticlockwise = diff < 0;
+  const ARC_RADIUS = 20;
+  const mid = theta1 + diff / 2;
+  const labelX = vx + (ARC_RADIUS + 14) * Math.cos(mid);
+  const labelY = vy + (ARC_RADIUS + 14) * Math.sin(mid);
+  return [
+    { kind: "arc", cxPx: vx, cyPx: vy, radiusPx: ARC_RADIUS, startAngle: theta1, endAngle: theta2, anticlockwise, color: "#9333ea", strokeWidth: 1.5 },
+    { kind: "text", xPx: labelX, yPx: labelY, label: `${((angleRadians * 180) / Math.PI).toFixed(1)}°` },
+  ];
+}
+
 /**
  * An ordered vertex loop, closed back to the first point -- a distinct color
  * from Line's/Circle's palette, switching to the degenerate warning color
@@ -920,4 +1015,22 @@ function drawPolygon(ctx: CanvasRenderingContext2D, points: PointRecord[], area:
   const label = selfIntersecting ? `${area.toFixed(2)} (self-intersecting)` : area.toFixed(2);
   ctx.fillText(label, toScreenX(centroid.x, VIEWPORT, WIDTH), toScreenY(centroid.y, VIEWPORT, HEIGHT));
   ctx.restore();
+}
+
+/** `drawPolygon`'s exact closed-loop + centroid-label logic, re-emitted as a closed `"polyline"` + `"text"` SvgLayer pair instead of Canvas2D calls -- the polyline is closed by re-appending the first point (mirroring `ctx.closePath()`), since `"polyline"` never auto-closes the way Canvas2D paths do. */
+function polygonExportLayers(points: PointRecord[], area: number, selfIntersecting: boolean): SvgLayer[] {
+  if (points.length < 2) return [];
+  const first = points[0] as PointRecord;
+  const centroid = polygonCentroid(points);
+  const label = selfIntersecting ? `${area.toFixed(2)} (self-intersecting)` : area.toFixed(2);
+  return [
+    { kind: "polyline", points: [...points, first], color: selfIntersecting ? DEGENERATE_COLOR : "#0891b2", strokeWidth: 2 },
+    {
+      kind: "text",
+      xPx: toScreenX(centroid.x, VIEWPORT, WIDTH),
+      yPx: toScreenY(centroid.y, VIEWPORT, HEIGHT),
+      label,
+      color: selfIntersecting ? DEGENERATE_COLOR : undefined,
+    },
+  ];
 }

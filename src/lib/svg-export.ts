@@ -42,6 +42,32 @@ export function pathToSvgD(path: MalloryPath, viewport: Viewport, width: number,
 }
 
 /**
+ * Converts a canvas-style `ctx.arc(cx, cy, radius, startAngle, endAngle,
+ * anticlockwise)` call into an SVG arc path's `d` attribute -- all inputs
+ * already in screen-pixel space (angle-sweep geometry is inherently
+ * screen-space, since screen y is flipped vs data y; matches
+ * GeometryPanel's `drawAngle`, the only current caller). `largeArcFlag` is
+ * derived from the actual swept angle (>180° needs the flag set) rather
+ * than assumed, so this stays correct even for a caller whose sweep isn't
+ * bounded to GeometryPanel's own <=180° interior-angle convention.
+ * `sweepFlag` mirrors `anticlockwise` directly: SVG's sweep-flag=1 draws in
+ * the increasing-angle (clockwise, since y grows downward) direction,
+ * exactly `ctx.arc`'s own default (`anticlockwise=false`) direction.
+ */
+export function arcToSvgD(cx: number, cy: number, radius: number, startAngle: number, endAngle: number, anticlockwise: boolean): string {
+  const startX = cx + radius * Math.cos(startAngle);
+  const startY = cy + radius * Math.sin(startAngle);
+  const endX = cx + radius * Math.cos(endAngle);
+  const endY = cy + radius * Math.sin(endAngle);
+  const TWO_PI = Math.PI * 2;
+  const rawSweep = anticlockwise ? startAngle - endAngle : endAngle - startAngle;
+  const sweepAngle = ((rawSweep % TWO_PI) + TWO_PI) % TWO_PI;
+  const largeArcFlag = sweepAngle > Math.PI ? 1 : 0;
+  const sweepFlag = anticlockwise ? 0 : 1;
+  return `M${startX.toFixed(2)} ${startY.toFixed(2)} A${radius.toFixed(2)} ${radius.toFixed(2)} 0 ${largeArcFlag} ${sweepFlag} ${endX.toFixed(2)} ${endY.toFixed(2)}`;
+}
+
+/**
  * Wraps one or more `Path2D`s into a standalone SVG document string --
  * vector output for the same curve(s) `drawPath` renders onto Canvas2D,
  * using the same viewport transform so the two match pixel-for-pixel.
@@ -176,11 +202,22 @@ export function scatterPointsToSvgDocument(
  * Canvas2D draw effect uses, or a per-point color-and-text marker (e.g.
  * OdeSystemPanel's classified fixed-point circles, each stroked in the
  * theme's ink color with a short label offset above-right, matching the
- * Canvas2D draw effect's `ctx.fillText` placement exactly). A `polyline`
- * layer's optional `dash` maps straight to SVG's
- * `stroke-dasharray` -- for a `ctx.setLineDash([...])` reference line (e.g.
- * MonteCarloPanel's dashed pi-estimate line) alongside solid layers on the
- * same canvas.
+ * Canvas2D draw effect's `ctx.fillText` placement exactly), an unfilled
+ * `circle` (data-space center/radius, e.g. GeometryPanel's construction
+ * circles -- distinct from `scatter`'s filled point markers), an `arc`
+ * (a `ctx.arc()`-style angle sweep, e.g. GeometryPanel's angle-tool
+ * indicator -- see `arcToSvgD`), or standalone `text` (e.g. an angle's
+ * degree label or a polygon's centroid area label). Unlike every other
+ * kind above, `arc` and `text` take ALREADY-screen-space pixel coordinates
+ * (`cxPx`/`cyPx`/`xPx`/`yPx`) rather than data-space ones -- angle-sweep
+ * and label-offset geometry is inherently screen-space (screen y is
+ * flipped vs data y), so the caller does its own `toScreenX`/`toScreenY`
+ * conversion before constructing these two layers, same as GeometryPanel's
+ * own `drawAngle` computes screen coordinates directly rather than working
+ * in data space. A `polyline` layer's optional `dash` maps straight to
+ * SVG's `stroke-dasharray` -- for a `ctx.setLineDash([...])` reference line
+ * (e.g. MonteCarloPanel's dashed pi-estimate line) alongside solid layers
+ * on the same canvas.
  */
 export type SvgLayer =
   | { kind: "polyline"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; strokeWidth?: number; dash?: readonly number[] }
@@ -190,7 +227,10 @@ export type SvgLayer =
   | { kind: "slopefield"; points: ReadonlyArray<{ x: number; y: number; slope: number }>; halfLengthPx?: number; color?: string }
   | { kind: "vectorfield"; points: ReadonlyArray<{ x: number; y: number; dx: number; dy: number }>; halfLengthPx?: number; color?: string }
   | { kind: "band"; points: ReadonlyArray<{ x: number; yLow: number; yHigh: number }>; color?: string }
-  | { kind: "labeled-markers"; points: ReadonlyArray<{ x: number; y: number; color: string; label: string }>; radius?: number };
+  | { kind: "labeled-markers"; points: ReadonlyArray<{ x: number; y: number; color: string; label: string }>; radius?: number }
+  | { kind: "circle"; cx: number; cy: number; radius: number; color?: string; strokeWidth?: number }
+  | { kind: "arc"; cxPx: number; cyPx: number; radiusPx: number; startAngle: number; endAngle: number; anticlockwise?: boolean; color?: string; strokeWidth?: number }
+  | { kind: "text"; xPx: number; yPx: number; label: string; color?: string; fontSize?: number };
 
 /**
  * Wraps MULTIPLE layers of possibly-different kinds (polyline, scatter,
@@ -220,6 +260,7 @@ export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewp
     .filter((layer) => {
       if (layer.kind === "path") return layer.path.commands.length > 0;
       if (layer.kind === "histogram") return layer.bins.length > 0;
+      if (layer.kind === "circle" || layer.kind === "arc" || layer.kind === "text") return true;
       return layer.points.length > 0;
     })
     .map((layer) => {
@@ -314,6 +355,26 @@ export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewp
             return `${circle}\n${text}`;
           })
           .join("\n");
+      }
+      if (layer.kind === "circle") {
+        const color = layer.color ?? "#16a34a";
+        const strokeWidth = layer.strokeWidth ?? 2;
+        const sx = toScreenX(layer.cx, viewport, width);
+        const sy = toScreenY(layer.cy, viewport, height);
+        const screenRadius = (layer.radius / (viewport.xMax - viewport.xMin)) * width;
+        return `<circle cx="${sx.toFixed(2)}" cy="${sy.toFixed(2)}" r="${screenRadius.toFixed(2)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" />`;
+      }
+      if (layer.kind === "arc") {
+        const color = layer.color ?? "#9333ea";
+        const strokeWidth = layer.strokeWidth ?? 1.5;
+        const d = arcToSvgD(layer.cxPx, layer.cyPx, layer.radiusPx, layer.startAngle, layer.endAngle, layer.anticlockwise ?? false);
+        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" />`;
+      }
+      if (layer.kind === "text") {
+        const theme = getThemeColors();
+        const color = layer.color ?? theme.muted;
+        const fontSize = layer.fontSize ?? 12;
+        return `<text x="${layer.xPx.toFixed(2)}" y="${layer.yPx.toFixed(2)}" fill="${color}" font-size="${fontSize}" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">${layer.label}</text>`;
       }
       const color = layer.color ?? "#2563eb";
       const radius = layer.radius ?? 5;
