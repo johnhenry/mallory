@@ -306,6 +306,52 @@ test("layersToSvgDocument: multiple slopefield points each produce their own <li
   assert.equal((empty.match(/<line/g) ?? []).length, 0);
 });
 
+test("layersToSvgDocument: a vectorfield layer's arrow is hand-computed (via a standalone node script matching drawVectorField's own formulas), shaft + arrowhead polygon", () => {
+  // viewport [-1,1]x[-1,1] on a 100x100 canvas, point (0,0) with dx=1,dy=1 (45-degree flow).
+  const svg = layersToSvgDocument([{ kind: "vectorfield", points: [{ x: 0, y: 0, dx: 1, dy: 1 }] }], { xMin: -1, xMax: 1, yMin: -1, yMax: 1 }, 100, 100);
+  assert.ok(svg.includes('<line x1="44.34" y1="55.66" x2="55.66" y2="44.34" stroke="rgba(37, 99, 235, 0.55)" stroke-width="1.5" />'));
+  assert.ok(svg.includes('<polygon points="55.66,44.34 54.41,48.98 51.02,45.59" fill="rgba(37, 99, 235, 0.55)" />'));
+  // Shaft precedes its own arrowhead.
+  assert.ok(svg.indexOf("<line") < svg.indexOf("<polygon"));
+});
+
+test("layersToSvgDocument: a vectorfield layer's custom color/halfLengthPx override drawVectorField's own defaults", () => {
+  const svg = layersToSvgDocument(
+    [{ kind: "vectorfield", points: [{ x: 0, y: 0, dx: 1, dy: 0 }], color: "#16a34a", halfLengthPx: 4 }],
+    { xMin: -1, xMax: 1, yMin: -1, yMax: 1 },
+    100,
+    100,
+  );
+  assert.ok(svg.includes('stroke="#16a34a"'));
+  assert.ok(svg.includes('fill="#16a34a"'));
+  // halfLengthPx=4 halves every offset from the halfLengthPx=8 case -- shaft spans a 4px radius around (50,50) along +x.
+  assert.ok(svg.includes('<line x1="46.00" y1="50.00" x2="54.00" y2="50.00"'));
+});
+
+test("layersToSvgDocument: a vectorfield point with near-zero magnitude is skipped (matching drawVectorField's own 1e-12 threshold), and an empty points array produces no arrows", () => {
+  const svg = layersToSvgDocument(
+    [
+      {
+        kind: "vectorfield",
+        points: [
+          { x: 0, y: 0, dx: 0, dy: 0 },
+          { x: 0.5, y: 0.5, dx: 1e-13, dy: 1e-13 },
+          { x: -0.5, y: -0.5, dx: 1, dy: 0 },
+        ],
+      },
+    ],
+    { xMin: -1, xMax: 1, yMin: -1, yMax: 1 },
+    100,
+    100,
+    false,
+  );
+  assert.equal((svg.match(/<line/g) ?? []).length, 1);
+  assert.equal((svg.match(/<polygon/g) ?? []).length, 1);
+
+  const empty = layersToSvgDocument([{ kind: "vectorfield", points: [] }], VIEWPORT, 100, 100, false);
+  assert.equal((empty.match(/<line/g) ?? []).length, 0);
+});
+
 test("layersToSvgDocument: a layer with an empty points array is skipped entirely, not emitted as a stray empty element", () => {
   const svg = layersToSvgDocument(
     [
