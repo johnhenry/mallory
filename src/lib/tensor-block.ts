@@ -148,6 +148,46 @@ export function curveToTensorGrid(path: Path2D, maxSamples = MAX_CURVE_TENSOR_SA
   return [xs, ys];
 }
 
+/**
+ * Parses the split-sections input: a bare integer ("2") means N equal
+ * parts; comma-separated integers ("1,3") mean explicit cut-point
+ * indices along the axis -- matches `Tensor.split`'s own two accepted
+ * forms exactly (see its own doc comment: a number is the strict
+ * equal-parts form, an array is the NumPy cut-point form).
+ */
+export function parseSplitSections(text: string): number | number[] {
+  const trimmed = text.trim();
+  if (trimmed.includes(",")) {
+    const parts = trimmed
+      .split(",")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    if (parts.length === 0) throw new Error("Enter at least one cut point.");
+    return parts.map((p) => {
+      const value = Number(p);
+      if (!Number.isInteger(value)) throw new Error(`"${p}" is not an integer.`);
+      return value;
+    });
+  }
+  const value = Number(trimmed);
+  if (!Number.isInteger(value) || value < 1) throw new Error(`"${trimmed}" is not a positive integer.`);
+  return value;
+}
+
+/**
+ * Splits a grid along `axis` (0 = rows, 1 = columns) via real tensor-core
+ * `split()` -- issue #35's "split's standalone multi-tensor-output UI",
+ * the one op `TENSOR_OPS_WITH_ARG`/`applyTensorOp` deliberately don't
+ * cover (see that constant's own doc comment): unlike every other op,
+ * split returns MULTIPLE tensors, not one, so it gets its own function
+ * and its own render path rather than being forced through the single-
+ * grid-in-single-grid-out picker.
+ */
+export function splitTensorGrid(grid: readonly (readonly number[])[], sections: number | readonly number[], axis: 0 | 1): number[][][] {
+  const tensor = gridToTensor(grid);
+  return tensor.split(sections as number | number[], { axis }).map(tensorToGrid);
+}
+
 export interface TensorSummary {
   rows: number;
   cols: number;

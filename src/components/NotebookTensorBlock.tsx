@@ -8,7 +8,9 @@ import {
   TENSOR_OP_LABELS,
   applyTensorOp,
   curveToTensorGrid,
+  parseSplitSections,
   parseTensorGrid,
+  splitTensorGrid,
   summarizeTensor,
   type TensorOpType,
   type TensorSummary,
@@ -30,11 +32,17 @@ export interface NotebookTensorBlockProps {
   curveName: string;
   op: TensorOpType;
   opArg: number;
+  splitEnabled: boolean;
+  splitAxis: 0 | 1;
+  splitSections: string;
   onSourceChange: (source: string) => void;
   onSourceModeChange: (mode: TensorSourceMode) => void;
   onCurveNameChange: (curveName: string) => void;
   onOpChange: (op: TensorOpType) => void;
   onOpArgChange: (opArg: number) => void;
+  onSplitEnabledChange: (enabled: boolean) => void;
+  onSplitAxisChange: (axis: 0 | 1) => void;
+  onSplitSectionsChange: (sections: string) => void;
 }
 
 /**
@@ -46,6 +54,11 @@ export interface NotebookTensorBlockProps {
  * heatmap.ts's shared color scale -- an HTML table rather than
  * `drawHeatmap`'s canvas, since a hand-typed <=16x16 grid reads better as
  * selectable text than as pixels).
+ *
+ * "split into multiple tensors" (issue #35's last remaining scope item)
+ * is a sibling mode, not another op: checking it hides the op/opArg
+ * controls and swaps in an axis picker + sections input, and the single
+ * table becomes one table per part from `splitTensorGrid`.
  *
  * The literal-grid text/op/opArg still live entirely in the block's own
  * serialized state (see NotebookPanel's Block union) with no CellGraph
@@ -64,31 +77,61 @@ export function NotebookTensorBlock({
   curveName,
   op,
   opArg,
+  splitEnabled,
+  splitAxis,
+  splitSections,
   onSourceChange,
   onSourceModeChange,
   onCurveNameChange,
   onOpChange,
   onOpArgChange,
+  onSplitEnabledChange,
+  onSplitAxisChange,
+  onSplitSectionsChange,
 }: NotebookTensorBlockProps) {
   const curveCellId = notebookCurveCellId(curveName);
   const curvePath = useCell<Path2D | undefined>(graph, curveCellId);
 
-  const view = useMemo<Result<TensorView>>(() => {
+  const sourceGrid = useMemo<Result<number[][]>>(() => {
     try {
-      let grid: number[][];
       if (sourceMode === "curve") {
         if (!curveName) throw new Error("Enter a curve name to reference (name a graph row to publish one).");
         if (!graph.hasValue(curveCellId) || curvePath === undefined) throw new Error(`No curve named "${curveName}" is published yet.`);
-        grid = curveToTensorGrid(curvePath);
-      } else {
-        grid = parseTensorGrid(source);
+        return { ok: true, value: curveToTensorGrid(curvePath) };
       }
-      const result = applyTensorOp(grid, op, opArg);
+      return { ok: true, value: parseTensorGrid(source) };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  }, [source, sourceMode, curveName, curvePath, graph, curveCellId]);
+
+  const view = useMemo<Result<TensorView>>(() => {
+    if (!sourceGrid.ok) return sourceGrid;
+    try {
+      const result = applyTensorOp(sourceGrid.value, op, opArg);
       return { ok: true, value: { result, summary: summarizeTensor(result) } };
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };
     }
-  }, [source, sourceMode, curveName, curvePath, graph, curveCellId, op, opArg]);
+  }, [sourceGrid, op, opArg]);
+
+  /**
+   * "split" mode's own render path (issue #35's last remaining scope):
+   * `Tensor.split()` returns MULTIPLE grids, a genuinely different shape
+   * from every other op's single-grid-in-single-grid-out result, so it
+   * gets its own computed value and its own render branch below rather
+   * than being folded into `view` above.
+   */
+  const splitView = useMemo<Result<TensorView[]>>(() => {
+    if (!sourceGrid.ok) return sourceGrid;
+    try {
+      const sections = parseSplitSections(splitSections);
+      const parts = splitTensorGrid(sourceGrid.value, sections, splitAxis);
+      return { ok: true, value: parts.map((result) => ({ result, summary: summarizeTensor(result) })) };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  }, [sourceGrid, splitSections, splitAxis]);
 
   return (
     <div>
@@ -122,30 +165,66 @@ export function NotebookTensorBlock({
           </label>
         )}
         <label style={{ fontSize: "0.9rem" }}>
-          op:{" "}
-          <select value={op} onChange={(e) => onOpChange(e.target.value as TensorOpType)}>
-            {(Object.keys(TENSOR_OP_LABELS) as TensorOpType[]).map((key) => (
-              <option key={key} value={key}>
-                {TENSOR_OP_LABELS[key]}
-              </option>
-            ))}
-          </select>
+          <input type="checkbox" checked={splitEnabled} onChange={(e) => onSplitEnabledChange(e.target.checked)} /> split into multiple tensors
         </label>
-        {TENSOR_OPS_WITH_ARG.has(op) && (
-          <label style={{ fontSize: "0.9rem" }} title={op === "pad" ? "Border width added on all four sides" : "How many times each row repeats"}>
-            {op === "pad" ? "width" : "count"}:{" "}
-            <input
-              type="number"
-              min={op === "pad" ? 0 : 1}
-              step={1}
-              value={opArg}
-              onChange={(e) => onOpArgChange(Number(e.target.value))}
-              style={{ font: "inherit", width: "5ch" }}
-            />
-          </label>
+        {splitEnabled ? (
+          <>
+            <label style={{ fontSize: "0.9rem" }}>
+              axis:{" "}
+              <select value={splitAxis} onChange={(e) => onSplitAxisChange(Number(e.target.value) as 0 | 1)}>
+                <option value={0}>rows</option>
+                <option value={1}>columns</option>
+              </select>
+            </label>
+            <label style={{ fontSize: "0.9rem" }} title='A bare integer ("2") splits into that many equal parts; comma-separated integers ("1,3") are explicit cut-point indices.'>
+              sections:{" "}
+              <input
+                value={splitSections}
+                onChange={(e) => onSplitSectionsChange(e.target.value)}
+                placeholder="e.g. 2 or 1,3"
+                style={{ font: "inherit", width: "8ch" }}
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <label style={{ fontSize: "0.9rem" }}>
+              op:{" "}
+              <select value={op} onChange={(e) => onOpChange(e.target.value as TensorOpType)}>
+                {(Object.keys(TENSOR_OP_LABELS) as TensorOpType[]).map((key) => (
+                  <option key={key} value={key}>
+                    {TENSOR_OP_LABELS[key]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {TENSOR_OPS_WITH_ARG.has(op) && (
+              <label style={{ fontSize: "0.9rem" }} title={op === "pad" ? "Border width added on all four sides" : "How many times each row repeats"}>
+                {op === "pad" ? "width" : "count"}:{" "}
+                <input
+                  type="number"
+                  min={op === "pad" ? 0 : 1}
+                  step={1}
+                  value={opArg}
+                  onChange={(e) => onOpArgChange(Number(e.target.value))}
+                  style={{ font: "inherit", width: "5ch" }}
+                />
+              </label>
+            )}
+          </>
         )}
       </div>
-      {view.ok ? (
+      {splitEnabled ? (
+        splitView.ok ? (
+          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-start" }}>
+            {splitView.value.map((part, i) => (
+              <TensorTable key={i} view={part} />
+            ))}
+          </div>
+        ) : (
+          <p style={{ color: "var(--danger)", fontSize: "0.9rem", margin: "0.25rem 0" }}>{splitView.message}</p>
+        )
+      ) : view.ok ? (
         <TensorTable view={view.value} />
       ) : (
         <p style={{ color: "var(--danger)", fontSize: "0.9rem", margin: "0.25rem 0" }}>{view.message}</p>
