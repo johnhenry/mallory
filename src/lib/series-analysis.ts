@@ -1,4 +1,5 @@
 import { SeriesDivergesError, Symbolic } from "mallory-math";
+import type { Viewport } from "./render-path.ts";
 
 export interface SeriesPartialSum {
   n: number;
@@ -57,4 +58,21 @@ export function analyzeSeries(exprText: string, variable: string, from: number, 
     }
     throw e;
   }
+}
+
+/**
+ * The auto-fit viewport SeriesPanel's draw effect computes for its partial-sum
+ * scatter plot -- extracted so the SVG export path (issue #45) can compute the
+ * exact same viewport without duplicating the padding/range logic. Returns
+ * null for an empty partial-sum list (nothing to fit a viewport to).
+ */
+export function computeSeriesViewport(partialSums: readonly SeriesPartialSum[], finalSum: number | null): Viewport | null {
+  if (partialSums.length === 0) return null;
+  const ns = partialSums.map((p) => p.n);
+  const sums = partialSums.map((p) => p.sum);
+  const yValues = finalSum === null ? sums : [...sums, finalSum];
+  const yMin = Math.min(...yValues);
+  const yMax = Math.max(...yValues);
+  const pad = Math.max((yMax - yMin) * 0.1, 1e-6);
+  return { xMin: ns[0] ?? 0, xMax: ns[ns.length - 1] ?? 1, yMin: yMin - pad, yMax: yMax + pad };
 }

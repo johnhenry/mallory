@@ -9,9 +9,11 @@ import {
 } from "../lib/fourier-state.ts";
 import { sampleFourierPartialSum, type FourierWaveType } from "../lib/fourier-series.ts";
 import { drawAxes, drawPolyline, type Viewport } from "../lib/render-path.ts";
+import { polylineToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 const WIDTH = 600;
 const HEIGHT = 300;
@@ -154,6 +156,7 @@ export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {})
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="fourier" />
+        <SvgExportButton getSvg={() => (samples.ok ? polylineToSvgDocument(samples.value.partial, VIEWPORT, WIDTH, HEIGHT, "#2563eb") : null)} label="fourier" />
       </div>
       {!samples.ok && <p style={{ color: "var(--danger)" }}>{samples.message}</p>}
     </div>

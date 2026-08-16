@@ -6,10 +6,12 @@ import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
 import { computeLimit, computeTaylorApproximation, type LimitDirection } from "../lib/taylor-approx.ts";
 import { DEFAULT_TAYLOR_STATE, decodeTaylorState, encodeTaylorState, type TaylorState } from "../lib/taylor-state.ts";
+import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 type ApproxResult = { ok: true; fPath: Path2D; taylorPath: Path2D; latex: string } | { ok: false; message: string };
 type LimitResult = { ok: true; value: number } | { ok: false; message: string };
@@ -187,6 +189,10 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="taylor" />
+        <SvgExportButton
+          getSvg={() => (approx.ok ? pathsToSvgDocument([approx.fPath, approx.taylorPath], viewport, WIDTH, HEIGHT) : null)}
+          label="taylor"
+        />
       </div>
       <h2>Limit</h2>
       <div style={{ margin: "0.25rem 0" }}>

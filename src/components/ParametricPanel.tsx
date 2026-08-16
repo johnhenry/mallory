@@ -5,8 +5,10 @@ import { cellIdsParametric } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
 import { sampleParametricCurve, samplePolarCurve } from "../lib/sample-parametric.ts";
+import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 const WIDTH = 500;
 const HEIGHT = 500;
@@ -127,6 +129,7 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="parametric" />
+        <SvgExportButton getSvg={() => (path.ok ? pathsToSvgDocument([path.path], VIEWPORT, WIDTH, HEIGHT) : null)} label="parametric" />
       </div>
       {!path.ok && <p style={{ color: "var(--danger)" }}>{path.message}</p>}
     </div>
