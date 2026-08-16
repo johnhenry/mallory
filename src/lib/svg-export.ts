@@ -1,5 +1,19 @@
 import type { Path2D as MalloryPath } from "mallory-math";
+import { computeNiceTicks } from "./render-path.ts";
+import { getThemeColors } from "./theme-colors.ts";
 import { toScreenX, toScreenY, type Viewport } from "./viewport.ts";
+
+/**
+ * Joins axes elements (possibly empty) and content elements (possibly
+ * empty) into one `<svg>` document body -- factored out so an empty `axes`
+ * string never leaves a stray blank line behind (unlike naive template
+ * interpolation of an optional block), keeping the axes=false output
+ * byte-identical to this file's pre-#150 documents.
+ */
+function svgDocument(width: number, height: number, axesSvg: string, contentSvg: string): string {
+  const body = [axesSvg, contentSvg].filter((s) => s.length > 0).join("\n");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${body}\n</svg>`;
+}
 
 /** A safe SVG filename for a given panel/export label -- mirrors canvas-export.ts's `pngExportFilename`. */
 export function svgExportFilename(label: string): string {
@@ -41,14 +55,20 @@ export function pathToSvgD(path: MalloryPath, viewport: Viewport, width: number,
  * the single most valuable case (a plotted curve) first, the same way
  * PNG export itself started on a "quick win" subset (issue #45's item 3)
  * before later PRs extended coverage panel-by-panel.
+ *
+ * `axes` (issue #150 item 3, default on to match every canvas panel's own
+ * `drawAxes` call): prepends `axesToSvgElements` so exported SVGs carry the
+ * same coordinate reference the on-screen canvas does, drawn first so the
+ * curve renders on top -- same order `drawAxes`-then-`drawPath` uses on
+ * Canvas2D.
  */
-export function pathsToSvgDocument(paths: ReadonlyArray<MalloryPath>, viewport: Viewport, width: number, height: number): string {
+export function pathsToSvgDocument(paths: ReadonlyArray<MalloryPath>, viewport: Viewport, width: number, height: number, axes = true): string {
   const elements = paths.map((path) => {
     const color = `#${path.stroke.color.toString(16).padStart(6, "0")}`;
     const d = pathToSvgD(path, viewport, width, height);
     return `<path d="${d}" fill="none" stroke="${color}" stroke-opacity="${path.stroke.alpha}" stroke-width="${path.stroke.thickness || 1}" />`;
   });
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${elements.join("\n")}\n</svg>`;
+  return svgDocument(width, height, axes ? axesToSvgElements(viewport, width, height) : "", elements.join("\n"));
 }
 
 /**
@@ -84,10 +104,11 @@ export function polylineToSvgDocument(
   height: number,
   color = "#2563eb",
   strokeWidth = 1.5,
+  axes = true,
 ): string {
   const element =
     points.length === 0 ? "" : `<path d="${polylinePointsToSvgD(points, viewport, width, height)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" />`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${element}\n</svg>`;
+  return svgDocument(width, height, axes ? axesToSvgElements(viewport, width, height) : "", element);
 }
 
 /**
@@ -106,11 +127,12 @@ export function polylinesToSvgDocument(
   height: number,
   color = "#2563eb",
   strokeWidth = 1.5,
+  axes = true,
 ): string {
   const elements = lines
     .filter((line) => line.length > 0)
     .map((line) => `<path d="${polylinePointsToSvgD(line, viewport, width, height)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" />`);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${elements.join("\n")}\n</svg>`;
+  return svgDocument(width, height, axes ? axesToSvgElements(viewport, width, height) : "", elements.join("\n"));
 }
 
 /**
@@ -127,13 +149,69 @@ export function scatterPointsToSvgDocument(
   height: number,
   color = "#2563eb",
   radius = 5,
+  axes = true,
 ): string {
   const elements = points.map((p) => {
     const sx = toScreenX(p.x, viewport, width);
     const sy = toScreenY(p.y, viewport, height);
     return `<circle cx="${sx.toFixed(2)}" cy="${sy.toFixed(2)}" r="${radius}" fill="${color}" />`;
   });
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${elements.join("\n")}\n</svg>`;
+  return svgDocument(width, height, axes ? axesToSvgElements(viewport, width, height) : "", elements.join("\n"));
+}
+
+/**
+ * SVG counterpart to `render-path.ts`'s `drawAxes` (issue #150 item 3):
+ * same nice-tick spacing, same edge-hugging when the viewport is entirely
+ * on one side of zero, same label-flip-to-inward-side to avoid off-canvas
+ * clipping, same single "0" label at the origin. Emitted as plain `<line>`/
+ * `<text>` elements rather than a `<g>` with CSS classes, matching this
+ * file's existing element style (inline `stroke`/`fill` attributes, no
+ * external stylesheet dependency, so the SVG renders correctly even when
+ * opened standalone outside the app).
+ */
+export function axesToSvgElements(viewport: Viewport, width: number, height: number, options: { targetTickCount?: number } = {}): string {
+  const { xMin, xMax, yMin, yMax } = viewport;
+  if (!(xMax > xMin) || !(yMax > yMin)) return "";
+  const theme = getThemeColors();
+  const targetTickCount = options.targetTickCount ?? 6;
+  const tickHalf = 4;
+
+  const xAxisAtBottom = yMin > 0;
+  const xAxisAtTop = yMax < 0;
+  const xAxisSy = xAxisAtBottom ? height : xAxisAtTop ? 0 : toScreenY(0, viewport, height);
+
+  const yAxisAtRight = xMax < 0;
+  const yAxisAtLeft = xMin > 0;
+  const yAxisSx = yAxisAtRight ? width : yAxisAtLeft ? 0 : toScreenX(0, viewport, width);
+
+  const elements: string[] = [
+    `<line x1="0" y1="${xAxisSy}" x2="${width}" y2="${xAxisSy}" stroke="${theme.muted}" stroke-width="1" />`,
+    `<line x1="${yAxisSx}" y1="0" x2="${yAxisSx}" y2="${height}" stroke="${theme.muted}" stroke-width="1" />`,
+  ];
+
+  const xLabelBelow = !xAxisAtBottom;
+  const xBaseline = xLabelBelow ? "hanging" : "auto";
+  for (const v of computeNiceTicks(xMin, xMax, targetTickCount)) {
+    const sx = toScreenX(v, viewport, width);
+    elements.push(`<line x1="${sx.toFixed(2)}" y1="${(xAxisSy - tickHalf).toFixed(2)}" x2="${sx.toFixed(2)}" y2="${(xAxisSy + tickHalf).toFixed(2)}" stroke="${theme.muted}" stroke-width="1" />`);
+    if (v !== 0) {
+      const ty = xAxisSy + (xLabelBelow ? tickHalf + 2 : -(tickHalf + 2));
+      elements.push(
+        `<text x="${sx.toFixed(2)}" y="${ty.toFixed(2)}" fill="${theme.ink}" font-size="11" font-family="system-ui, sans-serif" text-anchor="middle" dominant-baseline="${xBaseline}">${v}</text>`,
+      );
+    }
+  }
+
+  const yLabelLeft = !yAxisAtLeft;
+  const yAnchor = yLabelLeft ? "end" : "start";
+  for (const v of computeNiceTicks(yMin, yMax, targetTickCount)) {
+    const sy = toScreenY(v, viewport, height);
+    elements.push(`<line x1="${(yAxisSx - tickHalf).toFixed(2)}" y1="${sy.toFixed(2)}" x2="${(yAxisSx + tickHalf).toFixed(2)}" y2="${sy.toFixed(2)}" stroke="${theme.muted}" stroke-width="1" />`);
+    const tx = yAxisSx + (yLabelLeft ? -(tickHalf + 4) : tickHalf + 4);
+    elements.push(`<text x="${tx.toFixed(2)}" y="${sy.toFixed(2)}" fill="${theme.ink}" font-size="11" font-family="system-ui, sans-serif" text-anchor="${yAnchor}" dominant-baseline="middle">${v}</text>`);
+  }
+
+  return elements.join("\n");
 }
 
 /**
