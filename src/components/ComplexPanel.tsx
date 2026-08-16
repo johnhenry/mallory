@@ -1,6 +1,6 @@
 import { ComplexNumber, Symbolic, type Expr } from "mallory-math";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsComplex, type CellIdsComplex } from "../lib/cell-ids.ts";
 import {
@@ -25,7 +25,8 @@ import { drawAxes, drawPolyline, drawScatter } from "../lib/render-path.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
-import type { Viewport } from "../lib/viewport.ts";
+import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewport.ts";
+import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -33,6 +34,17 @@ const WIDTH = 480;
 const HEIGHT = 480;
 const VIEWPORT: Viewport = { xMin: -3, xMax: 3, yMin: -3, yMax: 3 };
 const ROOT_SEARCH_DOMAIN: ComplexDomain = { reMin: VIEWPORT.xMin, reMax: VIEWPORT.xMax, imMin: VIEWPORT.yMin, imMax: VIEWPORT.yMax };
+const ZOOM_STEP = 1.1;
+const ZOOM_COMMIT_DEBOUNCE_MS = 150;
+// While a live gesture is in progress, the z-plane's per-pixel domain-
+// coloring raster (renderDomainColoring, ~230K evaluations at full
+// resolution) is rendered at 1/DOWNSCALE the width/height (~1/16th the
+// evaluations) into an offscreen canvas, then scaled up via drawImage --
+// a fast, honest "preview" during the drag, replaced by one full-resolution
+// render on gesture commit. Vector overlays (axes/roots/zeros/poles) stay
+// full-fidelity throughout, since drawPolyline/drawScatter are cheap
+// regardless of viewport.
+const LIVE_PREVIEW_DOWNSCALE = 4;
 
 export function seedComplexState(graph: CellGraph, ids: CellIdsComplex, state: ComplexState): void {
   graph.set(ids.exprText, state.exprText);
@@ -104,6 +116,8 @@ function useComplexGraph(cellId: string, externalGraph?: CellGraph): CellGraph {
     if (!graph.has(ids.exprText)) {
       const decoded = !externalGraph && typeof window !== "undefined" ? decodeComplexState(window.location.hash.slice(1)) : null;
       seedComplexState(graph, ids, decoded ?? DEFAULT_COMPLEX_STATE);
+      graph.set(ids.viewport, VIEWPORT, { auxiliary: true });
+      graph.set<Viewport | null>(ids.liveViewport, null, { auxiliary: true });
 
       graph.define(ids.parseResult, (): Result<Expr> => {
         try {
@@ -172,11 +186,17 @@ function useComplexGraph(cellId: string, externalGraph?: CellGraph): CellGraph {
           const spacing = Number(graph.get<string>(ids.conformalGridSpacing));
           if (Number.isNaN(spacing) || spacing <= 0) throw new Error("Grid spacing must be a positive number.");
           const gridType = graph.get<ConformalGridType>(ids.conformalGridType);
-          const zGrid = gridType === "polar" ? polarGridLines(VIEWPORT.xMax, spacing, 12) : rectangularGridLines(VIEWPORT, spacing);
+          // Reads the COMMITTED viewport (ids.viewport), not a live
+          // mid-gesture override -- regenerating the grid + re-mapping it
+          // through f only happens once per gesture, on release, same
+          // FourierPanel (#188) convention.
+          const vp = graph.get<Viewport>(ids.viewport);
+          const maxRadius = Math.max(Math.abs(vp.xMin), Math.abs(vp.xMax), Math.abs(vp.yMin), Math.abs(vp.yMax));
+          const zGrid = gridType === "polar" ? polarGridLines(maxRadius, spacing, 12) : rectangularGridLines(vp, spacing);
           const zLines = zGrid.map((line) => line.map((z) => ({ x: z.value, y: z.iValue })));
           const params = graph.get<Record<string, number>>(ids.params);
           const wLines = mapGridLines(zGrid, (z) => evaluateComplex(expr, complexParamEnv(params, z)));
-          const wViewport = autoFitViewport(wLines, VIEWPORT);
+          const wViewport = autoFitViewport(wLines, vp);
           return { ok: true, value: { zLines, wLines, wViewport } };
         } catch (e) {
           return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -259,6 +279,21 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
   const polesResult = useCell<Result<ComplexNumber[]>>(graph, ids.polesResult);
   const freeVars = useCell<string[]>(graph, ids.freeVars);
   const params = useCell<Record<string, number>>(graph, ids.params);
+  const committedViewport = useCell<Viewport>(graph, ids.viewport);
+  const liveViewport = useCell<Viewport | null>(graph, ids.liveViewport);
+  const viewport = liveViewport ?? committedViewport;
+
+  // Pan/pinch gesture state (issue #53, z-plane only), mirroring
+  // FourierPanel (#188). No draggable handle on this canvas, so every
+  // pointerdown is a pinch (2+ pointers) or a pan.
+  const gestureRef = useRef<
+    | { kind: "pan"; anchorX: number; anchorY: number; spanX: number; spanY: number }
+    | { kind: "pinch"; anchorX: number; anchorY: number; spanX: number; spanY: number; startDistancePx: number }
+    | null
+  >(null);
+  const activePointersRef = useRef<Map<number, { sx: number; sy: number }>>(new Map());
+  const zoomCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Seeds a slider cell for each newly-discovered free variable -- mirrors
   // GraphCanvas's identically-reasoned effect (must run after render, not
@@ -347,24 +382,44 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
     if (!parseResult.ok) return;
     const expr = parseResult.value;
-    renderDomainColoring(ctx, WIDTH, HEIGHT, VIEWPORT, (z) => evaluateComplex(expr, complexParamEnv(params, z)));
-    drawAxes(ctx, VIEWPORT, WIDTH, HEIGHT);
+    const f = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
+    if (liveViewport) {
+      // Live gesture in progress -- the full-resolution raster (~230K
+      // evaluations) is too expensive to redraw on every pointermove/wheel
+      // tick, so render a LIVE_PREVIEW_DOWNSCALE-reduced raster into a
+      // reused offscreen canvas and stretch it up. Replaced by one
+      // full-resolution render below once the gesture commits.
+      const pw = Math.max(1, Math.round(WIDTH / LIVE_PREVIEW_DOWNSCALE));
+      const ph = Math.max(1, Math.round(HEIGHT / LIVE_PREVIEW_DOWNSCALE));
+      if (!previewCanvasRef.current) previewCanvasRef.current = document.createElement("canvas");
+      const preview = previewCanvasRef.current;
+      preview.width = pw;
+      preview.height = ph;
+      const previewCtx = preview.getContext("2d");
+      if (previewCtx) {
+        renderDomainColoring(previewCtx, pw, ph, liveViewport, f);
+        ctx.drawImage(preview, 0, 0, pw, ph, 0, 0, WIDTH, HEIGHT);
+      }
+    } else {
+      renderDomainColoring(ctx, WIDTH, HEIGHT, viewport, f);
+    }
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (showRootsOfUnity && rootsResult.ok) {
       const points = rootsResult.value.map((r) => ({ x: r.value, y: r.iValue }));
-      drawScatter(ctx, points, VIEWPORT, WIDTH, HEIGHT, 6, "#111827");
+      drawScatter(ctx, points, viewport, WIDTH, HEIGHT, 6, "#111827");
     }
     if (showConformalGrid && conformalGridResult.ok) {
-      for (const line of conformalGridResult.value.zLines) drawPolyline(ctx, line, VIEWPORT, WIDTH, HEIGHT, "rgba(255,255,255,0.6)");
+      for (const line of conformalGridResult.value.zLines) drawPolyline(ctx, line, viewport, WIDTH, HEIGHT, "rgba(255,255,255,0.6)");
     }
     if (showZeros && zerosResult.ok) {
       const points = zerosResult.value.map((r) => ({ x: r.value, y: r.iValue }));
-      drawScatter(ctx, points, VIEWPORT, WIDTH, HEIGHT, 5, "#16a34a");
+      drawScatter(ctx, points, viewport, WIDTH, HEIGHT, 5, "#16a34a");
     }
     if (showPoles && polesResult.ok) {
       const points = polesResult.value.map((r) => ({ x: r.value, y: r.iValue }));
-      drawScatter(ctx, points, VIEWPORT, WIDTH, HEIGHT, 5, "#dc2626");
+      drawScatter(ctx, points, viewport, WIDTH, HEIGHT, 5, "#dc2626");
     }
-  }, [parseResult, showRootsOfUnity, rootsResult, showConformalGrid, conformalGridResult, showZeros, zerosResult, showPoles, polesResult, params]);
+  }, [parseResult, showRootsOfUnity, rootsResult, showConformalGrid, conformalGridResult, showZeros, zerosResult, showPoles, polesResult, params, viewport, liveViewport]);
 
   useEffect(() => {
     const canvas = wCanvasRef.current;
@@ -377,6 +432,117 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     drawAxes(ctx, wViewport, WIDTH, HEIGHT);
     for (const line of wLines) drawPolyline(ctx, line, wViewport, WIDTH, HEIGHT, "#2563eb");
   }, [showConformalGrid, conformalGridResult]);
+
+  useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    };
+  }, []);
+
+  /** Copies a pending live-viewport override into the committed viewport (the gesture-end resample) -- shared by pan/pinch release and the wheel-zoom debounce below. */
+  function commitLiveViewport() {
+    const live = graph.get<Viewport | null>(ids.liveViewport);
+    if (!live) return;
+    graph.set(ids.viewport, live);
+    graph.set<Viewport | null>(ids.liveViewport, null);
+  }
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLCanvasElement>) {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    commitLiveViewport();
+
+    const downPoint = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    activePointersRef.current.set(e.pointerId, downPoint);
+
+    if (activePointersRef.current.size >= 2) {
+      const [p1, p2] = [...activePointersRef.current.values()].slice(-2) as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
+      gestureRef.current = {
+        kind: "pinch",
+        anchorX: toDataX(midSx, vp, WIDTH),
+        anchorY: toDataY(midSy, vp, HEIGHT),
+        spanX: vp.xMax - vp.xMin,
+        spanY: vp.yMax - vp.yMin,
+        startDistancePx: Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy),
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    const vp = graph.get<Viewport>(ids.viewport);
+    const { sx, sy } = downPoint;
+    gestureRef.current = {
+      kind: "pan",
+      anchorX: toDataX(sx, vp, WIDTH),
+      anchorY: toDataY(sy, vp, HEIGHT),
+      spanX: vp.xMax - vp.xMin,
+      spanY: vp.yMax - vp.yMin,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handlePointerMove(e: ReactPointerEvent<HTMLCanvasElement>) {
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT));
+    }
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+    if (gesture.kind === "pinch") {
+      const points = [...activePointersRef.current.values()].slice(-2);
+      if (points.length < 2) return;
+      const [p1, p2] = points as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const currentDistancePx = Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy);
+      if (currentDistancePx < 1) return;
+      const factor = pinchZoomFactor(gesture.startDistancePx, currentDistancePx);
+      const spanX = gesture.spanX * factor;
+      const spanY = gesture.spanY * factor;
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, midSx, midSy, spanX, spanY, WIDTH, HEIGHT));
+      return;
+    }
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, sx, sy, gesture.spanX, gesture.spanY, WIDTH, HEIGHT));
+  }
+
+  function handlePointerUp(e: ReactPointerEvent<HTMLCanvasElement>) {
+    activePointersRef.current.delete(e.pointerId);
+    if (gestureRef.current?.kind === "pan" || gestureRef.current?.kind === "pinch") commitLiveViewport();
+    gestureRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  }
+
+  /** Wheel-to-zoom, anchored on the cursor's data point; the real commit is debounced (no pointerup to trigger it). */
+  function handleWheel(e: ReactWheelEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    const anchorX = toDataX(sx, vp, WIDTH);
+    const anchorY = toDataY(sy, vp, HEIGHT);
+    const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
+    const spanX = (vp.xMax - vp.xMin) * factor;
+    const spanY = (vp.yMax - vp.yMin) * factor;
+    graph.set(ids.liveViewport, viewportFromAnchor(anchorX, anchorY, sx, sy, spanX, spanY, WIDTH, HEIGHT));
+    if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    zoomCommitTimerRef.current = setTimeout(() => {
+      zoomCommitTimerRef.current = null;
+      commitLiveViewport();
+    }, ZOOM_COMMIT_DEBOUNCE_MS);
+  }
+
+  function resetView() {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    graph.set<Viewport | null>(ids.liveViewport, null);
+    graph.set(ids.viewport, VIEWPORT);
+  }
 
   return (
     <div>
@@ -487,7 +653,16 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
       {showPoles && !polesResult.ok && <p style={{ color: "var(--danger)" }}>{polesResult.message}</p>}
 
       <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-        <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+        <canvas
+          ref={canvasRef}
+          width={WIDTH}
+          height={HEIGHT}
+          style={{ border: "1px solid var(--border)", maxWidth: "100%", touchAction: "none" }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onWheel={handleWheel}
+        />
         {showConformalGrid && (
           <div>
             <canvas ref={wCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
@@ -509,7 +684,10 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
         )}
       </div>
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="complex-plane" />
+        <PngExportButton getCanvas={() => canvasRef.current} label="complex-plane" />{" "}
+        <button type="button" onClick={resetView}>
+          Reset view
+        </button>
       </div>
 
       <h3>Probe a point</h3>
