@@ -4,6 +4,7 @@ import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsSignal, type CellIdsSignal } from "../lib/cell-ids.ts";
 import { DEFAULT_SIGNAL_STATE, decodeSignalState, encodeSignalState, type SignalState, type SinusoidTerm } from "../lib/signal-state.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
+import { resolveFilterCommand } from "../lib/nl-query-filter.ts";
 import {
   amplitudeSpectrum,
   computeSpectrogram,
@@ -425,7 +426,23 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     setExprInput(exprText);
   }, [exprText]);
 
+  // Filter-design commands (issue #31's remaining scope: 'NL query
+  // patterns ("low-pass at 40 Hz")') are checked FIRST, before the
+  // expression resolver -- "low-pass at 40 Hz" isn't a math expression at
+  // all, so falling through to resolveNaturalLanguageQuery would just set
+  // exprText to unparseable garbage. On a match, the filter-design fields
+  // are set directly and exprText is left untouched; the input box reverts
+  // to the current exprText (see nl-query-matrix.ts for the same "this
+  // wasn't an expression" pattern, applied there to navigation instead).
   function updateExprText(value: string) {
+    const filterCommand = resolveFilterCommand(value);
+    if (filterCommand) {
+      graph.set(ids.showFilter, true);
+      graph.set(ids.filterType, filterCommand.filterType);
+      graph.set(ids.filterCutoffHz, filterCommand.filterCutoffHz);
+      setExprInput(exprText);
+      return;
+    }
     setExprInput(value);
     graph.set(ids.exprText, resolveNaturalLanguageQuery(value, "t") ?? value);
   }
