@@ -2,7 +2,7 @@ import { Tensor } from "mallory-tensor-core";
 import { normalize, resize } from "mallory-image";
 import { ComplexTensor, fft2, fftshift, ifft2, ifftshift } from "mallory-fft";
 
-export type PatternType = "checkerboard" | "stripes" | "circle" | "gradient" | "moire" | "upload";
+export type PatternType = "checkerboard" | "stripes" | "circle" | "gradient" | "moire" | "upload" | "live-camera";
 
 /**
  * Generates a `size x size` grayscale (0-255) test pattern -- the "or pick a
@@ -47,6 +47,8 @@ export function generatePattern(type: PatternType, size: number): number[][] {
           break;
         case "upload":
           throw new Error('generatePattern does not handle "upload" -- the caller must read the uploaded grid instead.');
+        case "live-camera":
+          throw new Error('generatePattern does not handle "live-camera" -- the caller must read the live camera grid instead.');
       }
       row.push(value);
     }

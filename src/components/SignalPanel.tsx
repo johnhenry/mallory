@@ -27,6 +27,7 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useCell } from "../lib/use-cell.ts";
 import type { Viewport } from "../lib/viewport.ts";
+import { useLiveMicrophoneWaveform } from "../lib/live-input.ts";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -198,8 +199,21 @@ function useSignalGraph(cellId: string): CellGraph {
     const decoded = typeof window !== "undefined" ? decodeSignalState(window.location.hash.slice(1)) : null;
     seedSignalState(graph, ids, decoded ?? DEFAULT_SIGNAL_STATE);
 
+    // Live microphone (issue #204's v1 pilot): deliberately NOT part of
+    // seedSignalState/SignalState -- a shared link always opens with the
+    // mic off (see live-input.ts's own "never persisted" design note), and
+    // liveWaveformOverride is auxiliary/ephemeral like ImageFrequencyPanel's
+    // uploadedGrid, for the same reason (can't live in the URL hash).
+    if (!graph.has(ids.liveMic)) graph.set(ids.liveMic, false, { auxiliary: true });
+    if (!graph.has(ids.liveWaveformOverride)) graph.set(ids.liveWaveformOverride, null as Waveform | null, { auxiliary: true });
+
     graph.define(ids.waveformResult, (): Result<Waveform> => {
       try {
+        if (graph.get<boolean>(ids.liveMic)) {
+          const override = graph.get<Waveform | null>(ids.liveWaveformOverride);
+          if (!override) throw new Error("Waiting for the first microphone sample…");
+          return { ok: true, value: override };
+        }
         const exprText = graph.get<string>(ids.exprText);
         const sampleRate = Number(graph.get<string>(ids.sampleRate));
         const duration = Number(graph.get<string>(ids.duration));
@@ -431,6 +445,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const resampleDown = useCell<string>(graph, ids.resampleDown);
   const resampleResult = useCell<Result<Waveform>>(graph, ids.resampleResult);
   const useBuilder = useCell<boolean>(graph, ids.useBuilder);
+  const liveMic = useCell<boolean>(graph, ids.liveMic);
   const builderTerms = useCell<BuilderTerm[]>(graph, ids.builderTerms);
   const showFilter = useCell<boolean>(graph, ids.showFilter);
   const filterType = useCell<string>(graph, ids.filterType);
@@ -532,6 +547,17 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     graph.set(ids.useBuilder, next);
     if (next) graph.set(ids.exprText, buildSumOfSinusoidsExpr(builderTerms));
   }
+
+  // Live microphone (issue #204's v1 pilot): mutually exclusive with the
+  // f(t) box and the builder, same as toggleBuilder above -- flipping it on
+  // switches waveformResult (via ids.liveMic, read inside its own define())
+  // to read live samples instead of evaluating exprText.
+  function toggleLiveMic(next: boolean) {
+    graph.set(ids.liveMic, next);
+  }
+  const liveMicStatus = useLiveMicrophoneWaveform(liveMic, (waveform) => {
+    graph.set(ids.liveWaveformOverride, waveform);
+  });
 
   useEffect(() => {
     function writeUrl() {
@@ -685,15 +711,28 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
     <div>
       <h2>Compose f(t)</h2>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-        {!useBuilder && (
+        {!useBuilder && !liveMic && (
           <label>
             f(t) ={" "}
             <input value={exprInput} onChange={(e) => updateExprText(e.target.value)} style={{ font: "inherit", width: "28ch" }} />
           </label>
         )}
-        <label style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
-          <input type="checkbox" checked={useBuilder} onChange={(e) => toggleBuilder(e.target.checked)} /> sum-of-sinusoids builder
-        </label>
+        {!liveMic && (
+          <label style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+            <input type="checkbox" checked={useBuilder} onChange={(e) => toggleBuilder(e.target.checked)} /> sum-of-sinusoids builder
+          </label>
+        )}
+        {!useBuilder && (
+          <label style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+            <input type="checkbox" checked={liveMic} onChange={(e) => toggleLiveMic(e.target.checked)} /> live microphone
+          </label>
+        )}
+        {liveMic && (
+          <span style={{ fontSize: "0.85rem", color: liveMicStatus.active ? "var(--muted)" : "inherit" }}>
+            {liveMicStatus.active ? "Mic live -- make some noise." : "Requesting microphone access…"}
+          </span>
+        )}
+        {liveMic && liveMicStatus.error && <p style={{ color: "var(--danger)" }}>{liveMicStatus.error}</p>}
       </div>
       {useBuilder && (
         <div style={{ margin: "0.25rem 0" }}>
