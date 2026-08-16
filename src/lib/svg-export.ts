@@ -161,18 +161,20 @@ export function scatterPointsToSvgDocument(
 
 /**
  * One drawn layer for `layersToSvgDocument` -- a `drawPolyline`-style
- * connected line, a `drawScatter`-style set of markers, or a `drawPath`-
- * style mallory-math `Path2D` (its own stroke color/alpha/thickness, same
- * as `pathsToSvgDocument`, rather than the `color`/`strokeWidth` overrides
- * the plain-point-array kinds take). A `polyline` layer's optional `dash`
- * maps straight to SVG's `stroke-dasharray` -- for a `ctx.setLineDash([...])`
- * reference line (e.g. MonteCarloPanel's dashed pi-estimate line) alongside
- * solid layers on the same canvas.
+ * connected line, a `drawScatter`-style set of markers, a `drawPath`-style
+ * mallory-math `Path2D` (its own stroke color/alpha/thickness, same as
+ * `pathsToSvgDocument`, rather than the `color`/`strokeWidth` overrides the
+ * plain-point-array kinds take), or a `drawHistogram`-style set of bin
+ * bars. A `polyline` layer's optional `dash` maps straight to SVG's
+ * `stroke-dasharray` -- for a `ctx.setLineDash([...])` reference line (e.g.
+ * MonteCarloPanel's dashed pi-estimate line) alongside solid layers on the
+ * same canvas.
  */
 export type SvgLayer =
   | { kind: "polyline"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; strokeWidth?: number; dash?: readonly number[] }
   | { kind: "scatter"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; radius?: number }
-  | { kind: "path"; path: MalloryPath };
+  | { kind: "path"; path: MalloryPath }
+  | { kind: "histogram"; bins: ReadonlyArray<{ x0: number; x1: number; count: number }>; color?: string; strokeColor?: string };
 
 /**
  * Wraps MULTIPLE layers of possibly-different kinds (polyline, scatter,
@@ -188,19 +190,44 @@ export type SvgLayer =
  * point-array kind falling back to `drawPolyline`/`drawScatter`'s own
  * blue/1.5px and blue/5px defaults respectively; a `path` layer's color/
  * alpha/thickness always come from the `Path2D`'s own `stroke`, same as
- * `pathsToSvgDocument`. An empty `layers` array or an individual empty
- * layer (no points, or a path with no commands) both degrade gracefully
- * (no stray empty elements), matching `polylinesToSvgDocument`'s own
- * empty-line skipping.
+ * `pathsToSvgDocument`; a `histogram` layer falls back to `drawHistogram`'s
+ * own light-blue-fill/blue-stroke defaults, one `<rect>` per bin (x/y/
+ * width/height normalized to non-negative -- SVG rejects a negative
+ * width/height outright, unlike `ctx.fillRect`, which just draws the
+ * opposite direction). An empty `layers` array or an individual empty
+ * layer (no points, no bins, or a path with no commands) all degrade
+ * gracefully (no stray empty elements), matching `polylinesToSvgDocument`'s
+ * own empty-line skipping.
  */
 export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewport, width: number, height: number, axes = true): string {
   const elements = layers
-    .filter((layer) => (layer.kind === "path" ? layer.path.commands.length > 0 : layer.points.length > 0))
+    .filter((layer) => {
+      if (layer.kind === "path") return layer.path.commands.length > 0;
+      if (layer.kind === "histogram") return layer.bins.length > 0;
+      return layer.points.length > 0;
+    })
     .map((layer) => {
       if (layer.kind === "path") {
         const color = `#${layer.path.stroke.color.toString(16).padStart(6, "0")}`;
         const d = pathToSvgD(layer.path, viewport, width, height);
         return `<path d="${d}" fill="none" stroke="${color}" stroke-opacity="${layer.path.stroke.alpha}" stroke-width="${layer.path.stroke.thickness || 1}" />`;
+      }
+      if (layer.kind === "histogram") {
+        const color = layer.color ?? "#93c5fd";
+        const strokeColor = layer.strokeColor ?? "#2563eb";
+        const zeroY = toScreenY(0, viewport, height);
+        return layer.bins
+          .map((bin) => {
+            const sx0 = toScreenX(bin.x0, viewport, width);
+            const sx1 = toScreenX(bin.x1, viewport, width);
+            const sy = toScreenY(bin.count, viewport, height);
+            const x = Math.min(sx0, sx1);
+            const rectWidth = Math.abs(sx1 - sx0);
+            const y = Math.min(sy, zeroY);
+            const rectHeight = Math.abs(zeroY - sy);
+            return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${rectWidth.toFixed(2)}" height="${rectHeight.toFixed(2)}" fill="${color}" stroke="${strokeColor}" stroke-width="1" />`;
+          })
+          .join("\n");
       }
       if (layer.kind === "polyline") {
         const color = layer.color ?? "#2563eb";
