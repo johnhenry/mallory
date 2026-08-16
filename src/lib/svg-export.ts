@@ -164,10 +164,13 @@ export function scatterPointsToSvgDocument(
  * connected line, a `drawScatter`-style set of markers, or a `drawPath`-
  * style mallory-math `Path2D` (its own stroke color/alpha/thickness, same
  * as `pathsToSvgDocument`, rather than the `color`/`strokeWidth` overrides
- * the plain-point-array kinds take).
+ * the plain-point-array kinds take). A `polyline` layer's optional `dash`
+ * maps straight to SVG's `stroke-dasharray` -- for a `ctx.setLineDash([...])`
+ * reference line (e.g. MonteCarloPanel's dashed pi-estimate line) alongside
+ * solid layers on the same canvas.
  */
 export type SvgLayer =
-  | { kind: "polyline"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; strokeWidth?: number }
+  | { kind: "polyline"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; strokeWidth?: number; dash?: readonly number[] }
   | { kind: "scatter"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; radius?: number }
   | { kind: "path"; path: MalloryPath };
 
@@ -202,7 +205,8 @@ export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewp
       if (layer.kind === "polyline") {
         const color = layer.color ?? "#2563eb";
         const strokeWidth = layer.strokeWidth ?? 1.5;
-        return `<path d="${polylinePointsToSvgD(layer.points, viewport, width, height)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" />`;
+        const dashAttr = layer.dash && layer.dash.length > 0 ? ` stroke-dasharray="${layer.dash.join(" ")}"` : "";
+        return `<path d="${polylinePointsToSvgD(layer.points, viewport, width, height)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}"${dashAttr} />`;
       }
       const color = layer.color ?? "#2563eb";
       const radius = layer.radius ?? 5;
