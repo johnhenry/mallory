@@ -1,5 +1,6 @@
 import { serve } from "srvx/node";
 import { serveStatic } from "srvx/static";
+import { attachCollabWebSocketServer } from "./collab-server.mjs";
 import handler from "./dist/server/server.js";
 
 const port = process.env.PORT || 3000;
@@ -26,5 +27,11 @@ const server = serve({
   middleware: [noCacheOnUnhashedStatic, serveStatic({ dir: "./dist/client" })],
   fetch: handler.fetch,
 });
+
+// Live collaboration (issue #47): a raw http.Server 'upgrade' handler --
+// see collab-server.mjs's own doc comment for why this can't be a normal
+// TanStack Start server route. server.node.server is srvx's own escape
+// hatch to the underlying Node http.Server it built internally.
+if (server.node?.server) attachCollabWebSocketServer(server.node.server);
 
 console.log(`Server running on http://${host}:${port}`);

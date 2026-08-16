@@ -578,3 +578,45 @@ test("many dynamically created/destroyed subscription-only cells do not accumula
   assert.equal(cells.size, 0, "no phantom cell records survive their subscribers going away");
   assert.equal(listeners.size, 0, "no empty listener Sets survive their subscribers going away");
 });
+
+test("subscribeWrites: fires on a real set() with the id and new value", () => {
+  const g = new CellGraph();
+  const writes: Array<{ id: string; value: unknown }> = [];
+  g.subscribeWrites((id, value) => writes.push({ id, value }));
+  g.set("a", 1);
+  g.set("a", 2);
+  assert.deepEqual(writes, [
+    { id: "a", value: 1 },
+    { id: "a", value: 2 },
+  ]);
+});
+
+test("subscribeWrites: does NOT fire for a no-op set() (structurally-identical value)", () => {
+  const g = new CellGraph();
+  const writes: unknown[] = [];
+  g.set("a", { x: 1 });
+  g.subscribeWrites((id, value) => writes.push({ id, value }));
+  g.set("a", { x: 1 }); // structurally equal to the existing value -- a no-op
+  assert.deepEqual(writes, []);
+});
+
+test("subscribeWrites: does NOT fire for a define()-driven recompute -- only raw set() calls, matching the live-collaboration use case (issue #47) of broadcasting user-initiated writes, not every derived cascade", () => {
+  const g = new CellGraph();
+  const writes: Array<{ id: string; value: unknown }> = [];
+  g.set("base", 1);
+  g.define("derived", () => g.get<number>("base") * 2);
+  g.subscribeWrites((id, value) => writes.push({ id, value }));
+  g.set("base", 5); // triggers "derived" to recompute on next get(), but that's not a set() call
+  g.get("derived");
+  assert.deepEqual(writes, [{ id: "base", value: 5 }], "only the raw set() on \"base\" should appear, never \"derived\"");
+});
+
+test("subscribeWrites: the returned unsubscribe function stops future notifications", () => {
+  const g = new CellGraph();
+  const writes: unknown[] = [];
+  const unsub = g.subscribeWrites((id, value) => writes.push({ id, value }));
+  g.set("a", 1);
+  unsub();
+  g.set("a", 2);
+  assert.deepEqual(writes, [{ id: "a", value: 1 }]);
+});
