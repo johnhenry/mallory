@@ -265,6 +265,47 @@ test("layersToSvgDocument: a histogram layer with an empty bins array is skipped
   assert.equal((svg.match(/<rect/g) ?? []).length, 0);
 });
 
+test("layersToSvgDocument: a slopefield layer's segment is hand-computed, matching drawSlopeField's screen-space-flip angle math", () => {
+  // viewport [-1,1]x[-1,1] on a 100x100 canvas: toScreenX(0)=50, toScreenY(0)=50.
+  // slope=1 -> angle=atan2(-1,1)=-pi/4 -> dx=8*cos(-pi/4)=5.65685, dy=8*sin(-pi/4)=-5.65685.
+  // Segment endpoints: (50-5.65685, 50-(-5.65685))=(44.34,55.66) to (50+5.65685, 50+(-5.65685))=(55.66,44.34) -- tilts up-right on screen for a positive slope.
+  const svg = layersToSvgDocument([{ kind: "slopefield", points: [{ x: 0, y: 0, slope: 1 }] }], { xMin: -1, xMax: 1, yMin: -1, yMax: 1 }, 100, 100);
+  assert.ok(svg.includes('<line x1="44.34" y1="55.66" x2="55.66" y2="44.34" stroke="rgba(37, 99, 235, 0.5)" stroke-width="1.5" />'));
+});
+
+test("layersToSvgDocument: a slopefield layer's custom color/halfLengthPx override drawSlopeField's own defaults", () => {
+  const svg = layersToSvgDocument(
+    [{ kind: "slopefield", points: [{ x: 0, y: 0, slope: 0 }], color: "#f97316", halfLengthPx: 4 }],
+    { xMin: -1, xMax: 1, yMin: -1, yMax: 1 },
+    100,
+    100,
+  );
+  // slope=0 -> angle=atan2(0,1)=0 -> horizontal segment of half-length 4 either side of (50,50).
+  assert.ok(svg.includes('<line x1="46.00" y1="50.00" x2="54.00" y2="50.00" stroke="#f97316" stroke-width="1.5" />'));
+});
+
+test("layersToSvgDocument: multiple slopefield points each produce their own <line>, and a slopefield layer with no points is skipped entirely", () => {
+  const svg = layersToSvgDocument(
+    [
+      {
+        kind: "slopefield",
+        points: [
+          { x: 0, y: 0, slope: 0 },
+          { x: 0.5, y: 0.5, slope: -1 },
+        ],
+      },
+    ],
+    { xMin: -1, xMax: 1, yMin: -1, yMax: 1 },
+    100,
+    100,
+    false,
+  );
+  assert.equal((svg.match(/<line/g) ?? []).length, 2);
+
+  const empty = layersToSvgDocument([{ kind: "slopefield", points: [] }], VIEWPORT, 100, 100, false);
+  assert.equal((empty.match(/<line/g) ?? []).length, 0);
+});
+
 test("layersToSvgDocument: a layer with an empty points array is skipped entirely, not emitted as a stray empty element", () => {
   const svg = layersToSvgDocument(
     [

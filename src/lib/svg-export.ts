@@ -164,8 +164,9 @@ export function scatterPointsToSvgDocument(
  * connected line, a `drawScatter`-style set of markers, a `drawPath`-style
  * mallory-math `Path2D` (its own stroke color/alpha/thickness, same as
  * `pathsToSvgDocument`, rather than the `color`/`strokeWidth` overrides the
- * plain-point-array kinds take), or a `drawHistogram`-style set of bin
- * bars. A `polyline` layer's optional `dash` maps straight to SVG's
+ * plain-point-array kinds take), a `drawHistogram`-style set of bin bars,
+ * or a `drawSlopeField`-style grid of undirected tangent-line segments. A
+ * `polyline` layer's optional `dash` maps straight to SVG's
  * `stroke-dasharray` -- for a `ctx.setLineDash([...])` reference line (e.g.
  * MonteCarloPanel's dashed pi-estimate line) alongside solid layers on the
  * same canvas.
@@ -174,7 +175,8 @@ export type SvgLayer =
   | { kind: "polyline"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; strokeWidth?: number; dash?: readonly number[] }
   | { kind: "scatter"; points: ReadonlyArray<{ x: number; y: number }>; color?: string; radius?: number }
   | { kind: "path"; path: MalloryPath }
-  | { kind: "histogram"; bins: ReadonlyArray<{ x0: number; x1: number; count: number }>; color?: string; strokeColor?: string };
+  | { kind: "histogram"; bins: ReadonlyArray<{ x0: number; x1: number; count: number }>; color?: string; strokeColor?: string }
+  | { kind: "slopefield"; points: ReadonlyArray<{ x: number; y: number; slope: number }>; halfLengthPx?: number; color?: string };
 
 /**
  * Wraps MULTIPLE layers of possibly-different kinds (polyline, scatter,
@@ -234,6 +236,21 @@ export function layersToSvgDocument(layers: readonly SvgLayer[], viewport: Viewp
         const strokeWidth = layer.strokeWidth ?? 1.5;
         const dashAttr = layer.dash && layer.dash.length > 0 ? ` stroke-dasharray="${layer.dash.join(" ")}"` : "";
         return `<path d="${polylinePointsToSvgD(layer.points, viewport, width, height)}" fill="none" stroke="${color}" stroke-width="${strokeWidth}"${dashAttr} />`;
+      }
+      if (layer.kind === "slopefield") {
+        const color = layer.color ?? "rgba(37, 99, 235, 0.5)";
+        const halfLengthPx = layer.halfLengthPx ?? 8;
+        return layer.points
+          .map((p) => {
+            const sx = toScreenX(p.x, viewport, width);
+            const sy = toScreenY(p.y, viewport, height);
+            // Screen-space y is flipped vs. data-space y, matching drawSlopeField's own angle convention.
+            const angle = Math.atan2(-p.slope, 1);
+            const dx = Math.cos(angle) * halfLengthPx;
+            const dy = Math.sin(angle) * halfLengthPx;
+            return `<line x1="${(sx - dx).toFixed(2)}" y1="${(sy - dy).toFixed(2)}" x2="${(sx + dx).toFixed(2)}" y2="${(sy + dy).toFixed(2)}" stroke="${color}" stroke-width="1.5" />`;
+          })
+          .join("\n");
       }
       const color = layer.color ?? "#2563eb";
       const radius = layer.radius ?? 5;

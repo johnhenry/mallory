@@ -9,11 +9,13 @@ import { drawAxes, drawPath, drawSlopeField, type Viewport } from "../lib/render
 import { attemptOdeClosedForm, type OdeClosedFormAttempt, sampleOdeSolution, sampleSlopeField, type SlopeFieldPoint } from "../lib/sample-ode.ts";
 import { DEFAULT_ODE_STATE, decodeOdeState, encodeOdeState, type OdeState } from "../lib/ode-state.ts";
 import { saveGraph } from "../lib/saved-graphs.ts";
+import { layersToSvgDocument, type SvgLayer } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { CopyableTex } from "./CopyableTex.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 type SolutionResult = { ok: true; path: Path2D } | { ok: false; message: string };
 type SlopeFieldResult = { ok: true; points: SlopeFieldPoint[] } | { ok: false; message: string };
@@ -249,6 +251,15 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="ode" />
+        <SvgExportButton
+          getSvg={() => {
+            const layers: SvgLayer[] = [];
+            if (slopeField.ok) layers.push({ kind: "slopefield", points: slopeField.points });
+            if (solution.ok) layers.push({ kind: "path", path: solution.path });
+            return layers.length > 0 ? layersToSvgDocument(layers, viewport, WIDTH, HEIGHT) : null;
+          }}
+          label="ode"
+        />
       </div>
       {(!solution.ok || !slopeField.ok) && (
         <p style={{ color: "var(--danger)" }}>{!solution.ok ? solution.message : !slopeField.ok ? slopeField.message : ""}</p>
