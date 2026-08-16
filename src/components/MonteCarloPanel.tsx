@@ -4,6 +4,7 @@ import { Rng } from "mallory-tensor-core";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMonteCarlo, type CellIdsMonteCarlo } from "../lib/cell-ids.ts";
 import { drawAxes, drawHistogram, drawPath, drawPolyline, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { toScreenX, toScreenY } from "../lib/viewport.ts";
 import {
   estimateDartPi,
   estimateMonteCarloIntegral,
@@ -135,6 +136,36 @@ export function histogramPlot(histResult: HistResult): HistogramPlot | null {
   const maxDensity = Math.max(...densityPath.commands.map((c) => c.y), 1e-9);
   const scaledDensityPath = { ...densityPath, commands: densityPath.commands.map((c) => ({ ...c, y: (c.y / maxDensity) * maxCount })) };
   return { viewport, bins, densityPath: scaledDensityPath };
+}
+
+export interface IntegrandPlot {
+  viewport: Viewport;
+  bandPoints: Array<{ x: number; yLow: number; yHigh: number }>;
+  estimatePoints: Array<{ x: number; y: number }>;
+  trueValueLine: Array<{ x: number; y: number }>;
+}
+
+/** Shared between the integrand canvas's draw effect and its SVG export (issue #45). */
+export function integrandPlot(integrandResult: IntegrandResult, revealedCheckpoints: number): IntegrandPlot | null {
+  if (!integrandResult.ok) return null;
+  const { trueValue, convergence, n } = integrandResult.result;
+  const shown = convergence.slice(0, revealedCheckpoints || convergence.length);
+  if (shown.length === 0) return null;
+  const bandLo = shown.map((c) => c.estimate - c.errorBand);
+  const bandHi = shown.map((c) => c.estimate + c.errorBand);
+  const yMin = Math.min(trueValue, ...bandLo);
+  const yMax = Math.max(trueValue, ...bandHi);
+  const pad = Math.max((yMax - yMin) * 0.1, 1e-6);
+  const viewport: Viewport = { xMin: 0, xMax: n, yMin: yMin - pad, yMax: yMax + pad };
+  return {
+    viewport,
+    bandPoints: shown.map((c) => ({ x: c.n, yLow: c.estimate - c.errorBand, yHigh: c.estimate + c.errorBand })),
+    estimatePoints: shown.map((c) => ({ x: c.n, y: c.estimate })),
+    trueValueLine: [
+      { x: viewport.xMin, y: trueValue },
+      { x: viewport.xMax, y: trueValue },
+    ],
+  };
 }
 
 function useMonteCarloGraph(cellId: string): CellGraph {
@@ -335,48 +366,40 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
     if (!ctx) return;
     const height = 220;
     ctx.clearRect(0, 0, WIDTH, height);
-    if (!integrandResult.ok) return;
-    const { trueValue, convergence, n } = integrandResult.result;
-    const shown = convergence.slice(0, revealedCheckpoints || convergence.length);
-    if (shown.length === 0) return;
-
-    const bandLo = shown.map((c) => c.estimate - c.errorBand);
-    const bandHi = shown.map((c) => c.estimate + c.errorBand);
-    const yMin = Math.min(trueValue, ...bandLo);
-    const yMax = Math.max(trueValue, ...bandHi);
-    const pad = Math.max((yMax - yMin) * 0.1, 1e-6);
-    const viewport: Viewport = { xMin: 0, xMax: n, yMin: yMin - pad, yMax: yMax + pad };
-    drawAxes(ctx, viewport, WIDTH, height);
+    const plot = integrandPlot(integrandResult, revealedCheckpoints);
+    if (!plot) return;
+    drawAxes(ctx, plot.viewport, WIDTH, height);
 
     ctx.save();
     ctx.fillStyle = "rgba(37, 99, 235, 0.15)";
     ctx.beginPath();
-    shown.forEach((c, i) => {
-      const sx = (c.n / n) * WIDTH;
-      const sy = height - ((c.estimate + c.errorBand - viewport.yMin) / (viewport.yMax - viewport.yMin)) * height;
+    plot.bandPoints.forEach((p, i) => {
+      const sx = toScreenX(p.x, plot.viewport, WIDTH);
+      const sy = toScreenY(p.yHigh, plot.viewport, height);
       if (i === 0) ctx.moveTo(sx, sy);
       else ctx.lineTo(sx, sy);
     });
-    for (let i = shown.length - 1; i >= 0; i--) {
-      const c = shown[i];
-      if (!c) continue;
-      const sx = (c.n / n) * WIDTH;
-      const sy = height - ((c.estimate - c.errorBand - viewport.yMin) / (viewport.yMax - viewport.yMin)) * height;
-      ctx.lineTo(sx, sy);
+    for (let i = plot.bandPoints.length - 1; i >= 0; i--) {
+      const p = plot.bandPoints[i];
+      if (!p) continue;
+      ctx.lineTo(toScreenX(p.x, plot.viewport, WIDTH), toScreenY(p.yLow, plot.viewport, height));
     }
     ctx.closePath();
     ctx.fill();
     ctx.restore();
 
-    drawPolyline(ctx, shown.map((c) => ({ x: c.n, y: c.estimate })), viewport, WIDTH, height, "#2563eb");
+    drawPolyline(ctx, plot.estimatePoints, plot.viewport, WIDTH, height, "#2563eb");
 
-    const trueY = height - ((trueValue - viewport.yMin) / (viewport.yMax - viewport.yMin)) * height;
     ctx.save();
     ctx.strokeStyle = "#9ca3af";
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.moveTo(0, trueY);
-    ctx.lineTo(WIDTH, trueY);
+    plot.trueValueLine.forEach((p, i) => {
+      const sx = toScreenX(p.x, plot.viewport, WIDTH);
+      const sy = toScreenY(p.y, plot.viewport, height);
+      if (i === 0) ctx.moveTo(sx, sy);
+      else ctx.lineTo(sx, sy);
+    });
     ctx.stroke();
     ctx.restore();
   }, [integrandResult, revealedCheckpoints]);
@@ -571,6 +594,19 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
       <canvas ref={integrandCanvasRef} width={WIDTH} height={220} style={{ border: "1px solid var(--border)", display: "block" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => integrandCanvasRef.current} label="monte-carlo-integrand" />
+        <SvgExportButton
+          getSvg={() => {
+            const plot = integrandPlot(integrandResult, revealedCheckpoints);
+            if (!plot) return null;
+            const layers: SvgLayer[] = [
+              { kind: "band", points: plot.bandPoints },
+              { kind: "polyline", points: plot.estimatePoints, color: "#2563eb" },
+              { kind: "polyline", points: plot.trueValueLine, color: "#9ca3af", dash: [4, 4] },
+            ];
+            return layersToSvgDocument(layers, plot.viewport, WIDTH, 220);
+          }}
+          label="monte-carlo-integrand"
+        />
       </div>
       {integrandResult.ok ? (
         <p>
