@@ -12,15 +12,27 @@ export interface GraphTheoryStateV1 {
   /**
    * Interactive editor (issue #24's remaining scope, item 1) -- optional,
    * same reasoning as every other panel's incrementally-added field: an old
-   * encoded URL hash from before this existed still decodes. Vertex
-   * POSITIONS are deliberately NOT part of this schema (ephemeral, see
-   * cellIdsGraphTheory's own doc comment) -- only the toggle and the
-   * default weight applied to the next drag-created edge.
+   * encoded URL hash from before this existed still decodes.
    */
   showEditor?: boolean;
   edgeWeight?: string;
   /** Step-by-step algorithm animation (issue #24's remaining scope, item 2) -- optional, same incrementally-added-field convention as showEditor above. */
   showAnimation?: boolean;
+  /**
+   * Editor-placed vertex positions (issue #24's remaining scope, item 3:
+   * "op-log persistence exactly like geometry-state.ts (replay-based)").
+   * Considered a full op-log/replay scheme mirroring geometry-state.ts's,
+   * but that mechanism exists there specifically because Reflect/Rotate/
+   * Scale results are DEPENDENT points with no free cell to serialize --
+   * this panel has no such case (every editor-placed vertex position is
+   * an independent value, same as every other field in this schema), so
+   * persisting the positions directly achieves the same "a shared/reloaded
+   * URL keeps the exact visual layout" goal without needing replay.
+   * Optional/omit-when-empty (not just cellIdsGraphTheory's own runtime
+   * default) so a graph never touched via the visual editor keeps a
+   * byte-identical encoded fragment to before this field existed.
+   */
+  vertexPositions?: Record<string, { x: number; y: number }>;
 }
 
 export type GraphTheoryState = GraphTheoryStateV1;
@@ -58,8 +70,14 @@ export function isGraphTheoryStateV1(value: unknown): value is GraphTheoryStateV
   if (v.showEditor !== undefined && typeof v.showEditor !== "boolean") return false;
   if (v.edgeWeight !== undefined && typeof v.edgeWeight !== "string") return false;
   if (v.showAnimation !== undefined && typeof v.showAnimation !== "boolean") return false;
+  if (v.vertexPositions !== undefined && !isVertexPositionsRecord(v.vertexPositions)) return false;
   const fields = ["edgeListText", "startVertex", "endVertex", "algorithm"] as const;
   return fields.every((f) => typeof v[f] === "string");
+}
+
+function isVertexPositionsRecord(value: unknown): value is Record<string, { x: number; y: number }> {
+  if (typeof value !== "object" || value === null) return false;
+  return Object.values(value).every((p) => typeof p === "object" && p !== null && typeof (p as { x: unknown }).x === "number" && typeof (p as { y: unknown }).y === "number");
 }
 
 function base64UrlEncode(input: string): string {

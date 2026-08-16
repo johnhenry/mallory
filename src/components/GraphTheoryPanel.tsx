@@ -70,6 +70,7 @@ function seedState(graph: CellGraph, ids: CellIdsGraphTheory, state: GraphTheory
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsGraphTheory): GraphTheoryState {
+  const vertexPositions = graph.get<Record<string, LayoutPoint>>(ids.vertexPositions);
   return {
     v: 1,
     edgeListText: graph.get<string>(ids.edgeListText),
@@ -80,6 +81,7 @@ function getCurrentState(graph: CellGraph, ids: CellIdsGraphTheory): GraphTheory
     showEditor: graph.get<boolean>(ids.showEditor),
     edgeWeight: graph.get<string>(ids.edgeWeight),
     showAnimation: graph.get<boolean>(ids.showAnimation),
+    ...(Object.keys(vertexPositions).length > 0 ? { vertexPositions } : {}),
   };
 }
 
@@ -92,10 +94,13 @@ function useGraphTheoryGraph(cellId: string): CellGraph {
     const ids = cellIdsGraphTheory(cellId);
     const decoded = typeof window !== "undefined" ? decodeGraphTheoryState(window.location.hash.slice(1)) : null;
     seedState(graph, ids, decoded ?? DEFAULT_GRAPH_THEORY_STATE);
-    // Editor-placed vertex positions (issue #24) -- ephemeral, not part of
-    // the URL-codable schema, same convention as MlPlaygroundPanel's
-    // drawnPoints (cell-ids.ts's own doc comment explains why).
-    if (!graph.has(ids.vertexPositions)) graph.set(ids.vertexPositions, {} as Record<string, LayoutPoint>, { auxiliary: true });
+    // Editor-placed vertex positions (issue #24's remaining scope, item 3):
+    // seeded from the decoded URL state when present, so a shared/reloaded
+    // link keeps the exact visual layout instead of falling back to
+    // circularLayout for editor-placed vertices.
+    if (!graph.has(ids.vertexPositions)) {
+      graph.set(ids.vertexPositions, (decoded?.vertexPositions ?? {}) as Record<string, LayoutPoint>, { auxiliary: true });
+    }
     if (!graph.has(TIME_CELL)) graph.set(TIME_CELL, 0, { auxiliary: true });
 
     graph.define(ids.graphResult, (): Result<Graph<string>> => {
