@@ -611,12 +611,13 @@ export function notebookCurveCellId(name: string): string {
   return `notebookCurve:${name}`;
 }
 
-export type CurveTransformOp = "derivative" | "integral";
+export type CurveTransformOp = "derivative" | "integral" | "difference";
 
-/** Cell-id namespacing for a "curve transform" notebook block (issue #35 item 2). */
+/** Cell-id namespacing for a "curve transform" notebook block (issue #35 item 2). `curveName2` is only read/shown for the `"difference"` op (the second curve, subtracted from `curveName`'s). */
 export function cellIdsCurveTransform(blockId: string) {
   return {
     curveName: `curveTransformName:${blockId}`,
+    curveName2: `curveTransformName2:${blockId}`,
     op: `curveTransformOp:${blockId}`,
     result: `curveTransformResult:${blockId}`,
   };

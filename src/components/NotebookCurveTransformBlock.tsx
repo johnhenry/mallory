@@ -2,7 +2,7 @@ import type { Path2D } from "mallory-math";
 import { useEffect, useRef } from "react";
 import type { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsCurveTransform, notebookCurveCellId, type CurveTransformOp } from "../lib/cell-ids.ts";
-import { derivativeCurve, integralCurve, type CurvePoint } from "../lib/curve-transform.ts";
+import { derivativeCurve, differenceCurve, integralCurve, type CurvePoint } from "../lib/curve-transform.ts";
 import { drawAxes, drawPolyline, type Viewport } from "../lib/render-path.ts";
 import { useCell } from "../lib/use-cell.ts";
 
@@ -25,11 +25,13 @@ export function NotebookCurveTransformBlock({
   blockId,
   initialCurveName,
   initialOp,
+  initialCurveName2,
 }: {
   graph: CellGraph;
   blockId: string;
   initialCurveName: string;
   initialOp: CurveTransformOp;
+  initialCurveName2: string;
 }) {
   const ids = cellIdsCurveTransform(blockId);
   const initRef = useRef(false);
@@ -37,6 +39,7 @@ export function NotebookCurveTransformBlock({
     initRef.current = true;
     if (!graph.hasValue(ids.curveName)) {
       graph.set(ids.curveName, initialCurveName);
+      graph.set(ids.curveName2, initialCurveName2);
       graph.set(ids.op, initialOp);
       graph.define(
         ids.result,
@@ -47,7 +50,15 @@ export function NotebookCurveTransformBlock({
           const path = graph.get<Path2D | undefined>(cellId);
           if (!name) return { ok: false, message: "Enter a curve name to reference (name a graph row to publish one)." };
           if (!graph.hasValue(cellId) || path === undefined) return { ok: false, message: `No curve named "${name}" is published yet.` };
-          return { ok: true, runs: op === "derivative" ? derivativeCurve(path) : integralCurve(path) };
+          if (op === "derivative") return { ok: true, runs: derivativeCurve(path) };
+          if (op === "integral") return { ok: true, runs: integralCurve(path) };
+          // op === "difference"
+          const name2 = graph.get<string>(ids.curveName2);
+          const cellId2 = notebookCurveCellId(name2);
+          const path2 = graph.get<Path2D | undefined>(cellId2);
+          if (!name2) return { ok: false, message: "Enter a second curve name to subtract." };
+          if (!graph.hasValue(cellId2) || path2 === undefined) return { ok: false, message: `No curve named "${name2}" is published yet.` };
+          return { ok: true, runs: differenceCurve(path, path2) };
         },
         { auxiliary: true },
       );
@@ -55,6 +66,7 @@ export function NotebookCurveTransformBlock({
   }
 
   const curveName = useCell<string>(graph, ids.curveName);
+  const curveName2 = useCell<string>(graph, ids.curveName2);
   const op = useCell<CurveTransformOp>(graph, ids.op);
   const result = useCell<Result>(graph, ids.result);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -100,8 +112,20 @@ export function NotebookCurveTransformBlock({
           <select value={op} onChange={(e) => graph.set(ids.op, e.target.value as CurveTransformOp)}>
             <option value="derivative">derivative</option>
             <option value="integral">running integral</option>
+            <option value="difference">difference (curve − curve 2)</option>
           </select>
         </label>
+        {op === "difference" && (
+          <label style={{ fontSize: "0.9rem" }}>
+            curve 2:{" "}
+            <input
+              value={curveName2}
+              onChange={(e) => graph.set(ids.curveName2, e.target.value)}
+              placeholder="e.g. g"
+              style={{ font: "inherit", width: "10ch" }}
+            />
+          </label>
+        )}
       </div>
       {result.ok ? (
         <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)", marginTop: "0.25rem" }} />

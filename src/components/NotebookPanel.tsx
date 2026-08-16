@@ -72,7 +72,7 @@ type Block =
   | { id: string; type: "geometry"; initialOps: GeometryOp[] }
   | { id: string; type: "tensor"; source: string; op: TensorOpType; opArg: number }
   | { id: string; type: "complex"; initialState: ComplexState }
-  | { id: string; type: "curve-transform"; initialCurveName: string; initialOp: CurveTransformOp };
+  | { id: string; type: "curve-transform"; initialCurveName: string; initialOp: CurveTransformOp; initialCurveName2: string };
 
 /**
  * Seeds a "graph" block's rows/viewport into `graph` (mirrors
@@ -130,7 +130,9 @@ function hydrateBlocks(graph: CellGraph, state: NotebookState): Block[] {
     if (b.type === "systems") return { id, type: "systems", initialState: b.state };
     if (b.type === "tensor") return { id, type: "tensor", source: b.source, op: b.op, opArg: b.opArg ?? 1 };
     if (b.type === "complex") return { id, type: "complex", initialState: b.state };
-    if (b.type === "curve-transform") return { id, type: "curve-transform", initialCurveName: b.curveName, initialOp: b.op };
+    if (b.type === "curve-transform") {
+      return { id, type: "curve-transform", initialCurveName: b.curveName, initialOp: b.op, initialCurveName2: b.curveName2 ?? "" };
+    }
     return { id, type: "geometry", initialOps: b.state.ops };
   });
 }
@@ -188,7 +190,8 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
         const ids = cellIdsCurveTransform(block.id);
         const curveName = graph.hasValue(ids.curveName) ? graph.get<string>(ids.curveName) : block.initialCurveName;
         const op = graph.hasValue(ids.op) ? graph.get<CurveTransformOp>(ids.op) : block.initialOp;
-        return { type: "curve-transform", curveName, op };
+        const curveName2 = graph.hasValue(ids.curveName2) ? graph.get<string>(ids.curveName2) : block.initialCurveName2;
+        return { type: "curve-transform", curveName, op, ...(curveName2 ? { curveName2 } : {}) };
       }
       return { type: "geometry", state: getCurrentGeometryState(graph, cellIdsGeometry(block.id)) };
     }),
@@ -395,7 +398,10 @@ export function NotebookPanel() {
   }
 
   function addCurveTransformBlock() {
-    setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "curve-transform", initialCurveName: "", initialOp: "derivative" }]);
+    setBlocks((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), type: "curve-transform", initialCurveName: "", initialOp: "derivative", initialCurveName2: "" },
+    ]);
   }
 
   function updateTensorSource(id: string, source: string) {
@@ -831,6 +837,7 @@ export function NotebookPanel() {
                 blockId={block.id}
                 initialCurveName={block.initialCurveName}
                 initialOp={block.initialOp}
+                initialCurveName2={block.initialCurveName2}
               />
             ) : (
               <NotebookGeometryBlock graph={graph} blockId={block.id} initialOps={block.initialOps} />
