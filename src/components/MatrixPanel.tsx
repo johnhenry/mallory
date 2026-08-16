@@ -1,7 +1,8 @@
 import type { ComplexNumber } from "mallory-math";
-import { useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMatrix, type CellIdsMatrix } from "../lib/cell-ids.ts";
+import { resolveMatrixChatCommand } from "../lib/matrix-chat-commands.ts";
 import {
   computeDecompositions,
   computeDeterminant,
@@ -172,6 +173,32 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
     graph.set(ids.matrixText, value);
   }
 
+  // MatrixPanel's first chat-command surface (issue #46's remaining scope,
+  // item 1: contextual commands like "invert this matrix" that read
+  // whatever's already entered, rather than the literal-bearing phrasings
+  // nl-query-matrix.ts's resolveMatrixNavigationCommand handles from a
+  // DIFFERENT panel's chat box). Mirrors GraphCanvas's own chat state/log
+  // shape, but resolveMatrixChatCommand only ever reads the graph -- it
+  // never mutates it, so there's no ChatCommandContext-style bundle of
+  // setters to pass through.
+  const [chatInput, setChatInput] = useState("");
+  const [chatLog, setChatLog] = useState<Array<{ input: string; ok: boolean; message: string }>>([]);
+  function handleChatSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const input = chatInput.trim();
+    if (!input) return;
+    const result = resolveMatrixChatCommand(input, { graph, ids });
+    setChatLog((log) => [
+      ...log,
+      {
+        input,
+        ok: result?.ok ?? false,
+        message: result?.message ?? `Didn't understand that. Try "invert this matrix", "determinant of this matrix", or "eigenvalues of this matrix".`,
+      },
+    ]);
+    setChatInput("");
+  }
+
   return (
     <div>
       <h2>Matrix</h2>
@@ -183,6 +210,27 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
           style={{ font: "inherit", fontFamily: "monospace", width: "30ch" }}
         />
       </div>
+      <form onSubmit={handleChatSubmit} style={{ margin: "0.5rem 0" }}>
+        <label>
+          Chat:{" "}
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder='"invert this matrix", "determinant of this matrix"...'
+            style={{ font: "inherit", width: "32ch" }}
+          />
+        </label>{" "}
+        <button type="submit">Send</button>
+        {chatLog.length > 0 && (
+          <ul style={{ fontSize: "0.85rem", listStyle: "none", padding: 0, margin: "0.25rem 0" }}>
+            {chatLog.slice(-5).map((entry, i) => (
+              <li key={i} style={{ color: entry.ok ? "inherit" : "var(--danger)" }}>
+                <strong>{entry.input}</strong> — {entry.message}
+              </li>
+            ))}
+          </ul>
+        )}
+      </form>
       <div style={{ margin: "0.5rem 0", display: "flex", gap: "2rem", flexWrap: "wrap" }}>
         <div>
           <p style={{ fontWeight: 600, margin: "0.25rem 0" }}>Determinant</p>
