@@ -23,12 +23,21 @@
  * inside a live server route handler. The lower-level primitives have no
  * such dependency (same precedent `saved-graphs.test.ts` already
  * established: it tests these primitives directly, never the wrapped
- * `createServerFn` exports). Write tools (save/set a document's cells)
- * are explicitly NOT included here -- true CellGraph-level session tools
- * (matching `useCellGraphTools`'s live get/set/list contract) need the
- * app's reactive compute graph running server-side with no DOM, a
- * materially bigger project than block-level gallery read access;
- * tracked as a follow-up rather than half-built into this ticket.
+ * `createServerFn` exports).
+ *
+ * A write tool, `gallery_save` (issue #163 item 1), is gated OFF by
+ * default behind `MALLORY_GRAPH_ENABLE_MCP_WRITE=1` (the `llmtm` hub's
+ * `LLMTM_HUB_ENABLE_*` convention -- a server-side write path this app
+ * otherwise has no auth in front of beyond whatever gates the domain
+ * itself) and only registered on the server when the env var is set, so
+ * an agent probing `tools/list` on a default deployment never even sees
+ * it exists. True CellGraph-level session tools (matching
+ * `useCellGraphTools`'s live get/set/list contract) are NOT included
+ * here -- that needs the app's reactive compute graph running
+ * server-side with no DOM, a materially bigger project than block-level
+ * gallery read/write; issue #163 item 2's own text calls for a
+ * feasibility spike first, not a build (see
+ * `cell-graph-headless-spike.test.ts`).
  *
  * A fresh `McpServer` is built per HTTP request (see
  * `src/routes/api.mcp.ts`), matching the MCP SDK's own documented
@@ -41,7 +50,33 @@
 import { buildServer } from "mallory-mcp";
 import { z } from "zod";
 import { GALLERY_SEEDS } from "./gallery-seeds.ts";
-import { getGalleryDb, getSavedGraphRecordState, listSavedGraphRecords, mergeGallerySummaries } from "./saved-graphs.ts";
+import {
+  getGalleryDb,
+  getSavedGraphRecordState,
+  insertSavedGraphRecord,
+  listSavedGraphRecords,
+  mergeGallerySummaries,
+  type SavedGraphKind,
+  type SavedGraphState,
+} from "./saved-graphs.ts";
+
+const SAVED_GRAPH_KINDS: SavedGraphKind[] = [
+  "multi",
+  "notebook",
+  "geometry",
+  "surface-3d",
+  "ode",
+  "ode-system",
+  "regression",
+  "statistics",
+  "systems",
+  "complex",
+];
+
+/** `llmtm` hub's `LLMTM_HUB_ENABLE_*` convention: an explicit opt-in env var, default OFF. */
+export function isMcpWriteEnabled(): boolean {
+  return process.env.MALLORY_GRAPH_ENABLE_MCP_WRITE === "1";
+}
 
 function ok(payload: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
@@ -92,6 +127,31 @@ export function buildGraphSessionServer() {
       }
     },
   );
+
+  if (isMcpWriteEnabled()) {
+    server.registerTool(
+      "gallery_save",
+      {
+        description:
+          "Save a new graph/notebook session to the Gallery, returning its id. DISABLED by default -- only present when the server has MALLORY_GRAPH_ENABLE_MCP_WRITE=1 set. `state` must be the exact SavedGraphState JSON shape for `kind` (the same shape gallery_get returns for an existing session of that kind).",
+        inputSchema: {
+          title: z.string(),
+          kind: z.enum(SAVED_GRAPH_KINDS as [SavedGraphKind, ...SavedGraphKind[]]),
+          state: z.record(z.string(), z.unknown()),
+        },
+      },
+      async ({ title, kind, state }) => {
+        try {
+          const db = await getGalleryDb();
+          const id = crypto.randomUUID();
+          insertSavedGraphRecord(db, { id, title: title.trim() || "Untitled", kind, createdAt: Date.now(), state: state as unknown as SavedGraphState });
+          return ok({ id });
+        } catch (e) {
+          return err(e);
+        }
+      },
+    );
+  }
 
   return server;
 }
