@@ -65,6 +65,33 @@ test("decodeNotebookState rejects a curve-transform block with a wrongly-typed c
   );
 });
 
+test("round-trips a tensor block with sourceMode/curveName set (issue #35's tensor-from-curve remaining scope)", () => {
+  const state = {
+    v: 1 as const,
+    blocks: [{ type: "tensor" as const, source: "", op: "none" as const, sourceMode: "curve" as const, curveName: "f" }],
+  };
+  const fragment = encodeNotebookState(state);
+  assert.deepEqual(decodeNotebookState(fragment), state);
+});
+
+test("decodeNotebookState accepts a pre-tensor-from-curve tensor block missing sourceMode/curveName entirely (an old encoded URL hash)", () => {
+  const badFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const decoded = decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "tensor", source: "1 2\n3 4", op: "none" }] }));
+  assert.notEqual(decoded, null);
+});
+
+test("decodeNotebookState rejects a tensor block with a wrongly-typed or unrecognized sourceMode/curveName", () => {
+  const badFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  assert.equal(
+    decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "tensor", source: "1", op: "none", sourceMode: "bogus" }] })),
+    null,
+  );
+  assert.equal(
+    decodeNotebookState(badFragment({ v: 1, blocks: [{ type: "tensor", source: "1", op: "none", curveName: 4 }] })),
+    null,
+  );
+});
+
 test("encoded fragment is URL-fragment-safe (no +, /, or = padding)", () => {
   const fragment = encodeNotebookState(DEFAULT_NOTEBOOK_STATE);
   assert.ok(!/[+/=]/.test(fragment), `fragment contains unsafe characters: ${fragment}`);

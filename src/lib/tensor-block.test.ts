@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyTensorOp, parseTensorGrid, summarizeTensor } from "./tensor-block.ts";
+import type { Path2D } from "mallory-math";
+import { applyTensorOp, curveToTensorGrid, parseTensorGrid, summarizeTensor } from "./tensor-block.ts";
+
+/** A minimal fake Path2D -- only `commands` is read by curveToTensorGrid, so `stroke` is a throwaway placeholder (mirrors curve-transform.test.ts's own fakePath). */
+function fakePath(points: Array<{ x: number; y: number }>): Path2D {
+  return {
+    stroke: { color: 0, alpha: 1, thickness: 1 },
+    commands: points.map((p, i) => ({ op: i === 0 ? "moveTo" : "lineTo", x: p.x, y: p.y })),
+  } as Path2D;
+}
 
 test("parseTensorGrid: spaces and commas both separate; one row per line; blank lines ignored", () => {
   assert.deepEqual(parseTensorGrid("1 2 3\n4, 5, 6"), [
@@ -117,4 +126,37 @@ test("summarizeTensor: shape and min/max/mean/sum via the library's own reductio
     [4, 5, 6],
   ]);
   assert.deepEqual(summary, { rows: 2, cols: 3, min: 1, max: 6, mean: 3.5, sum: 21 });
+});
+
+test("curveToTensorGrid: a curve under the sample cap keeps every point unchanged, hand-computed", () => {
+  const path = fakePath([
+    { x: 0, y: 0 },
+    { x: 1, y: 2 },
+    { x: 2, y: 4 },
+  ]);
+  assert.deepEqual(curveToTensorGrid(path), [
+    [0, 1, 2],
+    [0, 2, 4],
+  ]);
+});
+
+test("curveToTensorGrid: a curve over the sample cap is evenly strided down to at most maxSamples points, hand-computed", () => {
+  // 40 points, x=i, y=2i. stride = ceil(40/16) = 3 -> indices 0,3,6,...,39 (14 points, landing exactly on 39).
+  const points = Array.from({ length: 40 }, (_, i) => ({ x: i, y: 2 * i }));
+  const [xs, ys] = curveToTensorGrid(fakePath(points));
+  assert.deepEqual(xs, [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39]);
+  assert.deepEqual(ys, [0, 6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66, 72, 78]);
+});
+
+test("curveToTensorGrid: a custom maxSamples is honored, hand-computed", () => {
+  // 10 points, x=i, y=i. stride = ceil(10/3) = 4 -> indices 0,4,8 (3 points).
+  const points = Array.from({ length: 10 }, (_, i) => ({ x: i, y: i }));
+  assert.deepEqual(curveToTensorGrid(fakePath(points), 3), [
+    [0, 4, 8],
+    [0, 4, 8],
+  ]);
+});
+
+test("curveToTensorGrid: an empty curve (no samples yet) throws rather than returning an empty grid", () => {
+  assert.throws(() => curveToTensorGrid(fakePath([])), /no samples yet/);
 });

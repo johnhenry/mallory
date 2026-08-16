@@ -1,14 +1,19 @@
+import type { Path2D } from "mallory-math";
 import { useMemo } from "react";
+import type { CellGraph } from "../lib/cell-graph.ts";
+import { notebookCurveCellId } from "../lib/cell-ids.ts";
 import { finiteRange, heatCellColor } from "../lib/heatmap.ts";
 import {
   TENSOR_OPS_WITH_ARG,
   TENSOR_OP_LABELS,
   applyTensorOp,
+  curveToTensorGrid,
   parseTensorGrid,
   summarizeTensor,
   type TensorOpType,
   type TensorSummary,
 } from "../lib/tensor-block.ts";
+import { useCell } from "../lib/use-cell.ts";
 
 interface TensorView {
   result: number[][];
@@ -16,53 +21,106 @@ interface TensorView {
 }
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
+export type TensorSourceMode = "literal" | "curve";
 
 export interface NotebookTensorBlockProps {
+  graph: CellGraph;
   source: string;
+  sourceMode: TensorSourceMode;
+  curveName: string;
   op: TensorOpType;
   opArg: number;
   onSourceChange: (source: string) => void;
+  onSourceModeChange: (mode: TensorSourceMode) => void;
+  onCurveNameChange: (curveName: string) => void;
   onOpChange: (op: TensorOpType) => void;
   onOpArgChange: (opArg: number) => void;
 }
 
 /**
- * A small-tensor notebook block (issue #35 item 1): a hand-typed literal
- * grid, one tensor-core op applied for display, rendered as a table with
- * heatmap-colored cells (reusing heatmap.ts's shared color scale --
- * an HTML table rather than `drawHeatmap`'s canvas, since a hand-typed
- * <=16x16 grid reads better as selectable text than as pixels).
+ * A small-tensor notebook block (issue #35 item 1): either a hand-typed
+ * literal grid, or (issue #35's remaining scope, "a tensor block built
+ * from a curve's samples") a named published curve converted via
+ * `curveToTensorGrid` -- one tensor-core op applied for display either
+ * way, rendered as a table with heatmap-colored cells (reusing
+ * heatmap.ts's shared color scale -- an HTML table rather than
+ * `drawHeatmap`'s canvas, since a hand-typed <=16x16 grid reads better as
+ * selectable text than as pixels).
  *
- * Unlike graph/value blocks this holds NO CellGraph cells: the grid text
- * and op live in the block's own serialized state (see NotebookPanel's
- * Block union), and the parsed/derived view is a pure render-time compute.
- * Cross-block referencing (a tensor built FROM another block's curve, and
- * the whole-curve reference convention it needs) is issue #35's item 2,
- * still open.
+ * The literal-grid text/op/opArg still live entirely in the block's own
+ * serialized state (see NotebookPanel's Block union) with no CellGraph
+ * cells of their own. Curve mode is the one exception: it reads
+ * `notebookCurveCellId(curveName)` reactively via `useCell` (the same
+ * `get()`-before-`hasValue()` idiom `NotebookCurveTransformBlock` already
+ * uses) so the tensor stays live as the referenced curve resamples --
+ * `useCell` is called unconditionally on every render (not just in curve
+ * mode) since React hooks can't be called conditionally; reading an
+ * always-undefined cell in literal mode is harmless.
  */
-export function NotebookTensorBlock({ source, op, opArg, onSourceChange, onOpChange, onOpArgChange }: NotebookTensorBlockProps) {
+export function NotebookTensorBlock({
+  graph,
+  source,
+  sourceMode,
+  curveName,
+  op,
+  opArg,
+  onSourceChange,
+  onSourceModeChange,
+  onCurveNameChange,
+  onOpChange,
+  onOpArgChange,
+}: NotebookTensorBlockProps) {
+  const curveCellId = notebookCurveCellId(curveName);
+  const curvePath = useCell<Path2D | undefined>(graph, curveCellId);
+
   const view = useMemo<Result<TensorView>>(() => {
     try {
-      const grid = parseTensorGrid(source);
+      let grid: number[][];
+      if (sourceMode === "curve") {
+        if (!curveName) throw new Error("Enter a curve name to reference (name a graph row to publish one).");
+        if (!graph.hasValue(curveCellId) || curvePath === undefined) throw new Error(`No curve named "${curveName}" is published yet.`);
+        grid = curveToTensorGrid(curvePath);
+      } else {
+        grid = parseTensorGrid(source);
+      }
       const result = applyTensorOp(grid, op, opArg);
       return { ok: true, value: { result, summary: summarizeTensor(result) } };
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };
     }
-  }, [source, op, opArg]);
+  }, [source, sourceMode, curveName, curvePath, graph, curveCellId, op, opArg]);
 
   return (
     <div>
       <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-start" }}>
         <label style={{ fontSize: "0.9rem" }}>
-          tensor{" "}
-          <textarea
-            value={source}
-            onChange={(e) => onSourceChange(e.target.value)}
-            rows={4}
-            style={{ font: "inherit", fontFamily: "monospace", width: "24ch", verticalAlign: "top" }}
-          />
+          source:{" "}
+          <select value={sourceMode} onChange={(e) => onSourceModeChange(e.target.value as TensorSourceMode)}>
+            <option value="literal">literal grid</option>
+            <option value="curve">from a curve</option>
+          </select>
         </label>
+        {sourceMode === "literal" ? (
+          <label style={{ fontSize: "0.9rem" }}>
+            tensor{" "}
+            <textarea
+              value={source}
+              onChange={(e) => onSourceChange(e.target.value)}
+              rows={4}
+              style={{ font: "inherit", fontFamily: "monospace", width: "24ch", verticalAlign: "top" }}
+            />
+          </label>
+        ) : (
+          <label style={{ fontSize: "0.9rem" }}>
+            curve:{" "}
+            <input
+              value={curveName}
+              onChange={(e) => onCurveNameChange(e.target.value)}
+              placeholder="e.g. f"
+              style={{ font: "inherit", width: "10ch" }}
+            />
+          </label>
+        )}
         <label style={{ fontSize: "0.9rem" }}>
           op:{" "}
           <select value={op} onChange={(e) => onOpChange(e.target.value as TensorOpType)}>
