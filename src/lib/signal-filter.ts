@@ -4,11 +4,13 @@
  * magnitude/phase response) -> `sosFilter` (apply to the waveform) ->
  * `welch` (before/after power spectral density comparison).
  *
- * v1 scope, matching `mallory-signal@0.1.0`'s own disclosed gap: `btype`
- * is `"lowpass" | "highpass"` only -- `butter`'s own doc comment says
- * bandpass/bandstop need a second frequency transform (`lp2bp_zpk`/
- * `lp2bs_zpk`) it doesn't implement yet, so this module doesn't offer
- * "band" either; filed as johnhenry/mallory-plus#90 to track upstream.
+ * `btype` is `"lowpass" | "highpass" | "bandpass" | "bandstop"` (the
+ * `"band"` types shipped in johnhenry/mallory-plus#90, previously
+ * blocked -- see this module's git history for the disclosed-gap era).
+ * `designFilter`'s own `cutoffHz` overloads mirror `butter`'s: a single
+ * Hz number for lowpass/highpass, a `[low, high]` Hz pair for the band
+ * types, both converted to `butter`'s normalized `wn` convention (1 = the
+ * Nyquist frequency) via the same `hz / nyquist` division either way.
  */
 import { butter, freqz, sosFilter, welch, type FilterType, type Sos } from "mallory-signal";
 import { Tensor } from "mallory-tensor-core";
@@ -16,16 +18,34 @@ import type { Waveform } from "./signal-waveform.ts";
 
 export type { FilterType, Sos } from "mallory-signal";
 
+function toWn(cutoffHz: number, nyquist: number): number {
+  const wn = cutoffHz / nyquist;
+  if (!(wn > 0 && wn < 1)) throw new Error(`Cutoff frequency must be strictly between 0 and the Nyquist frequency (${nyquist}Hz).`);
+  return wn;
+}
+
 /**
  * Designs a digital Butterworth filter given a cutoff in Hz (converted to
  * `butter`'s normalized `wn` convention, where 1 = the Nyquist frequency).
+ * `cutoffHz` is a single number for lowpass/highpass, a `[low, high]` pair
+ * for bandpass/bandstop -- matching `butter`'s own overloaded `wn` shape
+ * one level up (a caller with a statically-known `btype` gets the same
+ * compile-time enforcement `butter` itself provides).
  */
-export function designFilter(order: number, cutoffHz: number, sampleRate: number, btype: FilterType): Sos {
+export function designFilter(order: number, cutoffHz: number, sampleRate: number, btype: "lowpass" | "highpass"): Sos;
+export function designFilter(order: number, cutoffHz: readonly [number, number], sampleRate: number, btype: "bandpass" | "bandstop"): Sos;
+export function designFilter(order: number, cutoffHz: number | readonly [number, number], sampleRate: number, btype: FilterType): Sos {
   if (!Number.isInteger(order) || order < 1) throw new Error("Filter order must be a positive integer.");
   const nyquist = sampleRate / 2;
-  const wn = cutoffHz / nyquist;
-  if (!(wn > 0 && wn < 1)) throw new Error(`Cutoff frequency must be strictly between 0 and the Nyquist frequency (${nyquist}Hz).`);
-  return butter(order, wn, { btype });
+  if (btype === "bandpass" || btype === "bandstop") {
+    if (typeof cutoffHz === "number") throw new Error(`${btype} needs two cutoff frequencies (low and high), got one.`);
+    const [lowHz, highHz] = cutoffHz;
+    if (!(lowHz < highHz)) throw new Error("The low cutoff frequency must be less than the high cutoff frequency.");
+    const wn: [number, number] = [toWn(lowHz, nyquist), toWn(highHz, nyquist)];
+    return butter(order, wn, { btype });
+  }
+  if (typeof cutoffHz !== "number") throw new Error(`${btype} needs a single cutoff frequency, got two.`);
+  return butter(order, toWn(cutoffHz, nyquist), { btype });
 }
 
 /** Applies `sos` to `waveform.y` via `sosFilter`, keeping the same `t`/`sampleRate`. */

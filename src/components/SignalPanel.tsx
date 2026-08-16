@@ -154,6 +154,7 @@ function seedSignalState(graph: CellGraph, ids: CellIdsSignal, state: SignalStat
   graph.set(ids.filterType, state.filterType ?? DEFAULT_SIGNAL_STATE.filterType);
   graph.set(ids.filterOrder, state.filterOrder ?? DEFAULT_SIGNAL_STATE.filterOrder);
   graph.set(ids.filterCutoffHz, state.filterCutoffHz ?? DEFAULT_SIGNAL_STATE.filterCutoffHz);
+  graph.set(ids.filterCutoffHzHigh, state.filterCutoffHzHigh ?? DEFAULT_SIGNAL_STATE.filterCutoffHzHigh);
 }
 
 function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalState {
@@ -179,6 +180,7 @@ function getCurrentSignalState(graph: CellGraph, ids: CellIdsSignal): SignalStat
     filterType: graph.get<string>(ids.filterType),
     filterOrder: graph.get<string>(ids.filterOrder),
     filterCutoffHz: graph.get<string>(ids.filterCutoffHz),
+    filterCutoffHzHigh: graph.get<string>(ids.filterCutoffHzHigh),
   };
 }
 
@@ -303,6 +305,11 @@ function useSignalGraph(cellId: string): CellGraph {
         const order = Number(graph.get<string>(ids.filterOrder));
         const cutoffHz = Number(graph.get<string>(ids.filterCutoffHz));
         if (Number.isNaN(order) || Number.isNaN(cutoffHz)) throw new Error("Filter order and cutoff must both be numbers.");
+        if (filterType === "bandpass" || filterType === "bandstop") {
+          const cutoffHzHigh = Number(graph.get<string>(ids.filterCutoffHzHigh));
+          if (Number.isNaN(cutoffHzHigh)) throw new Error("The high cutoff must be a number.");
+          return { ok: true, value: designFilter(order, [cutoffHz, cutoffHzHigh], waveform.value.sampleRate, filterType) };
+        }
         return { ok: true, value: designFilter(order, cutoffHz, waveform.value.sampleRate, filterType) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -429,6 +436,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const filterType = useCell<string>(graph, ids.filterType);
   const filterOrder = useCell<string>(graph, ids.filterOrder);
   const filterCutoffHz = useCell<string>(graph, ids.filterCutoffHz);
+  const filterCutoffHzHigh = useCell<string>(graph, ids.filterCutoffHzHigh);
   const filteredWaveformResult = useCell<Result<Waveform>>(graph, ids.filteredWaveformResult);
   const bodeResult = useCell<Result<BodePoint[]>>(graph, ids.bodeResult);
   const psdBeforeResult = useCell<Result<PsdPoint[]>>(graph, ids.psdBeforeResult);
@@ -485,6 +493,9 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
       graph.set(ids.showFilter, true);
       graph.set(ids.filterType, filterCommand.filterType);
       graph.set(ids.filterCutoffHz, filterCommand.filterCutoffHz);
+      if (filterCommand.filterType === "bandpass" || filterCommand.filterType === "bandstop") {
+        graph.set(ids.filterCutoffHzHigh, filterCommand.filterCutoffHzHigh);
+      }
       setExprInput(exprText);
       return;
     }
@@ -1042,6 +1053,8 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
                   <select value={filterType} onChange={(e) => graph.set(ids.filterType, e.target.value)}>
                     <option value="lowpass">lowpass</option>
                     <option value="highpass">highpass</option>
+                    <option value="bandpass">bandpass</option>
+                    <option value="bandstop">bandstop</option>
                   </select>
                 </label>
                 <label>
@@ -1056,7 +1069,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
                   />
                 </label>
                 <label>
-                  cutoff (Hz):{" "}
+                  {filterType === "bandpass" || filterType === "bandstop" ? "cutoff low (Hz):" : "cutoff (Hz):"}{" "}
                   <input
                     type="number"
                     min={0}
@@ -1066,15 +1079,24 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
                     style={{ font: "inherit", width: "8ch" }}
                   />
                 </label>
+                {(filterType === "bandpass" || filterType === "bandstop") && (
+                  <label>
+                    cutoff high (Hz):{" "}
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={filterCutoffHzHigh}
+                      onChange={(e) => graph.set(ids.filterCutoffHzHigh, e.target.value)}
+                      style={{ font: "inherit", width: "8ch" }}
+                    />
+                  </label>
+                )}
               </>
             )}
           </div>
           {showFilter && (
             <>
-              <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0" }}>
-                Bandpass/bandstop aren't available yet -- mallory-signal's <code>butter()</code> only implements lowpass/highpass
-                (johnhenry/mallory-plus#90 tracks the upstream gap).
-              </p>
               {!bodeResult.ok && <p style={{ color: "var(--danger)" }}>{bodeResult.message}</p>}
 
               <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Bode plot -- magnitude (dB)</p>

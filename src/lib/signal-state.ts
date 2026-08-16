@@ -74,6 +74,8 @@ export interface SignalStateV2 {
   filterType?: string;
   filterOrder?: string;
   filterCutoffHz?: string;
+  /** Only read/shown for bandpass/bandstop (mallory-plus#90's unblock) -- `filterCutoffHz` doubles as the LOW cutoff for those two types. Optional for the same reason as every other field above: an old encoded URL from before bandpass/bandstop existed still decodes. */
+  filterCutoffHzHigh?: string;
 }
 
 export type SignalState = SignalStateV2;
@@ -106,6 +108,7 @@ export const DEFAULT_SIGNAL_STATE: SignalState = {
   filterType: "lowpass",
   filterOrder: "4",
   filterCutoffHz: "10",
+  filterCutoffHzHigh: "20",
 };
 
 export function encodeSignalState(state: SignalState): string {
@@ -160,6 +163,7 @@ export function isSignalStateV2(value: unknown): value is SignalStateV2 {
     "filterType",
     "filterOrder",
     "filterCutoffHz",
+    "filterCutoffHzHigh",
   ] as const;
   return optionalStringFields.every((f) => v[f] === undefined || typeof v[f] === "string");
 }
