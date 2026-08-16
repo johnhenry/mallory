@@ -20,6 +20,7 @@ import {
   type PatternType,
 } from "../lib/image-frequency.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useLiveCameraFrame } from "../lib/live-input.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { canvasEventPoint } from "../lib/viewport.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -37,6 +38,7 @@ const PATTERN_LABELS: Record<PatternType, string> = {
   gradient: "Gradient",
   moire: "Moire (two gratings)",
   upload: "Upload an image",
+  "live-camera": "Live camera",
 };
 
 const MASK_LABELS: Record<MaskType, string> = {
@@ -109,9 +111,13 @@ function useImageFrequencyGraph(cellId: string): CellGraph {
           throw new Error("Size, radii, and wedge angle/width must all be numbers.");
         }
         let source: number[][];
-        if (pattern === "upload") {
+        if (pattern === "upload" || pattern === "live-camera") {
+          // Live-camera (issue #204's v1 pilot) reuses the SAME uploadedGrid
+          // cell "upload" already reads -- structurally identical
+          // consumption, just written by a RAF loop instead of a one-shot
+          // FileReader (see useLiveCameraFrame in live-input.ts).
           const uploaded = graph.get<number[][] | null>(ids.uploadedGrid);
-          if (!uploaded) throw new Error("Choose an image file to upload first.");
+          if (!uploaded) throw new Error(pattern === "upload" ? "Choose an image file to upload first." : "Waiting for the first camera frame…");
           source = uploaded;
         } else {
           source = generatePattern(pattern, size);
@@ -157,6 +163,13 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
   const wedgeWidth = useCell<string>(graph, ids.wedgeWidth);
   const result = useCell<Result<FrequencyResult>>(graph, ids.result);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Live camera (issue #204's v1 pilot): feeds the SAME uploadedGrid cell
+  // "upload" writes to (see the result define's own comment) -- only
+  // active while pattern === "live-camera", so switching away stops the
+  // stream via the hook's own enabled-flip cleanup.
+  const liveCamera = useLiveCameraFrame(pattern === "live-camera", (data, width, height) => {
+    graph.set(ids.uploadedGrid, rgbaToGrayscaleGrid(data, width, height));
+  });
   // Which value a paint stroke sets cells to -- ephemeral UI state (like
   // MlPlaygroundPanel's drawLabel), not persisted.
   const [paintValue, setPaintValue] = useState<0 | 1>(0);
@@ -312,6 +325,12 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
           <label style={{ fontSize: "0.9rem" }}>
             choose a file: <input type="file" accept="image/*" onChange={(e) => handleFile(e.target.files?.[0])} />
           </label>
+        </div>
+      )}
+      {pattern === "live-camera" && (
+        <div style={{ margin: "0.25rem 0", fontSize: "0.85rem" }}>
+          <span style={{ color: liveCamera.active ? "var(--muted)" : "inherit" }}>{liveCamera.active ? "Camera live -- point it at something." : "Requesting camera access…"}</span>
+          {liveCamera.error && <p style={{ color: "var(--danger)" }}>{liveCamera.error}</p>}
         </div>
       )}
       {uploadError && <p style={{ color: "var(--danger)" }}>{uploadError}</p>}

@@ -43,6 +43,10 @@ test('generatePattern: "upload" is a valid PatternType but generatePattern itsel
   assert.throws(() => generatePattern("upload", 32), /does not handle "upload"/);
 });
 
+test('generatePattern: "live-camera" is a valid PatternType but generatePattern itself refuses to handle it (the caller must read the live camera grid instead)', () => {
+  assert.throws(() => generatePattern("live-camera", 32), /does not handle "live-camera"/);
+});
+
 test("rgbaToGrayscaleGrid: hand-computed against ITU-R BT.601 luma weights (0.299R + 0.587G + 0.114B) for pure red/green/blue/white pixels", () => {
   // 2x2 RGBA: (255,0,0) (0,255,0) / (0,0,255) (255,255,255), all alpha 255 (ignored).
   const data = new Uint8ClampedArray([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255]);

@@ -469,6 +469,10 @@ export function cellIdsSignal(cellId: string) {
     bodeResult: `signalBodeResult:${cellId}`,
     psdBeforeResult: `signalPsdBeforeResult:${cellId}`,
     psdAfterResult: `signalPsdAfterResult:${cellId}`,
+    /** Live-microphone toggle (issue #204's v1 pilot). Deliberately NOT part of the persisted URL schema -- always defaults off on load, even from a shared link, matching the design's own "never silently request mic access on page load" decision. */
+    liveMic: `signalLiveMic:${cellId}`,
+    /** The most recently sampled live-mic Waveform, or null before the first sample arrives -- auxiliary/ephemeral like ImageFrequencyPanel's uploadedGrid, for the same reason (can't live in the URL hash). waveformResult reads this INSTEAD of sampling exprText while liveMic is on. */
+    liveWaveformOverride: `signalLiveWaveformOverride:${cellId}`,
   };
 }
 
