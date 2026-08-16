@@ -15,6 +15,7 @@ import { evaluateExactAt } from "../lib/exact-eval.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { resolveNavigationCommand } from "../lib/nav-sections.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";
+import { resolveMatrixNavigationCommand } from "../lib/nl-query-matrix.ts";
 import { drawAxes, drawFilledArea, drawPath, drawPoint, drawRegionMask, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { sampleExpr, sampleExprAdaptive, sampleRegionMask } from "../lib/sample-function.ts";
 import { sampleStructureExpr, type ScatterPoint } from "../lib/sample-structure.ts";
@@ -549,11 +550,21 @@ export function GraphCanvas({
   // checked FIRST, before resolveChatCommand -- issue #46's "routing
   // layer" item -- since they're a router action (leaving this panel
   // entirely), not a CellGraph mutation resolveChatCommand's
-  // ChatCommandContext has no way to express.
+  // ChatCommandContext has no way to express. The matrix-literal
+  // state-prefilled resolver is checked ahead of the bare-path one since
+  // it's the more specific match (a literal-bearing phrasing, not just a
+  // section name) -- issue #46's "State-prefilled navigation" item.
   function handleChatSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const input = chatInput.trim();
     if (!input) return;
+    const matrixNav = resolveMatrixNavigationCommand(input);
+    if (matrixNav) {
+      setChatLog((log) => [...log, { input, ok: true, message: "Navigating to the matrix panel…" }]);
+      setChatInput("");
+      navigate(matrixNav);
+      return;
+    }
     const navPath = resolveNavigationCommand(input);
     if (navPath) {
       setChatLog((log) => [...log, { input, ok: true, message: `Navigating to ${navPath}…` }]);
