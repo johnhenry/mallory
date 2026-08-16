@@ -114,3 +114,21 @@ test("encodeSignalState/decodeSignalState: round-trips the full state including 
   const decoded = decodeSignalState(encodeSignalState(state));
   assert.deepEqual(decoded, state);
 });
+
+test("isSignalStateV2: accepts a v2 state missing the filter-design fields entirely (an old encoded URL hash from before that feature existed)", () => {
+  const preFilterState = { v: 2, exprText: "sin(t)", sampleRate: "64", duration: "1", nperseg: "16", noverlap: "8" };
+  assert.equal(isSignalStateV2(preFilterState), true);
+});
+
+test("isSignalStateV2: rejects a filter-design field with the wrong type when present", () => {
+  const badShowFilter = { ...DEFAULT_SIGNAL_STATE, showFilter: "yes" };
+  assert.equal(isSignalStateV2(badShowFilter), false);
+  const badFilterOrder = { ...DEFAULT_SIGNAL_STATE, filterOrder: 4 };
+  assert.equal(isSignalStateV2(badFilterOrder), false);
+});
+
+test("encodeSignalState/decodeSignalState: round-trips the full state including filter-design fields", () => {
+  const state = { ...DEFAULT_SIGNAL_STATE, showFilter: true, filterType: "highpass", filterOrder: "6", filterCutoffHz: "20" };
+  const decoded = decodeSignalState(encodeSignalState(state));
+  assert.deepEqual(decoded, state);
+});
