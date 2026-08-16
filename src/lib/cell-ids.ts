@@ -684,6 +684,13 @@ export function cellIdsParametric(cellId: string) {
     tMin: `paramTMin:${cellId}`,
     tMax: `paramTMax:${cellId}`,
     path: `paramPath:${cellId}`,
+    // Pan/zoom (issue #53): unlike GraphCanvas, `path` is sampled purely
+    // over the t/theta domain above, never the x/y viewport -- so panning
+    // and zooming here are pure re-renders with zero resampling, and
+    // `liveViewport` exists only to skip a redundant commit write on every
+    // pointermove tick, not to avoid a resample.
+    viewport: `paramViewport:${cellId}`,
+    liveViewport: `paramLiveViewport:${cellId}`,
   };
 }
 
