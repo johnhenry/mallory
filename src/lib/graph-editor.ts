@@ -54,6 +54,28 @@ function columnLabel(n: number): string {
   return label;
 }
 
+/**
+ * Appends one line to an edge-list text, on its own line -- the shared
+ * "how does a new vertex/edge join the existing text" rule the pointer
+ * handlers, the WebMCP construction tools (issue #24's remaining scope,
+ * item 4), and any future third writer all need identically. A blank
+ * starting text (the empty-graph case) gets just the new line, not a
+ * leading blank line.
+ */
+function appendEdgeListLine(edgeListText: string, line: string): string {
+  return edgeListText.trim().length > 0 ? `${edgeListText}\n${line}` : line;
+}
+
+/** Appends an isolated-vertex declaration line (see `parseEdgeListText`'s own "a line with just one token declares an isolated vertex" rule). */
+export function appendVertexLine(edgeListText: string, label: string): string {
+  return appendEdgeListLine(edgeListText, label);
+}
+
+/** Appends a weighted-edge declaration line ("from to weight", `parseEdgeListText`'s 3-token form). */
+export function appendEdgeLine(edgeListText: string, from: string, to: string, weight: number): string {
+  return appendEdgeListLine(edgeListText, `${from} ${to} ${weight}`);
+}
+
 export interface ScreenPoint {
   sx: number;
   sy: number;
