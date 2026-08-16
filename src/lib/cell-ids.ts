@@ -283,6 +283,13 @@ export function cellIdsFourier(cellId: string) {
     waveType: `fourierWaveType:${cellId}`,
     harmonics: `fourierHarmonics:${cellId}`,
     samples: `fourierSamples:${cellId}`,
+    // Pan/zoom (issue #53): unlike ParametricPanel, `samples` is computed
+    // directly over the viewport's own x-range (sampleFourierPartialSum
+    // reads VIEWPORT.xMin/xMax), so panning past the original domain needs
+    // a real resample -- `viewport` is read reactively inside `samples`'s
+    // compute body, same GraphCanvas (#184) pattern.
+    viewport: `fourierViewport:${cellId}`,
+    liveViewport: `fourierLiveViewport:${cellId}`,
   };
 }
 

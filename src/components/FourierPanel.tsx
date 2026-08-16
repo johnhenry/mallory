@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsFourier, type CellIdsFourier } from "../lib/cell-ids.ts";
 import {
@@ -12,6 +12,8 @@ import { drawAxes, drawPolyline, type Viewport } from "../lib/render-path.ts";
 import { polylineToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { canvasEventPoint, toDataX, toDataY } from "../lib/viewport.ts";
+import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 
@@ -19,7 +21,9 @@ const WIDTH = 600;
 const HEIGHT = 300;
 const SAMPLE_COUNT = 400;
 const X_RANGE = 2 * Math.PI;
-const VIEWPORT: Viewport = { xMin: -X_RANGE, xMax: X_RANGE, yMin: -1.4, yMax: 1.4 };
+const INITIAL_VIEWPORT: Viewport = { xMin: -X_RANGE, xMax: X_RANGE, yMin: -1.4, yMax: 1.4 };
+const ZOOM_STEP = 1.1;
+const ZOOM_COMMIT_DEBOUNCE_MS = 150;
 
 function seedFourierState(graph: CellGraph, ids: CellIdsFourier, state: FourierState): void {
   graph.set(ids.waveType, state.waveType);
@@ -45,6 +49,8 @@ function useFourierGraph(cellId: string): CellGraph {
     const ids = cellIdsFourier(cellId);
     const decoded = typeof window !== "undefined" ? decodeFourierState(window.location.hash.slice(1)) : null;
     seedFourierState(graph, ids, decoded ?? DEFAULT_FOURIER_STATE);
+    graph.set(ids.viewport, INITIAL_VIEWPORT, { auxiliary: true });
+    graph.set<Viewport | null>(ids.liveViewport, null, { auxiliary: true });
 
     graph.define(ids.samples, (): SamplesResult => {
       try {
@@ -54,7 +60,11 @@ function useFourierGraph(cellId: string): CellGraph {
         if (!Number.isFinite(harmonics) || !Number.isInteger(harmonics)) throw new Error("Harmonics must be a whole number.");
         if (harmonics < 0) throw new Error("Harmonics must be zero or a positive integer.");
         if (harmonics > 500) throw new Error("Harmonics is capped at 500 -- higher counts don't change the picture, just the compute cost.");
-        return { ok: true, value: sampleFourierPartialSum(waveType, harmonics, VIEWPORT.xMin, VIEWPORT.xMax, SAMPLE_COUNT) };
+        // Reads the COMMITTED viewport (ids.viewport), not a live mid-gesture
+        // override (ids.liveViewport) -- panning/pinching only resamples
+        // once, on gesture release, matching GraphCanvas's #184 convention.
+        const vp = graph.get<Viewport>(ids.viewport);
+        return { ok: true, value: sampleFourierPartialSum(waveType, harmonics, vp.xMin, vp.xMax, SAMPLE_COUNT) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
@@ -82,6 +92,20 @@ export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {})
   const waveType = useCell<FourierWaveType>(graph, ids.waveType);
   const harmonics = useCell<string>(graph, ids.harmonics);
   const samples = useCell<SamplesResult>(graph, ids.samples);
+  const committedViewport = useCell<Viewport>(graph, ids.viewport);
+  const liveViewport = useCell<Viewport | null>(graph, ids.liveViewport);
+  const viewport = liveViewport ?? committedViewport;
+
+  // Pan/pinch gesture state (issue #53), mirroring GraphCanvas/ParametricPanel.
+  // No draggable handle on this canvas, so every pointerdown is a pinch
+  // (2+ pointers) or a pan.
+  const gestureRef = useRef<
+    | { kind: "pan"; anchorX: number; anchorY: number; spanX: number; spanY: number }
+    | { kind: "pinch"; anchorX: number; anchorY: number; spanX: number; spanY: number; startDistancePx: number }
+    | null
+  >(null);
+  const activePointersRef = useRef<Map<number, { sx: number; sy: number }>>(new Map());
+  const zoomCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [harmonicsInput, setHarmonicsInput] = useState(harmonics);
   useEffect(() => {
@@ -98,10 +122,16 @@ export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {})
   }, [graph]);
 
   useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    drawAxes(ctx, VIEWPORT, WIDTH, HEIGHT);
+    drawAxes(ctx, viewport, WIDTH, HEIGHT);
     if (!samples.ok) return;
     ctx.save();
     ctx.strokeStyle = "var(--muted)";
@@ -114,15 +144,120 @@ export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {})
       // the actual step function, so a large y-gap between adjacent samples
       // starts a new subpath instead of a lineTo.
       const prev = samples.value.target[i - 1];
-      const sx = ((p.x - VIEWPORT.xMin) / (VIEWPORT.xMax - VIEWPORT.xMin)) * WIDTH;
-      const sy = HEIGHT - ((p.y - VIEWPORT.yMin) / (VIEWPORT.yMax - VIEWPORT.yMin)) * HEIGHT;
+      const sx = ((p.x - viewport.xMin) / (viewport.xMax - viewport.xMin)) * WIDTH;
+      const sy = HEIGHT - ((p.y - viewport.yMin) / (viewport.yMax - viewport.yMin)) * HEIGHT;
       if (i === 0 || (prev && Math.abs(p.y - prev.y) > 0.5)) ctx.moveTo(sx, sy);
       else ctx.lineTo(sx, sy);
     });
     ctx.stroke();
     ctx.restore();
-    drawPolyline(ctx, samples.value.partial, VIEWPORT, WIDTH, HEIGHT, "#2563eb");
-  }, [samples]);
+    drawPolyline(ctx, samples.value.partial, viewport, WIDTH, HEIGHT, "#2563eb");
+  }, [samples, viewport]);
+
+  /** Copies a pending live-viewport override into the committed viewport (the gesture-end resample) -- shared by pan/pinch release and the wheel-zoom debounce below. */
+  function commitLiveViewport() {
+    const live = graph.get<Viewport | null>(ids.liveViewport);
+    if (!live) return;
+    graph.set(ids.viewport, live);
+    graph.set<Viewport | null>(ids.liveViewport, null);
+  }
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLCanvasElement>) {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    commitLiveViewport();
+
+    const downPoint = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    activePointersRef.current.set(e.pointerId, downPoint);
+
+    if (activePointersRef.current.size >= 2) {
+      const [p1, p2] = [...activePointersRef.current.values()].slice(-2) as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
+      gestureRef.current = {
+        kind: "pinch",
+        anchorX: toDataX(midSx, vp, WIDTH),
+        anchorY: toDataY(midSy, vp, HEIGHT),
+        spanX: vp.xMax - vp.xMin,
+        spanY: vp.yMax - vp.yMin,
+        startDistancePx: Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy),
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    const vp = graph.get<Viewport>(ids.viewport);
+    const { sx, sy } = downPoint;
+    gestureRef.current = {
+      kind: "pan",
+      anchorX: toDataX(sx, vp, WIDTH),
+      anchorY: toDataY(sy, vp, HEIGHT),
+      spanX: vp.xMax - vp.xMin,
+      spanY: vp.yMax - vp.yMin,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handlePointerMove(e: ReactPointerEvent<HTMLCanvasElement>) {
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT));
+    }
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+    if (gesture.kind === "pinch") {
+      const points = [...activePointersRef.current.values()].slice(-2);
+      if (points.length < 2) return;
+      const [p1, p2] = points as [{ sx: number; sy: number }, { sx: number; sy: number }];
+      const currentDistancePx = Math.hypot(p1.sx - p2.sx, p1.sy - p2.sy);
+      if (currentDistancePx < 1) return;
+      const factor = pinchZoomFactor(gesture.startDistancePx, currentDistancePx);
+      const spanX = gesture.spanX * factor;
+      const spanY = gesture.spanY * factor;
+      const midSx = (p1.sx + p2.sx) / 2;
+      const midSy = (p1.sy + p2.sy) / 2;
+      graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, midSx, midSy, spanX, spanY, WIDTH, HEIGHT));
+      return;
+    }
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, sx, sy, gesture.spanX, gesture.spanY, WIDTH, HEIGHT));
+  }
+
+  function handlePointerUp(e: ReactPointerEvent<HTMLCanvasElement>) {
+    activePointersRef.current.delete(e.pointerId);
+    if (gestureRef.current?.kind === "pan" || gestureRef.current?.kind === "pinch") commitLiveViewport();
+    gestureRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  }
+
+  /** Wheel-to-zoom, anchored on the cursor's data point; the real commit is debounced (no pointerup to trigger it). */
+  function handleWheel(e: ReactWheelEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
+    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    const anchorX = toDataX(sx, vp, WIDTH);
+    const anchorY = toDataY(sy, vp, HEIGHT);
+    const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
+    const spanX = (vp.xMax - vp.xMin) * factor;
+    const spanY = (vp.yMax - vp.yMin) * factor;
+    graph.set(ids.liveViewport, viewportFromAnchor(anchorX, anchorY, sx, sy, spanX, spanY, WIDTH, HEIGHT));
+    if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
+    zoomCommitTimerRef.current = setTimeout(() => {
+      zoomCommitTimerRef.current = null;
+      commitLiveViewport();
+    }, ZOOM_COMMIT_DEBOUNCE_MS);
+  }
+
+  function resetView() {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+    graph.set<Viewport | null>(ids.liveViewport, null);
+    graph.set(ids.viewport, INITIAL_VIEWPORT);
+  }
 
   return (
     <div>
@@ -153,10 +288,22 @@ export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {})
           />
         </label>
       </div>
-      <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
+      <canvas
+        ref={canvasRef}
+        width={WIDTH}
+        height={HEIGHT}
+        style={{ border: "1px solid var(--border)", touchAction: "none" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onWheel={handleWheel}
+      />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="fourier" />
-        <SvgExportButton getSvg={() => (samples.ok ? polylineToSvgDocument(samples.value.partial, VIEWPORT, WIDTH, HEIGHT, "#2563eb") : null)} label="fourier" />
+        <SvgExportButton getSvg={() => (samples.ok ? polylineToSvgDocument(samples.value.partial, viewport, WIDTH, HEIGHT, "#2563eb") : null)} label="fourier" />{" "}
+        <button type="button" onClick={resetView}>
+          Reset view
+        </button>
       </div>
       {!samples.ok && <p style={{ color: "var(--danger)" }}>{samples.message}</p>}
     </div>
