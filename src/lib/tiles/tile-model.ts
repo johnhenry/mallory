@@ -132,3 +132,251 @@ export async function* solveWang(tileSet: TileSet, width: number, height: number
   const solved = yield* backtrack(0);
   return solved ? (grid as WangGrid) : null;
 }
+
+/**
+ * True when the completed `width`x`height` grid ALSO satisfies torus
+ * (periodic) boundary conditions -- column `width-1`'s east edge matches
+ * column `0`'s west edge in every row, and row `height-1`'s south edge
+ * matches row `0`'s north edge in every column. A grid a plain
+ * {@link solveWang} accepts (interior edges only) may still fail this.
+ */
+function isPeriodic(byId: ReadonlyMap<string, Tile>, grid: WangGrid, width: number, height: number): boolean {
+  for (let row = 0; row < height; row++) {
+    const east = byId.get(grid[row]![width - 1] as string) as Tile;
+    const west = byId.get(grid[row]![0] as string) as Tile;
+    if (!tilesCompatible(east, west, "E")) return false;
+  }
+  for (let col = 0; col < width; col++) {
+    const south = byId.get(grid[height - 1]![col] as string) as Tile;
+    const north = byId.get(grid[0]![col] as string) as Tile;
+    if (!tilesCompatible(south, north, "S")) return false;
+  }
+  return true;
+}
+
+/**
+ * Torus/periodicity search (issue #92 M1's own listed "torus/periodicity
+ * search" solver variant): does `tileSet` admit a `width`x`height` tiling
+ * that also wraps correctly on BOTH axes -- the standard test for whether
+ * a tile set admits a bi-infinite PERIODIC tiling of the plane (tile the
+ * plane by translating the solved torus tile in both directions).
+ *
+ * Same row-major backtracking shape as {@link solveWang} -- the wrapped
+ * neighbor of a row-0 or column-0 cell is always a LATER cell in row-major
+ * order (not yet placed when that cell is first tried), so periodicity
+ * can't be enforced incrementally at placement time the way the interior
+ * west/north checks are; it's instead checked once as an extra condition
+ * at the "grid fully placed" base case -- a filled-but-non-periodic grid
+ * is treated exactly like a dead end, so the search backtracks and tries
+ * other candidates for the cells nearest the wrap boundary.
+ */
+export async function* solveTorus(tileSet: TileSet, width: number, height: number): AsyncGenerator<SolveStep, WangGrid | null> {
+  const tiles = tileSet.tiles;
+  const byId = new Map(tiles.map((t) => [t.id, t]));
+  const grid: (string | null)[][] = Array.from({ length: height }, () => Array<string | null>(width).fill(null));
+
+  function candidatesAt(row: number, col: number): Tile[] {
+    return tiles.filter((t) => {
+      if (col > 0) {
+        const westId = grid[row]![col - 1];
+        if (westId !== null && !tilesCompatible(byId.get(westId)!, t, "E")) return false;
+      }
+      if (row > 0) {
+        const northId = grid[row - 1]![col];
+        if (northId !== null && !tilesCompatible(byId.get(northId)!, t, "S")) return false;
+      }
+      return true;
+    });
+  }
+
+  function snapshot(): (string | null)[][] {
+    return grid.map((r) => [...r]);
+  }
+
+  async function* backtrack(index: number): AsyncGenerator<SolveStep, boolean> {
+    if (index === width * height) {
+      return isPeriodic(byId, grid as WangGrid, width, height);
+    }
+    const row = Math.floor(index / width);
+    const col = index % width;
+    for (const tile of candidatesAt(row, col)) {
+      grid[row]![col] = tile.id;
+      yield { grid: snapshot(), row, col, contradiction: false };
+      if (yield* backtrack(index + 1)) return true;
+    }
+    grid[row]![col] = null;
+    yield { grid: snapshot(), row, col, contradiction: true };
+    return false;
+  }
+
+  const solved = yield* backtrack(0);
+  return solved ? (grid as WangGrid) : null;
+}
+
+// ---- SAT cross-check solver (issue #92 M1's own listed "SAT encoding of
+// finite-patch tilability... as a cross-check solver") -----------------------
+//
+// A minimal DPLL solver (unit propagation + branching over an immutable
+// per-branch assignment, no external SAT library -- matching the family's
+// zero-external-dependency convention for its own reference algorithms)
+// plus a CNF encoder for "does tileSet tile this width x height grid,"
+// deliberately independent of solveWang's own backtracking implementation
+// -- the whole point of a cross-check is that a bug in one algorithm is
+// very unlikely to also be present, in the same way, in the other.
+
+/** A CNF literal: a positive or negative 1-indexed variable number (`-v` means "variable v is false"). */
+export type Literal = number;
+export type Clause = readonly Literal[];
+export type Cnf = readonly Clause[];
+
+function litValue(lit: Literal, assignment: ReadonlyMap<number, boolean>): boolean | undefined {
+  const v = assignment.get(Math.abs(lit));
+  if (v === undefined) return undefined;
+  return lit > 0 ? v : !v;
+}
+
+/**
+ * Minimal DPLL SAT solver: unit propagation to a fixed point, then branch
+ * on the first unassigned variable (true, then false), recursing on an
+ * immutable per-branch copy of the assignment (simpler to reason about
+ * correctly than mutate-and-undo backtracking, at some memory cost --
+ * acceptable at the small instance sizes this cross-check targets).
+ * Returns a satisfying assignment (1-indexed variable -> boolean) or
+ * `null` if `cnf` is unsatisfiable.
+ */
+export function solveSat(cnf: Cnf, numVars: number): Map<number, boolean> | null {
+  return dpll(new Map());
+
+  function propagate(assignment: ReadonlyMap<number, boolean>): Map<number, boolean> | null {
+    let current = new Map(assignment);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const clause of cnf) {
+        let satisfied = false;
+        let unassignedCount = 0;
+        let lastUnassigned = 0;
+        for (const lit of clause) {
+          const v = litValue(lit, current);
+          if (v === true) {
+            satisfied = true;
+            break;
+          }
+          if (v === undefined) {
+            unassignedCount++;
+            lastUnassigned = lit;
+          }
+        }
+        if (satisfied) continue;
+        if (unassignedCount === 0) return null; // every literal false -> clause falsified
+        if (unassignedCount === 1) {
+          current.set(Math.abs(lastUnassigned), lastUnassigned > 0);
+          changed = true;
+        }
+      }
+    }
+    return current;
+  }
+
+  function isFullySatisfied(assignment: ReadonlyMap<number, boolean>): boolean {
+    return cnf.every((clause) => clause.some((lit) => litValue(lit, assignment) === true));
+  }
+
+  function dpll(assignment: ReadonlyMap<number, boolean>): Map<number, boolean> | null {
+    const propagated = propagate(assignment);
+    if (propagated === null) return null;
+    if (isFullySatisfied(propagated)) return propagated;
+
+    let chosen = -1;
+    for (let v = 1; v <= numVars; v++) {
+      if (!propagated.has(v)) {
+        chosen = v;
+        break;
+      }
+    }
+    if (chosen === -1) return null; // every variable assigned, still not satisfied
+
+    for (const value of [true, false]) {
+      const branch = new Map(propagated);
+      branch.set(chosen, value);
+      const result = dpll(branch);
+      if (result) return result;
+    }
+    return null;
+  }
+}
+
+/**
+ * Encode "does `tileSet` tile a `width`x`height` grid" as CNF: one boolean
+ * variable per (cell, tile) pair (`var(row, col, tileIndex)`), an
+ * exactly-one clause set per cell (at least one tile + pairwise mutual
+ * exclusion), and a forbidding clause for every east/south-adjacent pair
+ * of tile choices that would violate edge matching.
+ */
+export function encodeWangSat(tileSet: TileSet, width: number, height: number): { cnf: Cnf; numVars: number; varOf: (row: number, col: number, tileIndex: number) => number } {
+  const tiles = tileSet.tiles;
+  const n = tiles.length;
+  const varOf = (row: number, col: number, tileIndex: number): number => (row * width + col) * n + tileIndex + 1;
+  const numVars = width * height * n;
+  const clauses: Clause[] = [];
+
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      // At least one tile at this cell.
+      clauses.push(Array.from({ length: n }, (_, i) => varOf(row, col, i)));
+      // At most one tile at this cell (pairwise mutual exclusion).
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          clauses.push([-varOf(row, col, i), -varOf(row, col, j)]);
+        }
+      }
+      // Forbid incompatible east-adjacent pairs.
+      if (col + 1 < width) {
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) {
+            if (!tilesCompatible(tiles[i]!, tiles[j]!, "E")) {
+              clauses.push([-varOf(row, col, i), -varOf(row, col + 1, j)]);
+            }
+          }
+        }
+      }
+      // Forbid incompatible south-adjacent pairs.
+      if (row + 1 < height) {
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) {
+            if (!tilesCompatible(tiles[i]!, tiles[j]!, "S")) {
+              clauses.push([-varOf(row, col, i), -varOf(row + 1, col, j)]);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return { cnf: clauses, numVars, varOf };
+}
+
+/**
+ * SAT cross-check for {@link solveWang}: independently answers "does
+ * `tileSet` tile a `width`x`height` grid" via CNF encoding + DPLL, rather
+ * than backtracking placement. Returns the tiling (or `null` if none
+ * exists) -- callers wanting just a yes/no can check `!== null`.
+ */
+export function solveWangViaSat(tileSet: TileSet, width: number, height: number): WangGrid | null {
+  const { cnf, numVars, varOf } = encodeWangSat(tileSet, width, height);
+  const assignment = solveSat(cnf, numVars);
+  if (assignment === null) return null;
+  const tiles = tileSet.tiles;
+  const grid: string[][] = Array.from({ length: height }, () => Array<string>(width).fill(""));
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      for (let i = 0; i < tiles.length; i++) {
+        if (assignment.get(varOf(row, col, i)) === true) {
+          grid[row]![col] = tiles[i]!.id;
+          break;
+        }
+      }
+    }
+  }
+  return grid;
+}
