@@ -230,6 +230,55 @@ test("layersToSvgDocument: axes default on, prepended before every layer's own e
   assert.ok(svg.indexOf("<line") < svg.indexOf("<circle"));
 });
 
+test("layersToSvgDocument: a path layer draws the Path2D's own stroke color/opacity/width, matching pathsToSvgDocument's own convention -- not the color/strokeWidth override the point-array kinds take", () => {
+  const path = {
+    stroke: { thickness: 2, color: 0xdc2626, alpha: 0.5, pixelHinting: false, scaleMode: "normal", caps: null, joints: null, miterLimit: 3 },
+    commands: [
+      { op: "moveTo" as const, x: 0, y: 0 },
+      { op: "lineTo" as const, x: 1, y: 1 },
+    ],
+  };
+  const svg = layersToSvgDocument([{ kind: "path", path }], VIEWPORT, 100, 100);
+  assert.ok(svg.includes(`<path d="${pathToSvgD(path, VIEWPORT, 100, 100)}" fill="none" stroke="#dc2626" stroke-opacity="0.5" stroke-width="2" />`));
+});
+
+test("layersToSvgDocument: scatter, path, and polyline layers combine in array order, each using its own kind's rendering", () => {
+  const scatterPoints = [{ x: 0, y: 0 }];
+  const path = {
+    stroke: { thickness: 1, color: 0, alpha: 1, pixelHinting: false, scaleMode: "normal", caps: null, joints: null, miterLimit: 3 },
+    commands: [
+      { op: "moveTo" as const, x: 0, y: 0 },
+      { op: "lineTo" as const, x: 2, y: 2 },
+    ],
+  };
+  const polylinePoints = [{ x: 1, y: 1 }];
+  const svg = layersToSvgDocument(
+    [
+      { kind: "scatter", points: scatterPoints, color: "#93c5fd" },
+      { kind: "path", path },
+      { kind: "polyline", points: polylinePoints, color: "#f59e0b" },
+    ],
+    VIEWPORT,
+    100,
+    100,
+  );
+  const circleIdx = svg.indexOf('fill="#93c5fd"');
+  const pathIdx = svg.indexOf(`d="${pathToSvgD(path, VIEWPORT, 100, 100)}"`);
+  const polylineIdx = svg.indexOf('stroke="#f59e0b"');
+  assert.ok(circleIdx >= 0 && pathIdx >= 0 && polylineIdx >= 0);
+  assert.ok(circleIdx < pathIdx && pathIdx < polylineIdx);
+});
+
+test("layersToSvgDocument: a path layer with no commands is skipped, not emitted as a stray empty <path>", () => {
+  const emptyPath = {
+    stroke: { thickness: 1, color: 0, alpha: 1, pixelHinting: false, scaleMode: "normal", caps: null, joints: null, miterLimit: 3 },
+    commands: [],
+  };
+  const svg = layersToSvgDocument([{ kind: "path", path: emptyPath }, { kind: "scatter", points: [{ x: 0, y: 0 }] }], VIEWPORT, 100, 100);
+  assert.equal((svg.match(/<path/g) ?? []).length, 0);
+  assert.equal((svg.match(/<circle/g) ?? []).length, 1);
+});
+
 test("axesToSvgElements: centered viewport [0,2]x[0,2] on a 100x100 canvas, hand-computed axis lines/ticks/labels", () => {
   // Axis lines: x-axis at data-y=0 -> screen y=100 (toScreenY flips); y-axis at data-x=0 -> screen x=0.
   // computeNiceTicks(0, 2, 6) = [0, 0.5, 1, 1.5, 2] (step=0.5, D3-nice-number rule) for both axes.

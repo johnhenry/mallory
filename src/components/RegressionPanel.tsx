@@ -1,4 +1,4 @@
-import { GraphUtils, Numerical, Statistics, Symbolic, Vector } from "mallory-math";
+import { GraphUtils, Numerical, Statistics, Symbolic, Vector, type Path2D } from "mallory-math";
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -12,8 +12,10 @@ import { DEFAULT_REGRESSION_STATE, decodeRegressionState, encodeRegressionState,
 import { saveGraph } from "../lib/saved-graphs.ts";
 import { drawAxes, drawPath, drawPoint, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { findOutlierIndices, fitRobustLinear, type RobustLinearFit } from "../lib/robust-regression.ts";
+import { layersToSvgDocument } from "../lib/svg-export.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { SvgExportButton } from "./SvgExportButton.tsx";
 
 const WIDTH = 500;
 const HEIGHT = 500;
@@ -41,6 +43,55 @@ type FitResult =
       points: { x: number; y: number }[];
     }
   | { ok: false; message: string };
+
+export interface RegressionPlot {
+  viewport: Viewport;
+  scatterPoints: { x: number; y: number }[];
+  /** The fit curve, or null when there are fewer than 2 finite curve points to draw (e.g. every nonlinear sample landed out of domain). */
+  curvePath: Path2D | null;
+  /** Only non-empty when `showOutliers` is on AND a linear fit (least-squares or Huber) is active -- outlier detection is a linear-regression-only concept. */
+  outlierPoints: { x: number; y: number }[];
+}
+
+/**
+ * Shared by the Canvas2D draw effect and the SVG export getter, so the
+ * viewport/curve/outlier math can't drift between the two -- same
+ * "shared plot function" convention SignalPanel's `waveformPlot` etc. and
+ * StatisticsPanel's `smoothingPlot` already use (issue #45 item 1).
+ */
+export function regressionPlot(
+  fit: FitResult,
+  modelExpr: string,
+  linearLossMode: LinearLossMode,
+  huberFitResult: HuberFitResult,
+  showOutliers: boolean,
+): RegressionPlot | null {
+  if (!fit.ok) return null;
+  const viewport = autoViewport(fit.points);
+  let curvePoints: Vector<number>[];
+  let activeLinear: { slope: number; intercept: number } | null = null;
+  if (fit.kind === "linear") {
+    activeLinear = linearLossMode === "huber" && huberFitResult?.ok ? huberFitResult.value : fit;
+    curvePoints = [
+      Vector.fromArray([viewport.xMin, activeLinear.slope * viewport.xMin + activeLinear.intercept]),
+      Vector.fromArray([viewport.xMax, activeLinear.slope * viewport.xMax + activeLinear.intercept]),
+    ];
+  } else {
+    const compiled = Symbolic.compile(preprocessImplicitMultiplication(modelExpr));
+    curvePoints = [];
+    for (let i = 0; i < CURVE_SAMPLES; i++) {
+      const x = viewport.xMin + (i / (CURVE_SAMPLES - 1)) * (viewport.xMax - viewport.xMin);
+      const y = compiled({ x, ...fit.params });
+      if (Number.isFinite(y)) curvePoints.push(Vector.fromArray([x, y]));
+    }
+  }
+  const curvePath = curvePoints.length > 1 ? GraphUtils.vectorToCurve(Vector.fromArray(curvePoints), 2, 0xdc2626) : null;
+  const outlierPoints =
+    showOutliers && activeLinear
+      ? findOutlierIndices(fit.points, activeLinear.slope, activeLinear.intercept).map((i) => fit.points[i] as { x: number; y: number })
+      : [];
+  return { viewport, scatterPoints: fit.points, curvePath, outlierPoints };
+}
 
 /** Free variables of `modelText` besides `x` -- the nonlinear model's fit parameters. Empty (not thrown) on a mid-typing parse error. */
 function modelParams(modelText: string): string[] {
@@ -255,43 +306,19 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, syncUrl]);
 
-  const viewport: Viewport = fit.ok ? autoViewport(fit.points) : { xMin: -1, xMax: 10, yMin: -1, yMax: 10 };
+  const FALLBACK_VIEWPORT: Viewport = { xMin: -1, xMax: 10, yMin: -1, yMax: 10 };
+  const plot = regressionPlot(fit, modelExpr, linearLossMode, huberFitResult, showOutliers);
+  const viewport: Viewport = plot?.viewport ?? FALLBACK_VIEWPORT;
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
     drawAxes(ctx, viewport, WIDTH, HEIGHT);
-    if (!fit.ok) return;
-    drawScatter(ctx, fit.points, viewport, WIDTH, HEIGHT);
-    let curvePoints: Vector<number>[];
-    let activeLinear: { slope: number; intercept: number } | null = null;
-    if (fit.kind === "linear") {
-      activeLinear = linearLossMode === "huber" && huberFitResult?.ok ? huberFitResult.value : fit;
-      curvePoints = [
-        Vector.fromArray([viewport.xMin, activeLinear.slope * viewport.xMin + activeLinear.intercept]),
-        Vector.fromArray([viewport.xMax, activeLinear.slope * viewport.xMax + activeLinear.intercept]),
-      ];
-    } else {
-      const compiled = Symbolic.compile(preprocessImplicitMultiplication(modelExpr));
-      curvePoints = [];
-      for (let i = 0; i < CURVE_SAMPLES; i++) {
-        const x = viewport.xMin + (i / (CURVE_SAMPLES - 1)) * (viewport.xMax - viewport.xMin);
-        const y = compiled({ x, ...fit.params });
-        if (Number.isFinite(y)) curvePoints.push(Vector.fromArray([x, y]));
-      }
-    }
-    if (curvePoints.length > 1) {
-      const line = GraphUtils.vectorToCurve(Vector.fromArray(curvePoints), 2, 0xdc2626);
-      drawPath(ctx, line, viewport, WIDTH, HEIGHT);
-    }
-    if (showOutliers && activeLinear) {
-      const outlierIndices = findOutlierIndices(fit.points, activeLinear.slope, activeLinear.intercept);
-      for (const i of outlierIndices) {
-        const p = fit.points[i]!;
-        drawPoint(ctx, p, viewport, WIDTH, HEIGHT, 7, "#f59e0b");
-      }
-    }
+    if (!plot) return;
+    drawScatter(ctx, plot.scatterPoints, viewport, WIDTH, HEIGHT);
+    if (plot.curvePath) drawPath(ctx, plot.curvePath, viewport, WIDTH, HEIGHT);
+    for (const p of plot.outlierPoints) drawPoint(ctx, p, viewport, WIDTH, HEIGHT, 7, "#f59e0b");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fit, modelExpr, linearLossMode, huberFitResult, showOutliers]);
 
@@ -459,7 +486,23 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
       </button>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="regression" />
+        <PngExportButton getCanvas={() => canvasRef.current} label="regression" />{" "}
+        <SvgExportButton
+          getSvg={() => {
+            if (!plot) return null;
+            return layersToSvgDocument(
+              [
+                { kind: "scatter", points: plot.scatterPoints },
+                ...(plot.curvePath ? [{ kind: "path" as const, path: plot.curvePath }] : []),
+                { kind: "scatter", points: plot.outlierPoints, color: "#f59e0b", radius: 7 },
+              ],
+              viewport,
+              WIDTH,
+              HEIGHT,
+            );
+          }}
+          label="regression"
+        />
       </div>
       {fit.ok ? (
         fit.kind === "linear" ? (
