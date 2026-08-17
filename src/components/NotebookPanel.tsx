@@ -59,7 +59,7 @@ import { NotebookSystemsBlock } from "./NotebookSystemsBlock.tsx";
 
 const DEFAULT_SURFACE3D_EXPR = "sin(x)*cos(y)";
 
-type Block =
+export type Block =
   | { id: string; type: "text"; content: string }
   | { id: string; type: "graph"; initialSource: string }
   | { id: string; type: "value"; name: string; value: number }
@@ -109,21 +109,134 @@ function seedGraphBlock(graph: CellGraph, blockId: string, block: NotebookGraphB
 }
 
 /**
+ * Block types whose `<div key={id}>` never needs to remount on hydrate/
+ * restore (issue #238). Either they own no CellGraph cells of their own at
+ * all ("text": plain React state; "tensor": literal-grid/op text lives
+ * entirely in `Block` fields, its one CellGraph read is by curve NAME, not
+ * by block id -- see NotebookTensorBlock's own doc comment), or their
+ * CellGraph state is keyed by something other than a mount-scoped block id
+ * ("value": `notebookValueCellId(b.name)`), or `hydrateBlocks` itself
+ * (re)writes their cells unconditionally on every call, mount or not
+ * ("graph", via `seedGraphBlock`).
+ *
+ * Every OTHER block type instead wraps a standalone panel (OdePanel,
+ * GeometryPanel, ...) that seeds its own `cellIdsX(blockId)`-namespaced
+ * cells lazily, in a MOUNT-ONLY effect (empty deps array, guarded by
+ * `!graph.has(ids.expr)` -- see e.g. NotebookOdeBlock's own doc comment).
+ * If `hydrateBlocks` reused one of THEIR ids on restore, the already-
+ * mounted wrapper would never re-run that effect, so a restored
+ * `initialState` would silently never reach the graph -- undo/redo would
+ * look like a no-op for them. They keep minting a fresh id every hydrate,
+ * same as before this fix.
+ */
+export const STABLE_ID_BLOCK_TYPES: ReadonlySet<Block["type"]> = new Set(["text", "value", "graph", "tensor"]);
+
+/**
+ * Disposes of every CellGraph cell owned by a single block -- the shared
+ * cleanup core behind both `removeBlock` (explicit block deletion) and
+ * `hydrateBlocks`' restore path (a block being replaced by a fresh-id
+ * remount, see that function's own doc comment). This IS `removeBlock`'s
+ * former per-type cleanup logic, extracted verbatim so both callers stay in
+ * sync. `stillActiveValueNames` is the "don't delete a name-keyed cell
+ * another still-active value block shares" guard `removeBlock` already
+ * applied, generalized to whatever set of names the caller considers
+ * post-disposal "still active" (the rest of `blocks` for `removeBlock`, the
+ * freshly hydrated `Block[]` for `hydrateBlocks`).
+ */
+export function disposeBlockCells(graph: CellGraph, block: Block, stillActiveValueNames: ReadonlySet<string>): void {
+  const id = block.id;
+  if (block.type === "value") {
+    if (!stillActiveValueNames.has(block.name)) graph.delete(notebookValueCellId(block.name));
+  } else if (block.type === "graph") {
+    const blockIds = cellIdsNotebookBlock(id);
+    if (graph.hasValue(blockIds.expressionList)) {
+      for (const rowId of graph.get<string[]>(blockIds.expressionList)) {
+        const ids = cellIdsMultiRow(rowId);
+        const freeVars = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
+        for (const name of freeVars) graph.delete(ids.param(name));
+        const curveName = graph.hasValue(ids.curveName) ? graph.get<string>(ids.curveName) : "";
+        if (curveName) graph.delete(notebookCurveCellId(curveName));
+        for (const cellId of Object.values(ids)) {
+          if (typeof cellId === "string") graph.delete(cellId);
+        }
+      }
+    }
+    graph.delete(blockIds.expressionList);
+    graph.delete(blockIds.viewport);
+  } else if (block.type === "surface3d") {
+    const ids = cellIds3D(id);
+    const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
+    for (const name of names) {
+      graph.delete(ids.param(name));
+      graph.delete(ids.track(name));
+    }
+    for (const cellId of Object.values(ids)) {
+      if (typeof cellId === "string") graph.delete(cellId);
+    }
+  } else if (block.type === "ode") {
+    for (const cellId of Object.values(cellIdsOde(id))) graph.delete(cellId);
+  } else if (block.type === "ode-system") {
+    for (const cellId of Object.values(cellIdsOdeSystem(id))) graph.delete(cellId);
+  } else if (block.type === "regression") {
+    for (const cellId of Object.values(cellIdsRegression(id))) graph.delete(cellId);
+  } else if (block.type === "statistics") {
+    for (const cellId of Object.values(cellIdsStatistics(id))) graph.delete(cellId);
+  } else if (block.type === "systems") {
+    for (const cellId of Object.values(cellIdsSystem(id))) graph.delete(cellId);
+  } else if (block.type === "geometry") {
+    // Only the object-list/ops-log cells are namespaced by this block's id;
+    // every individual object cell (point/line/circle/...) is left as a
+    // harmless orphan, matching this codebase's existing tolerance for
+    // orphaned cells on removal (see cellIdsGeometry's own doc comment).
+    const listIds = cellIdsGeometry(id);
+    graph.delete(listIds.objectList);
+    graph.delete(listIds.opsLog);
+  } else if (block.type === "complex") {
+    const ids = cellIdsComplex(id);
+    const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
+    for (const name of names) graph.delete(ids.param(name));
+    for (const cellId of Object.values(ids)) {
+      if (typeof cellId === "string") graph.delete(cellId);
+    }
+  } else if (block.type === "curve-transform") {
+    for (const cellId of Object.values(cellIdsCurveTransform(id))) graph.delete(cellId);
+  }
+  // "text"/"tensor": no CellGraph cells of their own -- nothing to dispose.
+}
+
+/**
  * Converts a decoded/default NotebookState into this component's own
  * Block[] shape. For "value"/"graph" blocks this also seeds `graph` as a
  * side effect (their own mount-time init is guarded by `hasValue`, so
- * pre-seeding here is safe -- see seedGraphBlock's doc comment). The 6
- * newer block types do NOT get pre-seeded here: their underlying panel's
- * own lazy graph construction establishes `graph.define`d cells guarded by
+ * pre-seeding here is safe -- see seedGraphBlock's doc comment). The other
+ * block types do NOT get pre-seeded here: their underlying panel's own
+ * lazy graph construction establishes `graph.define`d cells guarded by
  * `!graph.has(ids.expr)`, so pre-seeding would skip that setup entirely
  * (see e.g. NotebookOdeBlock's doc comment) -- each's wrapper component
  * seeds itself, in a `useEffect` that runs *after* its underlying panel has
- * already mounted. Fresh crypto.randomUUID() ids are assigned here -- block
- * ids aren't part of the serialized shape, only content/order is.
+ * already mounted.
+ *
+ * Block ids aren't part of the serialized shape (only content/order is), so
+ * this always has to invent one for every block -- but "invent a fresh one"
+ * vs. "reuse the id it already had" depends on whether reuse is actually
+ * safe (issue #238). `prevBlocks` (only passed on the undo/redo restore
+ * path -- see this component's `useUndoHistory` wiring; omitted on the very
+ * first, mount-time hydrate, where there's nothing yet to reuse) is paired
+ * against `state.blocks` BY POSITION, the only join key available (block
+ * ids aren't serialized, same tradeoff `captureGraphBlockImages` above
+ * already accepts for the same reason). A position whose previous block is
+ * the same type AND is one of `STABLE_ID_BLOCK_TYPES` keeps its id -- see
+ * that constant's own doc comment for why that's safe; every other position
+ * mints a fresh `crypto.randomUUID()`, same as before this fix. Any
+ * previous block NOT carried forward under its own id this way (remounted,
+ * type-changed at its position, or simply dropped because the restored
+ * document now has fewer blocks) gets its CellGraph cells disposed of via
+ * `disposeBlockCells`, so it no longer leaks on every undo/redo step.
  */
-function hydrateBlocks(graph: CellGraph, state: NotebookState): Block[] {
-  return state.blocks.map((b) => {
-    const id = crypto.randomUUID();
+export function hydrateBlocks(graph: CellGraph, state: NotebookState, prevBlocks: Block[] = []): Block[] {
+  const nextBlocks = state.blocks.map((b, i): Block => {
+    const prev = prevBlocks[i];
+    const id = prev && prev.type === b.type && STABLE_ID_BLOCK_TYPES.has(b.type) ? prev.id : crypto.randomUUID();
     if (b.type === "text") return { id, type: "text", content: b.content };
     if (b.type === "value") {
       graph.set(notebookValueCellId(b.name), b.value);
@@ -159,6 +272,16 @@ function hydrateBlocks(graph: CellGraph, state: NotebookState): Block[] {
     }
     return { id, type: "geometry", initialOps: b.state.ops };
   });
+
+  const reusedIds = new Set(nextBlocks.map((block) => block.id));
+  const activeValueNames = new Set(
+    nextBlocks.filter((block): block is Extract<Block, { type: "value" }> => block.type === "value").map((block) => block.name),
+  );
+  for (const prev of prevBlocks) {
+    if (!reusedIds.has(prev.id)) disposeBlockCells(graph, prev, activeValueNames);
+  }
+
+  return nextBlocks;
 }
 
 /** Builds the full serializable state of the notebook document -- shared by the URL-sync effect and the save-to-gallery handler. */
@@ -290,28 +413,29 @@ export function NotebookPanel() {
   // unmodified) covers in-block edits (an expression, a value block's
   // number, a slider drag).
   //
-  // KNOWN LIMITATION, deliberately deferred rather than attempted here:
-  // `hydrateBlocks` (used as the restore function) always mints fresh
-  // `crypto.randomUUID()` block/row ids, the same "no id-based join" choice
-  // `captureGraphBlockImages` above makes -- so an undo/redo does NOT
-  // delete the PREVIOUS block set's own CellGraph cells the way
-  // GraphCanvasMulti's `restoreMultiGraphState` explicitly walks `oldIds`
-  // to clean up. For "graph"/"value" blocks the leaked cells are small and
-  // bounded per undo step. For geometry blocks specifically, full cleanup
-  // isn't even mechanically possible from here: `cellIdsGeometry`'s own
-  // per-object (point/line/circle/...) ids are `crypto.randomUUID()`s
-  // discoverable only by reading that block's OWN `objectList` cell first,
-  // not derivable from the block id alone. A real fix needs a shared
-  // "dispose everything this block's cellIdsX namespace owns, including
-  // any of its own dynamic child ids" helper across all 8 block-type
-  // wrappers -- meaningfully larger than this pass; long editing sessions
-  // with heavy undo/redo use will accumulate orphaned cells in memory
-  // until reload, same class of accepted tradeoff #97's own status note
-  // already documents for the snapshot-vs-op-log design choice.
+  // Issue #238 fix: `hydrateBlocks` (used as the restore function) used to
+  // unconditionally mint a fresh `crypto.randomUUID()` for every block on
+  // every restore, forcing EVERY block's `<div key={id}>` -- not just
+  // "graph"/"value" as an earlier version of this comment claimed -- to
+  // unmount/remount on every undo/redo step, and never cleaned up the
+  // replaced block set's own CellGraph cells the way GraphCanvasMulti's
+  // `restoreMultiGraphState` explicitly walks `oldIds` to do. `hydrateBlocks`
+  // now only mints a fresh id (forcing a remount) for block types that
+  // structurally need it, reuses the existing id for every other type (no
+  // remount, no lost focus/canvas contents), and disposes of the CellGraph
+  // cells of whatever it's NOT reusing -- see `hydrateBlocks`' and
+  // `STABLE_ID_BLOCK_TYPES`'s own doc comments for the full reasoning.
+  // Geometry blocks keep the one pre-existing, deliberately partial cleanup
+  // `disposeBlockCells` (shared with `removeBlock`) already accepted for
+  // them: per-object (point/line/circle/...) ids are only discoverable by
+  // reading that block's OWN `objectList` cell, not derivable from the
+  // block id alone, so those still orphan (same accepted tradeoff #97's own
+  // status note documents for the snapshot-vs-op-log design choice --
+  // unrelated to and not made worse by this fix).
   const history = useUndoHistory(
     graph,
     () => getCurrentNotebookState(graph, blocks),
-    (state) => setBlocks(hydrateBlocks(graph, state)),
+    (state) => setBlocks(hydrateBlocks(graph, state, blocks)),
     250,
     blocks,
   );
@@ -498,80 +622,25 @@ export function NotebookPanel() {
     setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "value", name, value: 1 }]);
   }
 
-  // Removing a block also deletes its cells from the shared CellGraph --
-  // same correctness reasoning as updateValueName's rename cleanup below: a
-  // graph block still referencing a removed value block's name must fall
-  // back to its own local slider (CellGraph.delete notifies former
-  // dependents), not silently keep reading an orphaned cell forever. The
-  // deletes happen outside the setBlocks updater (which stays pure), before
-  // it, so any reentrant redraw a delete triggers still sees the block's
-  // remaining cells; a graph block's expressionList/viewport are deleted
-  // last since its still-mounted redraw reads them unguarded.
+  // Removing a block also deletes its cells from the shared CellGraph, via
+  // `disposeBlockCells` (shared with `hydrateBlocks`' restore path -- see
+  // that function's own doc comment, issue #238) -- same correctness
+  // reasoning as updateValueName's rename cleanup below: a graph block
+  // still referencing a removed value block's name must fall back to its
+  // own local slider (CellGraph.delete notifies former dependents), not
+  // silently keep reading an orphaned cell forever. The delete happens
+  // outside the setBlocks updater (which stays pure), before it, so any
+  // reentrant redraw a delete triggers still sees the block's remaining
+  // cells.
   function removeBlock(id: string) {
     const removed = blocks.find((b) => b.id === id);
-    if (removed?.type === "value") {
-      const nameStillUsedElsewhere = blocks.some((b) => b.id !== id && b.type === "value" && b.name === removed.name);
-      if (!nameStillUsedElsewhere) graph.delete(notebookValueCellId(removed.name));
-    } else if (removed?.type === "graph") {
-      const blockIds = cellIdsNotebookBlock(id);
-      if (graph.hasValue(blockIds.expressionList)) {
-        for (const rowId of graph.get<string[]>(blockIds.expressionList)) {
-          const ids = cellIdsMultiRow(rowId);
-          // Read the row's free-var names before deleting anything, to
-          // enumerate its per-name param cells (ids.param is a function,
-          // not a fixed id, so they can't come from Object.values below).
-          const freeVars = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
-          for (const name of freeVars) graph.delete(ids.param(name));
-          // Same orphan-tolerant cleanup as every other per-row cell in this
-          // loop (no "still used elsewhere" cross-check, matching this
-          // function's own established convention -- see e.g. the geometry
-          // block case below).
-          const curveName = graph.hasValue(ids.curveName) ? graph.get<string>(ids.curveName) : "";
-          if (curveName) graph.delete(notebookCurveCellId(curveName));
-          for (const cellId of Object.values(ids)) {
-            if (typeof cellId === "string") graph.delete(cellId);
-          }
-        }
-      }
-      graph.delete(blockIds.expressionList);
-      graph.delete(blockIds.viewport);
-    } else if (removed?.type === "surface3d") {
-      const ids = cellIds3D(id);
-      const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
-      for (const name of names) {
-        graph.delete(ids.param(name));
-        graph.delete(ids.track(name));
-      }
-      for (const cellId of Object.values(ids)) {
-        if (typeof cellId === "string") graph.delete(cellId);
-      }
-    } else if (removed?.type === "ode") {
-      for (const cellId of Object.values(cellIdsOde(id))) graph.delete(cellId);
-    } else if (removed?.type === "ode-system") {
-      for (const cellId of Object.values(cellIdsOdeSystem(id))) graph.delete(cellId);
-    } else if (removed?.type === "regression") {
-      for (const cellId of Object.values(cellIdsRegression(id))) graph.delete(cellId);
-    } else if (removed?.type === "statistics") {
-      for (const cellId of Object.values(cellIdsStatistics(id))) graph.delete(cellId);
-    } else if (removed?.type === "systems") {
-      for (const cellId of Object.values(cellIdsSystem(id))) graph.delete(cellId);
-    } else if (removed?.type === "geometry") {
-      // Only the object-list/ops-log cells are namespaced by this block's
-      // id; every individual object cell (point/line/circle/...) is left as
-      // a harmless orphan, matching this codebase's existing tolerance for
-      // orphaned cells on removal (see cellIdsGeometry's own doc comment).
-      const listIds = cellIdsGeometry(id);
-      graph.delete(listIds.objectList);
-      graph.delete(listIds.opsLog);
-    } else if (removed?.type === "complex") {
-      const ids = cellIdsComplex(id);
-      const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
-      for (const name of names) graph.delete(ids.param(name));
-      for (const cellId of Object.values(ids)) {
-        if (typeof cellId === "string") graph.delete(cellId);
-      }
-    } else if (removed?.type === "curve-transform") {
-      for (const cellId of Object.values(cellIdsCurveTransform(id))) graph.delete(cellId);
+    if (removed) {
+      const stillActiveValueNames = new Set(
+        blocks
+          .filter((b): b is Extract<Block, { type: "value" }> => b.id !== id && b.type === "value")
+          .map((b) => b.name),
+      );
+      disposeBlockCells(graph, removed, stillActiveValueNames);
     }
     setBlocks((prev) => prev.filter((b) => b.id !== id));
   }
