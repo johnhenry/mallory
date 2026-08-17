@@ -11,6 +11,8 @@ import {
   type TilesSolverKind,
   type TilesState,
 } from "../lib/tiles-state.ts";
+import { stripEntropy, type StripEntropyResult } from "../lib/tiles/entropy.ts";
+import { expandTileSetSymmetry, type SymmetryGroup } from "../lib/tiles/symmetry.ts";
 import { solveTorus, solveWang, solveWangViaSat, type SolveStep, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
@@ -19,6 +21,14 @@ import { TransportControls } from "./TransportControls.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 type SolveStatus = "idle" | "solving" | "done" | "error";
+type EntropyStatus = "idle" | "computing" | "done" | "error";
+
+// stripEntropy's own transfer-matrix build is O(numColumns^2), and
+// numColumns can be as large as (expanded tile count)^height -- this caps
+// that product before calling it, so a careless height/symmetry
+// combination degrades to a friendly error instead of freezing the tab.
+// 4000^2 = 16M pairwise compatibility checks, comfortably sub-second.
+const MAX_ENTROPY_COLUMNS = 4000;
 
 const CELL_SIZE = 56;
 // Backtracking search on a toy tile set is effectively instant, but a
@@ -47,16 +57,18 @@ function seedState(graph: CellGraph, ids: CellIdsTiles, state: TilesState): void
   graph.set(ids.height, state.height);
   graph.set(ids.solver, state.solver);
   graph.set(ids.showAnimation, state.showAnimation);
+  graph.set(ids.symmetry, state.symmetry);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
   return {
-    v: 1,
+    v: 2,
     tilesText: graph.get<string>(ids.tilesText),
     width: graph.get<number>(ids.width),
     height: graph.get<number>(ids.height),
     solver: graph.get<TilesSolverKind>(ids.solver),
     showAnimation: graph.get<boolean>(ids.showAnimation),
+    symmetry: graph.get<SymmetryGroup>(ids.symmetry),
   };
 }
 
@@ -72,6 +84,10 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.set(ids.solveSteps, [] as SolveStep[], { auxiliary: true });
     graph.set(ids.solveGrid, null as WangGrid | null, { auxiliary: true });
     graph.set(ids.solveError, "", { auxiliary: true });
+    graph.set(ids.entropyHeight, 1, { auxiliary: true });
+    graph.set(ids.entropyStatus, "idle" as EntropyStatus, { auxiliary: true });
+    graph.set(ids.entropyResult, null as StripEntropyResult | null, { auxiliary: true });
+    graph.set(ids.entropyError, "", { auxiliary: true });
 
     graph.define(ids.tileSetResult, (): Result<TileSet> => {
       try {
@@ -79,6 +95,14 @@ function useTilesGraph(cellId: string): CellGraph {
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
+    });
+
+    // Symmetry expansion is pure and synchronous, so unlike solving/entropy
+    // it derives on read like the rest of this panel's cells.
+    graph.define(ids.expandedTileSetResult, (): Result<TileSet> => {
+      const base = graph.get<Result<TileSet>>(ids.tileSetResult);
+      if (!base.ok) return base;
+      return { ok: true, value: expandTileSetSymmetry(base.value, graph.get<SymmetryGroup>(ids.symmetry)) };
     });
 
     ref.current = graph;
@@ -126,10 +150,16 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const height = useCell<number>(graph, ids.height);
   const solver = useCell<TilesSolverKind>(graph, ids.solver);
   const showAnimation = useCell<boolean>(graph, ids.showAnimation);
+  const symmetry = useCell<SymmetryGroup>(graph, ids.symmetry);
+  const expandedTileSetResult = useCell<Result<TileSet>>(graph, ids.expandedTileSetResult);
   const solveStatus = useCell<SolveStatus>(graph, ids.solveStatus);
   const solveSteps = useCell<SolveStep[]>(graph, ids.solveSteps);
   const solveGrid = useCell<WangGrid | null>(graph, ids.solveGrid);
   const solveError = useCell<string>(graph, ids.solveError);
+  const entropyHeight = useCell<number>(graph, ids.entropyHeight);
+  const entropyStatus = useCell<EntropyStatus>(graph, ids.entropyStatus);
+  const entropyResult = useCell<StripEntropyResult | null>(graph, ids.entropyResult);
+  const entropyError = useCell<string>(graph, ids.entropyError);
   const time = useCell<number>(graph, TIME_CELL);
 
   const [textInput, setTextInput] = useState(tilesText);
@@ -163,7 +193,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!tileSetResult.ok) {
+      if (!expandedTileSetResult.ok) {
         graph.set(ids.solveStatus, "idle" satisfies SolveStatus);
         graph.set(ids.solveSteps, []);
         graph.set(ids.solveGrid, null);
@@ -179,10 +209,10 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       try {
         const gen =
           solver === "torus"
-            ? solveTorus(tileSetResult.value, width, height)
-            : solveWang(tileSetResult.value, width, height);
+            ? solveTorus(expandedTileSetResult.value, width, height)
+            : solveWang(expandedTileSetResult.value, width, height);
         if (solver === "sat") {
-          const grid = solveWangViaSat(tileSetResult.value, width, height);
+          const grid = solveWangViaSat(expandedTileSetResult.value, width, height);
           if (cancelled) return;
           graph.set(ids.solveSteps, []);
           graph.set(ids.solveGrid, grid);
@@ -207,13 +237,67 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, tileSetResult, width, height, solver]);
+  }, [graph, expandedTileSetResult, width, height, solver]);
 
   // A changed solve restarts the animation from the beginning.
   useEffect(() => {
     graph.set(TIME_CELL, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [solveSteps]);
+
+  // A stale entropy result/error for a now-different tile set or height
+  // would be actively misleading (unlike solving, entropy is NOT
+  // auto-recomputed -- see MAX_ENTROPY_COLUMNS -- so this only clears it
+  // back to "idle", it never re-runs stripEntropy itself).
+  useEffect(() => {
+    graph.set(ids.entropyStatus, "idle" satisfies EntropyStatus);
+    graph.set(ids.entropyResult, null);
+    graph.set(ids.entropyError, "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedTileSetResult, entropyHeight]);
+
+  function computeEntropy() {
+    if (!expandedTileSetResult.ok) return;
+    const numTiles = expandedTileSetResult.value.tiles.length;
+    if (numTiles === 0) {
+      graph.set(ids.entropyStatus, "error" satisfies EntropyStatus);
+      graph.set(ids.entropyError, "Tile set is empty.");
+      return;
+    }
+    if (numTiles ** entropyHeight > MAX_ENTROPY_COLUMNS) {
+      graph.set(ids.entropyStatus, "error" satisfies EntropyStatus);
+      graph.set(
+        ids.entropyError,
+        `${numTiles} tiles at height ${entropyHeight} could reach up to ${numTiles ** entropyHeight} columns, over the ${MAX_ENTROPY_COLUMNS} cap -- lower the height or the symmetry group.`,
+      );
+      return;
+    }
+    graph.set(ids.entropyStatus, "computing" satisfies EntropyStatus);
+    try {
+      const result = stripEntropy(expandedTileSetResult.value, entropyHeight);
+      graph.set(ids.entropyResult, result);
+      graph.set(ids.entropyError, "");
+      graph.set(ids.entropyStatus, "done" satisfies EntropyStatus);
+    } catch (e) {
+      graph.set(ids.entropyStatus, "error" satisfies EntropyStatus);
+      graph.set(ids.entropyError, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useModelContextTool({
+    name: `tiles_${cellId}_entropy`,
+    description:
+      "Compute the panel's current (symmetry-expanded) tile set's strip entropy at its current entropyHeight setting, via the transfer-matrix method. Returns the per-cell entropy, the dominant eigenvalue, and the number of valid columns found, or an error if the tile set admits no valid column/cycle at this height or the search would be too large.",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      computeEntropy();
+      return {
+        status: graph.get<EntropyStatus>(ids.entropyStatus),
+        result: graph.get<StripEntropyResult | null>(ids.entropyResult),
+        error: graph.get<string>(ids.entropyError),
+      };
+    },
+  });
 
   const currentStepIndex = solveSteps.length > 0 ? Math.min(solveSteps.length - 1, Math.floor(time / STEP_SECONDS)) : -1;
   const currentStep = currentStepIndex >= 0 ? solveSteps[currentStepIndex] : undefined;
@@ -306,6 +390,14 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             <option value="sat">SAT cross-check</option>
           </select>
         </label>
+        <label>
+          symmetry:{" "}
+          <select value={symmetry} onChange={(e) => graph.set(ids.symmetry, e.target.value as SymmetryGroup)}>
+            <option value="none">None (translations only)</option>
+            <option value="rotations">Rotations (C4)</option>
+            <option value="rotations-reflections">Rotations + reflections (D4)</option>
+          </select>
+        </label>
         {solver !== "sat" && (
           <label>
             <input type="checkbox" checked={showAnimation} onChange={(e) => graph.set(ids.showAnimation, e.target.checked)} /> Animate step by step
@@ -314,6 +406,12 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       </div>
 
       {!tileSetResult.ok && <p style={{ color: "crimson" }}>{tileSetResult.message}</p>}
+      {tileSetResult.ok && symmetry !== "none" && expandedTileSetResult.ok && (
+        <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+          Symmetry expansion: {tileSetResult.value.tiles.length} tile{tileSetResult.value.tiles.length === 1 ? "" : "s"} →{" "}
+          {expandedTileSetResult.value.tiles.length} oriented variant{expandedTileSetResult.value.tiles.length === 1 ? "" : "s"} used for solving.
+        </p>
+      )}
       {solveStatus === "error" && <p style={{ color: "crimson" }}>{solveError}</p>}
 
       <canvas ref={canvasRef} width={canvasWidth} height={canvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
@@ -340,6 +438,35 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             : `No tiling exists for this tile set at ${width}x${height}${solver !== "sat" ? ` (search exhausted after ${solveSteps.length} steps)` : ""}.`}
         </p>
       )}
+
+      <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
+        <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+          Entropy (transfer-matrix method, issue #92 M2) -- per-cell entropy of the height-h strip, using the current symmetry-expanded tile set
+        </label>
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center", margin: "0.25rem 0" }}>
+          <label>
+            strip height:{" "}
+            <input
+              type="number"
+              min={1}
+              value={entropyHeight}
+              onChange={(e) => graph.set(ids.entropyHeight, Math.max(1, Number(e.target.value)))}
+              style={{ font: "inherit", width: "4ch" }}
+            />
+          </label>
+          <button type="button" onClick={computeEntropy} disabled={!expandedTileSetResult.ok}>
+            Compute entropy
+          </button>
+        </div>
+        {entropyStatus === "error" && <p style={{ color: "crimson" }}>{entropyError}</p>}
+        {entropyStatus === "done" && entropyResult && (
+          <p>
+            entropy ≈ {entropyResult.entropy.toFixed(4)} (dominant eigenvalue ≈ {entropyResult.dominantEigenvalue.toFixed(4)}, {entropyResult.numColumns}{" "}
+            valid column{entropyResult.numColumns === 1 ? "" : "s"}
+            {!entropyResult.converged ? ", power iteration did not fully converge -- treat as approximate" : ""})
+          </p>
+        )}
+      </div>
     </div>
   );
 }
