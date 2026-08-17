@@ -11,7 +11,7 @@ function CellularAutomataPage() {
       <div className="page-head">
         <p className="page-eyebrow">Cellular automata</p>
         <h1>n-D cellular automata laboratory.</h1>
-        <p className="lede">Pick a dimension and a known rule, then watch its space-time history unfold -- 1D as a 2D image, 2D as an animated grid and a 3D voxel stack.</p>
+        <p className="lede">Pick a dimension and a known rule, then watch its space-time history unfold -- 1D as a 2D image, 2D as an animated grid and a 3D voxel stack, 3D as a scrubbable voxel scene.</p>
       </div>
       <CellularAutomataPanel />
     </div>

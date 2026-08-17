@@ -10,12 +10,14 @@ import {
   encodeCaState,
   type Boundary1D,
   type Boundary2D,
+  type Boundary3D,
   type CaDimension,
   type CaState,
   type InitialCondition1D,
 } from "../lib/ca-state.ts";
 import { NAMED_ELEMENTARY_RULES, spacetimeElementary, type Spacetime as Spacetime1D } from "../lib/ca/elementary.ts";
 import { NAMED_LIFE_LIKE_RULES, parseBSRule, randomGrid, spacetimeLifeLike, type Spacetime2D } from "../lib/ca/life-like.ts";
+import { NAMED_TOTALISTIC_3D_RULES, parseTotalisticRule3D, randomGrid3D, spacetimeTotalistic3D, type Spacetime3D } from "../lib/ca/totalistic-3d.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsCellularAutomata, TIME_CELL, type CellIdsCellularAutomata } from "../lib/cell-ids.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
@@ -54,6 +56,22 @@ const STEP_SECONDS = 0.2;
 // mesh" reasoning issue #92's MAX_CUBE_CELLS/MAX_RELAX_CELLS caps used.
 const MAX_VOXEL_CELLS = 6000;
 
+// 3D: totalistic-3d.ts's own doc comment frames a 3D rule's history as a 4D
+// hypervolume that can't be rendered all at once (unlike 2D's voxel-STACK
+// view above) -- the panel instead scrubs through one Grid3D frame at a
+// time, so the per-axis and per-frame caps below double as both the
+// eager-computation budget (stepTotalistic3D is O(cells x 26 neighbors),
+// pricier per cell than 2D's 8-neighbor life-like step) AND the single-frame
+// voxel-mesh render budget (one THREE.Mesh per alive cell, same
+// "individual mesh, not instanced" approach as CubeGridView/
+// VoxelSpacetimeView above) -- kept an order of magnitude below
+// MAX_VOXEL_CELLS since a 3D grid's cell count grows cubically with width.
+const MAX_3D_WIDTH = 20;
+const MAX_3D_HEIGHT = 20;
+const MAX_3D_DEPTH = 20;
+const MAX_3D_GENERATIONS = 60;
+const MAX_3D_GRID_CELLS = 4000;
+
 function seedState(graph: CellGraph, ids: CellIdsCellularAutomata, state: CaState): void {
   graph.set(ids.dimension, state.dimension);
   graph.set(ids.ruleNumber, state.ruleNumber);
@@ -70,6 +88,14 @@ function seedState(graph: CellGraph, ids: CellIdsCellularAutomata, state: CaStat
   graph.set(ids.seed2d, state.seed2d);
   graph.set(ids.density2d, state.density2d);
   graph.set(ids.showVoxelView, state.showVoxelView);
+  graph.set(ids.rule3d, state.rule3d);
+  graph.set(ids.width3d, state.width3d);
+  graph.set(ids.height3d, state.height3d);
+  graph.set(ids.depth3d, state.depth3d);
+  graph.set(ids.generations3d, state.generations3d);
+  graph.set(ids.boundary3d, state.boundary3d);
+  graph.set(ids.seed3d, state.seed3d);
+  graph.set(ids.density3d, state.density3d);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsCellularAutomata): CaState {
@@ -90,6 +116,14 @@ function getCurrentState(graph: CellGraph, ids: CellIdsCellularAutomata): CaStat
     seed2d: graph.get<number>(ids.seed2d),
     density2d: graph.get<number>(ids.density2d),
     showVoxelView: graph.get<boolean>(ids.showVoxelView),
+    rule3d: graph.get<string>(ids.rule3d),
+    width3d: graph.get<number>(ids.width3d),
+    height3d: graph.get<number>(ids.height3d),
+    depth3d: graph.get<number>(ids.depth3d),
+    generations3d: graph.get<number>(ids.generations3d),
+    boundary3d: graph.get<Boundary3D>(ids.boundary3d),
+    seed3d: graph.get<number>(ids.seed3d),
+    density3d: graph.get<number>(ids.density3d),
   };
 }
 
@@ -143,6 +177,28 @@ function useCaGraph(cellId: string): CellGraph {
         const rule = parseBSRule(graph.get<string>(ids.bsRule));
         const initial = randomGrid(width, height, new Rng(graph.get<number>(ids.seed2d)), graph.get<number>(ids.density2d));
         const value = spacetimeLifeLike(initial, rule, generations, graph.get<Boundary2D>(ids.boundary2d));
+        return { ok: true, value };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.spacetime3dResult, (): Result<Spacetime3D> => {
+      try {
+        const width = graph.get<number>(ids.width3d);
+        const height = graph.get<number>(ids.height3d);
+        const depth = graph.get<number>(ids.depth3d);
+        const generations = graph.get<number>(ids.generations3d);
+        if (width < 1 || width > MAX_3D_WIDTH) throw new Error(`Width must be between 1 and ${MAX_3D_WIDTH}.`);
+        if (height < 1 || height > MAX_3D_HEIGHT) throw new Error(`Height must be between 1 and ${MAX_3D_HEIGHT}.`);
+        if (depth < 1 || depth > MAX_3D_DEPTH) throw new Error(`Depth must be between 1 and ${MAX_3D_DEPTH}.`);
+        if (generations < 1 || generations > MAX_3D_GENERATIONS) throw new Error(`Generations must be between 1 and ${MAX_3D_GENERATIONS}.`);
+        if (width * height * depth > MAX_3D_GRID_CELLS) {
+          throw new Error(`width x height x depth (${width * height * depth}) exceeds the ${MAX_3D_GRID_CELLS} cap -- shrink one of them.`);
+        }
+        const rule = parseTotalisticRule3D(graph.get<string>(ids.rule3d));
+        const initial = randomGrid3D(width, height, depth, new Rng(graph.get<number>(ids.seed3d)), graph.get<number>(ids.density3d));
+        const value = spacetimeTotalistic3D(initial, rule, generations, graph.get<Boundary3D>(ids.boundary3d));
         return { ok: true, value };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -260,7 +316,117 @@ function VoxelSpacetimeView({ spacetime }: { spacetime: Spacetime2D | null }) {
   );
 }
 
-/** An n-D cellular automata lab (issue #229): 1D elementary rules rendered as a full space-time image, 2D life-like rules animated + rendered as a voxel spacetime stack. */
+const VOXEL_3D_VIEW_SIZE = 400;
+const VOXEL_3D_CELL_GEOMETRY = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+
+/** hue sweeps across the Z axis so the single-frame voxel scene reads with depth (near layers one hue, far layers another) even before orbiting. */
+export function layerColor3D(z: number, depth: number): THREE.Color {
+  const hue = depth <= 1 ? 0 : (z / (depth - 1)) * 260;
+  return new THREE.Color(`hsl(${hue}, 65%, 55%)`);
+}
+
+/**
+ * Renders ONE frame of a 3D totalistic CA's spacetime as a voxel scene (one
+ * `THREE.Mesh` per alive cell, colored by Z layer) -- same Scene/Camera/
+ * Renderer/OrbitControls/lighting/Group setup as `VoxelSpacetimeView` and
+ * the Wang tile lab's `CubeGridView` above. Unlike `VoxelSpacetimeView`
+ * (which renders a 2D rule's ENTIRE history as one static stack),
+ * `totalistic-3d.ts`'s own doc comment frames a 3D rule's history as a 4D
+ * hypervolume that can't be rendered all at once -- so this component takes
+ * a single `Grid3D` frame, and the panel scrubs `frame` across generations
+ * via the shared timeline controls instead.
+ */
+function Voxel3DFrameView({ frame }: { frame: Spacetime3D[number] | null }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const groupRef = useRef<THREE.Group | null>(null);
+  const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(getThemeColors().surface);
+    const unsubscribeTheme = subscribeToThemeChange(() => {
+      scene.background = new THREE.Color(getThemeColors().surface);
+    });
+
+    const camera = new THREE.PerspectiveCamera(50, VOXEL_3D_VIEW_SIZE / VOXEL_3D_VIEW_SIZE, 0.1, 1000);
+    camera.position.set(8, 8, 8);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(VOXEL_3D_VIEW_SIZE, VOXEL_3D_VIEW_SIZE, false);
+    container.appendChild(renderer.domElement);
+    rendererCanvasRef.current = renderer.domElement;
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
+    directional.position.set(5, 10, 7);
+    scene.add(directional);
+    scene.add(new THREE.AxesHelper(3));
+
+    const group = new THREE.Group();
+    groupRef.current = group;
+    scene.add(group);
+
+    let raf = 0;
+    function tick() {
+      controls.update();
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      unsubscribeTheme();
+      controls.dispose();
+      renderer.dispose();
+      container.removeChild(renderer.domElement);
+      groupRef.current = null;
+      rendererCanvasRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    for (const child of [...group.children]) {
+      group.remove(child);
+      if (child instanceof THREE.Mesh) (child.material as THREE.Material).dispose();
+    }
+    if (!frame) return;
+    const depth = frame.length;
+    const height = frame[0]?.length ?? 0;
+    const width = frame[0]?.[0]?.length ?? 0;
+    for (let z = 0; z < depth; z++) {
+      const color = layerColor3D(z, depth);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (frame[z]![y]![x] !== 1) continue;
+          const material = new THREE.MeshStandardMaterial({ color });
+          const mesh = new THREE.Mesh(VOXEL_3D_CELL_GEOMETRY, material);
+          mesh.position.set((x - (width - 1) / 2) * 1.1, (y - (height - 1) / 2) * 1.1, (z - (depth - 1) / 2) * 1.1);
+          group.add(mesh);
+        }
+      }
+    }
+  }, [frame]);
+
+  return (
+    <div>
+      <div ref={containerRef} style={{ position: "relative", maxWidth: VOXEL_3D_VIEW_SIZE, border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="ca-totalistic-3d" />
+      </div>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom. Color sweeps across the Z axis (near to far); use the transport controls below to scrub through generations.</p>
+    </div>
+  );
+}
+
+/** An n-D cellular automata lab (issue #229): 1D elementary rules rendered as a full space-time image, 2D life-like rules animated + rendered as a voxel spacetime stack, 3D totalistic rules animated as a scrubbable voxel scene. */
 export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } = {}) {
   const graph = useCaGraph(cellId);
   useCellGraphTools(`cellular_automata_${cellId}`, graph);
@@ -285,21 +451,46 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
   const showVoxelView = useCell<boolean>(graph, ids.showVoxelView);
   const spacetime2dResult = useCell<Result<Spacetime2D>>(graph, ids.spacetime2dResult);
 
+  const rule3d = useCell<string>(graph, ids.rule3d);
+  const width3d = useCell<number>(graph, ids.width3d);
+  const height3d = useCell<number>(graph, ids.height3d);
+  const depth3d = useCell<number>(graph, ids.depth3d);
+  const generations3d = useCell<number>(graph, ids.generations3d);
+  const boundary3d = useCell<Boundary3D>(graph, ids.boundary3d);
+  const seed3d = useCell<number>(graph, ids.seed3d);
+  const density3d = useCell<number>(graph, ids.density3d);
+  const spacetime3dResult = useCell<Result<Spacetime3D>>(graph, ids.spacetime3dResult);
+
   const time = useCell<number>(graph, TIME_CELL);
   const [bsRuleInput, setBsRuleInput] = useState(bsRule);
   useEffect(() => setBsRuleInput(bsRule), [bsRule]);
+  const [rule3dInput, setRule3dInput] = useState(rule3d);
+  useEffect(() => setRule3dInput(rule3d), [rule3d]);
 
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const duration = spacetime2dResult.ok ? spacetime2dResult.value.length * STEP_SECONDS : 0;
+  const duration =
+    dimension === "2d"
+      ? spacetime2dResult.ok
+        ? spacetime2dResult.value.length * STEP_SECONDS
+        : 0
+      : dimension === "3d"
+        ? spacetime3dResult.ok
+          ? spacetime3dResult.value.length * STEP_SECONDS
+          : 0
+        : 0;
   useTimelinePlayback(graph, playing, loop, speed, duration, setPlaying);
 
-  // A changed 2D run restarts the animation from the beginning.
+  // A changed 2D/3D run restarts the animation from the beginning.
   useEffect(() => {
     graph.set(TIME_CELL, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spacetime2dResult]);
+  useEffect(() => {
+    graph.set(TIME_CELL, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spacetime3dResult]);
 
   useModelContextTool({
     name: `cellular_automata_${cellId}_get_state`,
@@ -307,30 +498,41 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
       const spacetime2d = graph.get<Result<Spacetime2D>>(ids.spacetime2dResult);
+      const spacetime3d = graph.get<Result<Spacetime3D>>(ids.spacetime3dResult);
       return {
         dimension: graph.get<CaDimension>(ids.dimension),
         ruleNumber: graph.get<number>(ids.ruleNumber),
         bsRule: graph.get<string>(ids.bsRule),
+        rule3d: graph.get<string>(ids.rule3d),
         spacetime1d: graph.get<Result<Spacetime1D>>(ids.spacetime1dResult),
         spacetime2d: spacetime2d.ok ? { ok: true, generations: spacetime2d.value.length } : spacetime2d,
+        spacetime3d: spacetime3d.ok ? { ok: true, generations: spacetime3d.value.length } : spacetime3d,
       };
     },
   });
 
   useModelContextTool({
     name: `cellular_automata_${cellId}_set_rule`,
-    description: "Set the active rule -- ruleNumber (0-255) for the 1D dimension, or bsRule (e.g. \"B3/S23\") for the 2D dimension. Only the field matching the panel's current dimension has any effect.",
+    description:
+      'Set the active rule -- ruleNumber (0-255) for the 1D dimension, bsRule (e.g. "B3/S23") for the 2D dimension, or rule3d (e.g. "B6/S5,6,7") for the 3D dimension. Only the field matching the panel\'s current dimension has any effect.',
     inputSchema: {
       type: "object",
       properties: {
         ruleNumber: { type: "number", description: "1D elementary rule number, 0-255." },
         bsRule: { type: "string", description: '2D life-like rule in B/S notation, e.g. "B3/S23".' },
+        rule3d: { type: "string", description: '3D totalistic rule in comma-separated B/S notation, e.g. "B6/S5,6,7".' },
       },
     },
     handler: async (input) => {
       if (typeof input.ruleNumber === "number") graph.set(ids.ruleNumber, input.ruleNumber);
       if (typeof input.bsRule === "string") graph.set(ids.bsRule, input.bsRule);
-      return { dimension: graph.get<CaDimension>(ids.dimension), ruleNumber: graph.get<number>(ids.ruleNumber), bsRule: graph.get<string>(ids.bsRule) };
+      if (typeof input.rule3d === "string") graph.set(ids.rule3d, input.rule3d);
+      return {
+        dimension: graph.get<CaDimension>(ids.dimension),
+        ruleNumber: graph.get<number>(ids.ruleNumber),
+        bsRule: graph.get<string>(ids.bsRule),
+        rule3d: graph.get<string>(ids.rule3d),
+      };
     },
   });
 
@@ -346,6 +548,11 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
   function updateBsRule(value: string) {
     setBsRuleInput(value);
     graph.set(ids.bsRule, value);
+  }
+
+  function updateRule3d(value: string) {
+    setRule3dInput(value);
+    graph.set(ids.rule3d, value);
   }
 
   const canvas1dRef = useRef<HTMLCanvasElement | null>(null);
@@ -393,6 +600,12 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
 
   const voxelBudget = width2d * height2d * generations2d;
 
+  const currentGeneration3d =
+    spacetime3dResult.ok && spacetime3dResult.value.length > 0
+      ? Math.min(spacetime3dResult.value.length - 1, Math.floor(time / STEP_SECONDS))
+      : -1;
+  const voxelBudget3d = width3d * height3d * depth3d;
+
   return (
     <div>
       <div style={{ margin: "0.25rem 0" }}>
@@ -401,6 +614,7 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
           <select value={dimension} onChange={(e) => graph.set(ids.dimension, e.target.value as CaDimension)}>
             <option value="1d">1D (elementary)</option>
             <option value="2d">2D (life-like)</option>
+            <option value="3d">3D (totalistic)</option>
           </select>
         </label>
       </div>
@@ -548,6 +762,79 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
             )}
             {showVoxelView && voxelBudget <= MAX_VOXEL_CELLS && <VoxelSpacetimeView spacetime={spacetime2dResult.ok ? spacetime2dResult.value : null} />}
           </div>
+        </>
+      )}
+
+      {dimension === "3d" && (
+        <>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              rule:{" "}
+              <select
+                value={NAMED_TOTALISTIC_3D_RULES.some((r) => r.rule === rule3d) ? rule3d : "custom"}
+                onChange={(e) => {
+                  if (e.target.value !== "custom") updateRule3d(e.target.value);
+                }}
+              >
+                {NAMED_TOTALISTIC_3D_RULES.map((r) => (
+                  <option key={r.rule} value={r.rule}>
+                    {r.name} ({r.rule})
+                  </option>
+                ))}
+                <option value="custom">Custom…</option>
+              </select>
+            </label>
+            <label>
+              B/S:{" "}
+              <input
+                value={rule3dInput}
+                onChange={(e) => updateRule3d(e.target.value)}
+                style={{ font: "inherit", fontFamily: "monospace", width: "14ch" }}
+              />
+            </label>
+            <label>
+              width: <input type="number" min={1} max={MAX_3D_WIDTH} value={width3d} onChange={(e) => graph.set(ids.width3d, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "6ch" }} />
+            </label>
+            <label>
+              height: <input type="number" min={1} max={MAX_3D_HEIGHT} value={height3d} onChange={(e) => graph.set(ids.height3d, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "6ch" }} />
+            </label>
+            <label>
+              depth: <input type="number" min={1} max={MAX_3D_DEPTH} value={depth3d} onChange={(e) => graph.set(ids.depth3d, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "6ch" }} />
+            </label>
+            <label>
+              generations: <input type="number" min={1} max={MAX_3D_GENERATIONS} value={generations3d} onChange={(e) => graph.set(ids.generations3d, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "6ch" }} />
+            </label>
+            <label>
+              boundary:{" "}
+              <select value={boundary3d} onChange={(e) => graph.set(ids.boundary3d, e.target.value as Boundary3D)}>
+                <option value="dead">Fixed (dead off-grid)</option>
+                <option value="wrap">Wrap (torus)</option>
+              </select>
+            </label>
+            <label>
+              seed: <input type="number" value={seed3d} onChange={(e) => graph.set(ids.seed3d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+            </label>
+            <label>
+              density: <input type="number" min={0} max={1} step={0.05} value={density3d} onChange={(e) => graph.set(ids.density3d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+            </label>
+          </div>
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{NAMED_TOTALISTIC_3D_RULES.find((r) => r.rule === rule3d)?.description ?? "Custom rule."}</p>
+          {voxelBudget3d > MAX_3D_GRID_CELLS && (
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+              width x height x depth ({voxelBudget3d}) exceeds the {MAX_3D_GRID_CELLS} cap -- shrink one of them.
+            </p>
+          )}
+          {!spacetime3dResult.ok && <p style={{ color: "crimson" }}>{spacetime3dResult.message}</p>}
+
+          {spacetime3dResult.ok && (
+            <>
+              <Voxel3DFrameView frame={currentGeneration3d >= 0 ? spacetime3dResult.value[currentGeneration3d]! : null} />
+              <TransportControls graph={graph} time={time} duration={duration} playing={playing} setPlaying={setPlaying} loop={loop} setLoop={setLoop} speed={speed} setSpeed={setSpeed} />
+              <p style={{ fontSize: "0.85rem", color: "var(--muted)" }} aria-live="polite">
+                Generation {currentGeneration3d} of {spacetime3dResult.value.length - 1}
+              </p>
+            </>
+          )}
         </>
       )}
     </div>

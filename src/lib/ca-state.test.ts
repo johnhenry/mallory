@@ -27,13 +27,30 @@ test("decodeCaState returns null for garbage or wrong-shape input rather than th
 });
 
 test("isCaStateV1 rejects an unrecognized dimension", () => {
-  assert.equal(isCaStateV1({ ...DEFAULT_CA_STATE, dimension: "3d" }), false);
+  assert.equal(isCaStateV1({ ...DEFAULT_CA_STATE, dimension: "4d" }), false);
 });
 
-test("isCaStateV1 rejects an unrecognized boundary1d/boundary2d/initial1d", () => {
+test("isCaStateV1 rejects an unrecognized boundary1d/boundary2d/boundary3d/initial1d", () => {
   assert.equal(isCaStateV1({ ...DEFAULT_CA_STATE, boundary1d: "bogus" }), false);
   assert.equal(isCaStateV1({ ...DEFAULT_CA_STATE, boundary2d: "bogus" }), false);
+  assert.equal(isCaStateV1({ ...DEFAULT_CA_STATE, boundary3d: "bogus" }), false);
   assert.equal(isCaStateV1({ ...DEFAULT_CA_STATE, initial1d: "bogus" }), false);
+});
+
+test("round-trips a custom state with a 3D dimension and non-default fields", () => {
+  const state = {
+    ...DEFAULT_CA_STATE,
+    dimension: "3d" as const,
+    rule3d: "B4/S6,7,8",
+    width3d: 8,
+    height3d: 8,
+    depth3d: 8,
+    generations3d: 12,
+    boundary3d: "wrap" as const,
+    seed3d: 42,
+    density3d: 0.25,
+  };
+  assert.deepEqual(decodeCaState(encodeCaState(state)), state);
 });
 
 test("isCaStateV1 rejects missing/wrong-typed fields", () => {

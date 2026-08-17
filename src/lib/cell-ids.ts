@@ -915,6 +915,15 @@ export function cellIdsCellularAutomata(cellId: string) {
     density2d: `caDensity2d:${cellId}`,
     spacetime2dResult: `caSpacetime2dResult:${cellId}`,
     showVoxelView: `caShowVoxelView:${cellId}`,
+    rule3d: `caRule3d:${cellId}`,
+    width3d: `caWidth3d:${cellId}`,
+    height3d: `caHeight3d:${cellId}`,
+    depth3d: `caDepth3d:${cellId}`,
+    generations3d: `caGenerations3d:${cellId}`,
+    boundary3d: `caBoundary3d:${cellId}`,
+    seed3d: `caSeed3d:${cellId}`,
+    density3d: `caDensity3d:${cellId}`,
+    spacetime3dResult: `caSpacetime3dResult:${cellId}`,
   };
 }
 
