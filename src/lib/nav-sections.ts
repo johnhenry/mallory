@@ -91,6 +91,11 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Streaming",
     icon: '<circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="4.5" r="1.4"/><circle cx="8" cy="11.5" r="1.4"/><circle cx="13" cy="8" r="1.4"/><path d="M4.2 7.3 6.8 5.2M4.2 8.7 6.8 10.8M9.2 5.2 11.8 7.3M9.2 10.8 11.8 8.7" stroke-linecap="round"/>',
   },
+  {
+    to: "/digit-classifier",
+    label: "Digit classifier",
+    icon: '<path d="M3 12.5 5.5 3.5h5L13 12.5" stroke-linejoin="round"/><path d="M4.5 8.5h7" stroke-linecap="round"/>',
+  },
 ];
 
 export const SECTION_PATHS = NAV_SECTIONS.map((item) => item.to).concat(["/demos"]);
