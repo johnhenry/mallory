@@ -1,5 +1,5 @@
 import type { Path2D } from "mallory-math";
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsTaylor, type CellIdsTaylor } from "../lib/cell-ids.ts";
 import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
@@ -125,12 +125,24 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
-  const committedViewport: Viewport = {
-    xMin: Number(xMin) || -5,
-    xMax: Number(xMax) || 5,
-    yMin: Number(yMin) || -5,
-    yMax: Number(yMax) || 5,
-  };
+  // Unlike GraphCanvas/FourierPanel/ParametricPanel, there's no single
+  // cached `viewport` cell here -- x/y-min/max are four separate free cells
+  // (so they can be four separate text inputs), so a fresh object built
+  // from them inline was a NEW reference on every render even when none of
+  // the four actually changed. That defeated the draw effect's own
+  // `[approx, viewport]` dependency check below (issue #236): it saw
+  // "viewport changed" and redrew both curves on every unrelated re-render
+  // (e.g. typing into the limit-point field). Memoized on the four
+  // underlying values so the reference is stable when they aren't.
+  const committedViewport: Viewport = useMemo(
+    () => ({
+      xMin: Number(xMin) || -5,
+      xMax: Number(xMax) || 5,
+      yMin: Number(yMin) || -5,
+      yMax: Number(yMax) || 5,
+    }),
+    [xMin, xMax, yMin, yMax],
+  );
   const viewport = liveViewport ?? committedViewport;
 
   // Pan/pinch gesture state (issue #53), mirroring GraphCanvas/ParametricPanel/

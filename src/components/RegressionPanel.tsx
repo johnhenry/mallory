@@ -1,6 +1,6 @@
 import { GraphUtils, Numerical, Statistics, Symbolic, Vector, type Path2D } from "mallory-math";
 import type { CSSProperties } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsRegression, type CellIdsRegression } from "../lib/cell-ids.ts";
@@ -307,7 +307,17 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
   }, [graph, syncUrl]);
 
   const FALLBACK_VIEWPORT: Viewport = { xMin: -1, xMax: 10, yMin: -1, yMax: 10 };
-  const plot = regressionPlot(fit, modelExpr, linearLossMode, huberFitResult, showOutliers);
+  // regressionPlot does real work (viewport bounds scan, curve sampling --
+  // up to CURVE_SAMPLES Symbolic evaluations for a nonlinear model, outlier
+  // detection) -- memoized (issue #236) so a re-render triggered by
+  // something that doesn't feed regressionPlot (e.g. huberFitting's
+  // loading-button toggle, or the "Save to gallery" status message) skips
+  // it, matching the exact dependency set the draw effect below already
+  // uses.
+  const plot = useMemo(
+    () => regressionPlot(fit, modelExpr, linearLossMode, huberFitResult, showOutliers),
+    [fit, modelExpr, linearLossMode, huberFitResult, showOutliers],
+  );
   const viewport: Viewport = plot?.viewport ?? FALLBACK_VIEWPORT;
 
   useEffect(() => {
