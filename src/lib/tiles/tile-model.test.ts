@@ -174,3 +174,21 @@ test("solveWangViaSat: a single self-compatible tile trivially fills a 2x2 grid,
     ["t", "t"],
   ]);
 });
+
+test("solveWang: trackSteps: false yields grid: null on every step but doesn't change the final result (issue #92 perf fix -- skips the per-step O(width*height) grid clone when the caller discards intermediate steps)", async () => {
+  const c: Tile = { id: "C", edges: { N: "1", E: "x", S: "9", W: "x" } };
+  const b: Tile = { id: "B", edges: { N: "2", E: "x", S: "1", W: "x" } };
+  const { steps, result } = await drain(solveWang({ tiles: [c, b] }, 1, 2, { trackSteps: false }));
+  assert.deepEqual(result, [["B"], ["C"]]);
+  assert.ok(steps.length > 0);
+  for (const step of steps) assert.equal(step.grid, null);
+});
+
+test("solveTorus: trackSteps: false yields grid: null on every step but doesn't change the final result", async () => {
+  const l: Tile = { id: "L", edges: { N: "v", E: "a", S: "v", W: "b" } };
+  const r: Tile = { id: "R", edges: { N: "v", E: "b", S: "v", W: "a" } };
+  const { steps, result } = await drain(solveTorus({ tiles: [l, r] }, 2, 1, { trackSteps: false }));
+  assert.deepEqual(result, [["L", "R"]]);
+  assert.ok(steps.length > 0);
+  for (const step of steps) assert.equal(step.grid, null);
+});

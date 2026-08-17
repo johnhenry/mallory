@@ -55,8 +55,13 @@ export function buildTriCompatibilityDigraph(tiles: readonly TriTile[], d: TriDi
 export type TriGrid = ReadonlyArray<ReadonlyArray<string>>;
 
 export interface TriSolveStep {
-  /** The grid so far, row-major over `y` then `x`, `null` for not-yet-decided cells. */
-  grid: ReadonlyArray<ReadonlyArray<string | null>>;
+  /**
+   * The grid so far, row-major over `y` then `x`, `null` for not-yet-decided
+   * cells -- or `null` itself when `options.trackSteps` is `false` (see
+   * `solveTri`'s own doc comment), skipping the O(width * height) clone a
+   * caller that only wants the final grid would otherwise pay for nothing.
+   */
+  grid: ReadonlyArray<ReadonlyArray<string | null>> | null;
   x: number;
   y: number;
   contradiction: boolean;
@@ -85,8 +90,19 @@ function alreadyPlacedDirections(orientation: TriOrientation): readonly TriDirec
  * "core solver only" scoping as hex-tile-model.ts's `solveHex`: an async
  * generator yielding a `TriSolveStep` after every placement and every
  * backtrack, no torus/SAT variants yet.
+ *
+ * `options.trackSteps` (default `true`), same escape hatch as `solveHex`'s
+ * own: `TilesPanel` drains this straight to the final grid and discards
+ * every intermediate step (no step-by-step animation for tri), so it
+ * passes `trackSteps: false` to skip the per-step grid clone entirely.
  */
-export async function* solveTri(tileSet: TriTileSet, width: number, height: number): AsyncGenerator<TriSolveStep, TriGrid | null> {
+export async function* solveTri(
+  tileSet: TriTileSet,
+  width: number,
+  height: number,
+  options: { trackSteps?: boolean } = {},
+): AsyncGenerator<TriSolveStep, TriGrid | null> {
+  const trackSteps = options.trackSteps ?? true;
   const tiles = tileSet.tiles;
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const grid: (string | null)[][] = Array.from({ length: height }, () => Array<string | null>(width).fill(null));
@@ -104,8 +120,8 @@ export async function* solveTri(tileSet: TriTileSet, width: number, height: numb
     });
   }
 
-  function snapshot(): (string | null)[][] {
-    return grid.map((row) => [...row]);
+  function snapshot(): (string | null)[][] | null {
+    return trackSteps ? grid.map((row) => [...row]) : null;
   }
 
   async function* backtrack(index: number): AsyncGenerator<TriSolveStep, boolean> {

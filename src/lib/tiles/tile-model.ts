@@ -63,8 +63,15 @@ export function buildCompatibilityDigraph(tiles: readonly Tile[], direction: Dir
 export type WangGrid = ReadonlyArray<ReadonlyArray<string>>;
 
 export interface SolveStep {
-  /** The grid so far, row-major, `null` for not-yet-decided cells. */
-  grid: ReadonlyArray<ReadonlyArray<string | null>>;
+  /**
+   * The grid so far, row-major, `null` for not-yet-decided cells -- or
+   * `null` itself when `options.trackSteps` is `false` (see `solveWang`'s
+   * own doc comment): a full-grid deep clone costs O(width * height), and
+   * `TilesPanel` only needs it when step-by-step animation is actually on
+   * (`showAnimation`) -- otherwise every placement AND every backtrack pays
+   * that cost for a value nobody displays.
+   */
+  grid: ReadonlyArray<ReadonlyArray<string | null>> | null;
   row: number;
   col: number;
   /** True when this step is a backtrack out of a dead end (the cell at row/col ran out of candidates and was cleared), not a placement. */
@@ -91,8 +98,19 @@ export interface SolveStep {
  * view's transport animation) can play back the search step by step. The
  * generator's return value is the finished grid, or `null` if no tiling of
  * this size exists for this tile set.
+ *
+ * `options.trackSteps` (default `true`) controls whether each yielded step
+ * carries a full grid snapshot; `TilesPanel` passes `trackSteps:
+ * showAnimation` since a solve run with the step-by-step animation toggle
+ * off never reads `.grid` on any intermediate step.
  */
-export async function* solveWang(tileSet: TileSet, width: number, height: number): AsyncGenerator<SolveStep, WangGrid | null> {
+export async function* solveWang(
+  tileSet: TileSet,
+  width: number,
+  height: number,
+  options: { trackSteps?: boolean } = {},
+): AsyncGenerator<SolveStep, WangGrid | null> {
+  const trackSteps = options.trackSteps ?? true;
   const tiles = tileSet.tiles;
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const grid: (string | null)[][] = Array.from({ length: height }, () => Array<string | null>(width).fill(null));
@@ -111,8 +129,8 @@ export async function* solveWang(tileSet: TileSet, width: number, height: number
     });
   }
 
-  function snapshot(): (string | null)[][] {
-    return grid.map((r) => [...r]);
+  function snapshot(): (string | null)[][] | null {
+    return trackSteps ? grid.map((r) => [...r]) : null;
   }
 
   async function* backtrack(index: number): AsyncGenerator<SolveStep, boolean> {
@@ -169,8 +187,17 @@ function isPeriodic(byId: ReadonlyMap<string, Tile>, grid: WangGrid, width: numb
  * at the "grid fully placed" base case -- a filled-but-non-periodic grid
  * is treated exactly like a dead end, so the search backtracks and tries
  * other candidates for the cells nearest the wrap boundary.
+ *
+ * `options.trackSteps` (default `true`), same escape hatch as `solveWang`'s
+ * own.
  */
-export async function* solveTorus(tileSet: TileSet, width: number, height: number): AsyncGenerator<SolveStep, WangGrid | null> {
+export async function* solveTorus(
+  tileSet: TileSet,
+  width: number,
+  height: number,
+  options: { trackSteps?: boolean } = {},
+): AsyncGenerator<SolveStep, WangGrid | null> {
+  const trackSteps = options.trackSteps ?? true;
   const tiles = tileSet.tiles;
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const grid: (string | null)[][] = Array.from({ length: height }, () => Array<string | null>(width).fill(null));
@@ -189,8 +216,8 @@ export async function* solveTorus(tileSet: TileSet, width: number, height: numbe
     });
   }
 
-  function snapshot(): (string | null)[][] {
-    return grid.map((r) => [...r]);
+  function snapshot(): (string | null)[][] | null {
+    return trackSteps ? grid.map((r) => [...r]) : null;
   }
 
   async function* backtrack(index: number): AsyncGenerator<SolveStep, boolean> {

@@ -85,3 +85,11 @@ test("solveTri: steps include both placements and (for an unsatisfiable set) a f
   assert.ok(steps.length > 0);
   assert.ok(steps.some((s) => s.contradiction));
 });
+
+test("solveTri: trackSteps: false yields grid: null on every step but doesn't change the final result", async () => {
+  const tile: TriTile = { id: "t", edges: { left: "a", right: "b", top: "x", bottom: "x" } };
+  const { steps, result } = await drain(solveTri({ tiles: [tile] }, 2, 1, { trackSteps: false }));
+  assert.equal(result, null);
+  assert.ok(steps.length > 0);
+  for (const step of steps) assert.equal(step.grid, null);
+});
