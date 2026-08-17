@@ -142,31 +142,6 @@ export function datasetToBatch(points: readonly LabeledPoint[]): { x: Tensor; y:
   };
 }
 
-type LossVariable = ReturnType<typeof variable>;
-
-/**
- * Numerically stable binary cross-entropy from logits -- a workaround for a
- * real upstream bug found while building this panel: `nn.binaryCrossEntropy`
- * computes `log(sigmoid(z))`/`log(1-sigmoid(z))` directly, and once |z|
- * exceeds ~37, f64 `sigmoid` saturates to exactly 1 (or 0), so the
- * "correct" side's term becomes `0 * log(0) = NaN` -- the loss NaNs
- * PRECISELY BECAUSE the classifier converged (reproduced deterministically:
- * seed 42, moons, 200+~49 epochs). Filed upstream on mallory-plus.
- *
- * This uses the standard logits-space identity
- * `L(z, y) = relu(z) - z*y + log(1 + exp(-|z|))`, with the last term
- * rewritten as `-log(sigmoid(|z|))` to fit the published Variable op set
- * (no `exp`/`abs` ops exist; `|z| = relu(z) + relu(-z)`). `sigmoid(|z|)`
- * is always >= 0.5, so its log never sees 0 for ANY logit magnitude.
- * Verified equal to `nn.binaryCrossEntropy` to ~1e-12 in the non-saturated
- * regime, and finite (where upstream NaNs) in the saturated one.
- */
-export function stableBinaryCrossEntropy(logits: LossVariable, target: LossVariable): LossVariable {
-  const absZ = logits.relu().add(logits.mul(-1).relu());
-  const perElement = logits.relu().sub(logits.mul(target)).sub(absZ.sigmoid().log());
-  return perElement.mean();
-}
-
 export interface TrainResult {
   /** One binary-cross-entropy loss per epoch, in order (trainer.fit's own lossHistory). */
   lossHistory: number[];
@@ -259,14 +234,14 @@ export async function trainModel(
   const { x, y } = datasetToBatch(points);
   const optimizer = new optim.Adam(model.parameters(), { lr });
   if (!schedule && !onEpoch) {
-    const fit = trainer.configure({ model, optimizer, lossFn: stableBinaryCrossEntropy, epochs });
+    const fit = trainer.configure({ model, optimizer, lossFn: nn.binaryCrossEntropy, epochs });
     const { lossHistory } = await fit.fit({ x, y });
     return { lossHistory: [...lossHistory] };
   }
   const scheduler = schedule ? new optim.StepLR(optimizer, schedule) : undefined;
   const lossHistory: number[] = [];
   for (let epoch = 0; epoch < epochs; epoch++) {
-    const fit = trainer.configure({ model, optimizer, lossFn: stableBinaryCrossEntropy, epochs: 1 });
+    const fit = trainer.configure({ model, optimizer, lossFn: nn.binaryCrossEntropy, epochs: 1 });
     const result = await fit.fit({ x, y });
     const loss = result.lossHistory[0] as number;
     lossHistory.push(loss);

@@ -3,15 +3,7 @@ import { test } from "node:test";
 import { constant, nn, optim, variable } from "mallory-tensor-autograd";
 import { Tensor } from "mallory-tensor-core";
 import { hasSink, metric } from "mallory-telemetry";
-import {
-  TinyMlp,
-  datasetToBatch,
-  generateDataset,
-  installMetricSink,
-  predictProbabilityGrid,
-  stableBinaryCrossEntropy,
-  trainModel,
-} from "./ml-playground.ts";
+import { TinyMlp, datasetToBatch, generateDataset, installMetricSink, predictProbabilityGrid, trainModel } from "./ml-playground.ts";
 
 test("generateDataset: XOR at noise 0 is exactly the four cluster centers with label = XOR of the center signs", () => {
   const points = generateDataset("xor", 4, 1, 0);
@@ -146,7 +138,7 @@ test("trainModel: a StepLR schedule matches a hand-rolled reference loop bit-for
   for (let epoch = 0; epoch < 12; epoch++) {
     modelB.zeroGrad();
     const prediction = modelB.forward(variable(x));
-    const loss = stableBinaryCrossEntropy(prediction, constant(y));
+    const loss = nn.binaryCrossEntropy(prediction, constant(y));
     loss.backward();
     optimizer.step();
     scheduler.step();
@@ -318,22 +310,15 @@ test("predictProbabilityGrid: switches the model to eval mode for inference and 
   assert.equal(model.training, true, "predictProbabilityGrid must restore the model's training flag, not leave it in eval mode");
 });
 
-test("stableBinaryCrossEntropy: matches nn.binaryCrossEntropy to 1e-12 in the non-saturated regime", () => {
-  const z = variable(Tensor.from([0.5, -1.2, 2.0, -0.3], { dtype: "f64" }).reshape([4, 1]));
-  const y = variable(Tensor.from([1, 0, 1, 0], { dtype: "f64" }).reshape([4, 1]));
-  const stable = stableBinaryCrossEntropy(z, y).value.item() as number;
-  const upstream = nn.binaryCrossEntropy(z, y).value.item() as number;
-  assert.ok(Math.abs(stable - upstream) < 1e-12, `stable=${stable} upstream=${upstream}`);
-});
-
-test("stableBinaryCrossEntropy: stays finite (~0) for saturated correct logits, exactly where the upstream NaNs", () => {
+test("nn.binaryCrossEntropy stays finite (~0) for saturated correct logits (regression: this used to NaN, see mallory-plus#85)", () => {
+  // mallory-tensor-autograd's own binaryCrossEntropy used to NaN here --
+  // this repo carried a local stableBinaryCrossEntropy workaround until the
+  // fix landed upstream (mallory-plus#85, pulled in via mallory-tensor-
+  // autograd 0.2.2). Kept as a regression guard on the published fix.
   const z = variable(Tensor.from([50, -50], { dtype: "f64" }).reshape([2, 1]));
   const y = variable(Tensor.from([1, 0], { dtype: "f64" }).reshape([2, 1]));
-  const stable = stableBinaryCrossEntropy(z, y).value.item() as number;
-  assert.ok(Number.isFinite(stable) && stable < 1e-12, `expected ~0, got ${stable}`);
-  // Document the upstream behavior this guards against -- if this ever
-  // starts passing, the upstream bug is fixed and the workaround can go.
-  assert.ok(Number.isNaN(nn.binaryCrossEntropy(z, y).value.item() as number), "upstream no longer NaNs -- retire stableBinaryCrossEntropy");
+  const loss = nn.binaryCrossEntropy(z, y).value.item() as number;
+  assert.ok(Number.isFinite(loss) && loss < 1e-12, `expected ~0, got ${loss}`);
 });
 
 test("trainModel: continuing training well past convergence never NaNs (regression for the saturated-sigmoid loss bug)", async () => {
