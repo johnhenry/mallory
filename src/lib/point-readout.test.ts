@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { sampleExpr } from "./sample-function.ts";
-import { findNearestPointOnRows } from "./point-readout.ts";
+import { findNearestPointOnRows, stepReadoutAlongPath } from "./point-readout.ts";
 import { toScreenX, toScreenY, type Viewport } from "./viewport.ts";
 
 const VIEWPORT: Viewport = { xMin: -5, xMax: 5, yMin: -5, yMax: 5 };
@@ -72,4 +72,34 @@ test("findNearestPointOnRows: the maxScreenDistance threshold is respected exact
   assert.equal(tooFar, null);
   const justInside = findNearestPointOnRows(flat, sx, sy + 19, VIEWPORT, WIDTH, HEIGHT);
   assert.ok(justInside);
+});
+
+test("stepReadoutAlongPath: with no current readout (currentX=null), direction 1 starts at the first sample and -1 at the last", () => {
+  const path = sampleExpr("x^2", { min: -5, max: 5 }, 400);
+  const first = stepReadoutAlongPath("a", path, 0x2563eb, null, 1);
+  const last = stepReadoutAlongPath("a", path, 0x2563eb, null, -1);
+  assert.equal(first!.x, path.commands[0]!.x);
+  assert.equal(last!.x, path.commands[path.commands.length - 1]!.x);
+});
+
+test("stepReadoutAlongPath: from a current x, moves to the immediate next/previous sample by index", () => {
+  const path = sampleExpr("x^2", { min: -5, max: 5 }, 400);
+  const midIndex = 200;
+  const midX = path.commands[midIndex]!.x as number;
+  const next = stepReadoutAlongPath("a", path, 0x2563eb, midX, 1);
+  const prev = stepReadoutAlongPath("a", path, 0x2563eb, midX, -1);
+  assert.equal(next!.x, path.commands[midIndex + 1]!.x);
+  assert.equal(prev!.x, path.commands[midIndex - 1]!.x);
+});
+
+test("stepReadoutAlongPath: clamps at both ends rather than wrapping or going out of bounds", () => {
+  const path = sampleExpr("x^2", { min: -5, max: 5 }, 400);
+  const lastX = path.commands[path.commands.length - 1]!.x as number;
+  const firstX = path.commands[0]!.x as number;
+  assert.equal(stepReadoutAlongPath("a", path, 0x2563eb, lastX, 1)!.x, lastX);
+  assert.equal(stepReadoutAlongPath("a", path, 0x2563eb, firstX, -1)!.x, firstX);
+});
+
+test("stepReadoutAlongPath: an empty path returns null rather than throwing", () => {
+  assert.equal(stepReadoutAlongPath("a", { stroke: { thickness: 1, color: 0, alpha: 1, pixelHinting: false, scaleMode: "normal", caps: null, joints: null, miterLimit: 3 }, commands: [] }, 0x2563eb, null, 1), null);
 });

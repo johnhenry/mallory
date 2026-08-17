@@ -1,6 +1,6 @@
 import type { Path2D } from "mallory-math";
 import { useServerFn } from "@tanstack/react-start";
-import { type PointerEvent, useEffect, useRef, useState, type WheelEvent } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState, type WheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, EXPRESSION_LIST_CELL, VIEWPORT_CELL } from "../lib/cell-ids.ts";
 import { parseDesmosExpressionList, type DesmosImportRow } from "../lib/desmos-import.ts";
@@ -24,7 +24,10 @@ import {
   hexToRgba,
   type Viewport,
 } from "../lib/render-path.ts";
-import { findNearestPointOnRows, type PointReadout } from "../lib/point-readout.ts";
+import { findNearestPointOnRows, stepReadoutAlongPath, type PointReadout } from "../lib/point-readout.ts";
+import type { CurveExtrema } from "../lib/curve-extrema.ts";
+import { describeCurve } from "../lib/graph-description.ts";
+import { buildSonificationSchedule, playSonification, xToSweepTime } from "../lib/sonify-curve.ts";
 import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -259,6 +262,26 @@ function useMultiGraph(): CellGraph {
   return ref.current;
 }
 
+/**
+ * Issue #50's v1 scope: the description, keyboard step, and sonification
+ * all target a single "primary" curve rather than every row -- the first
+ * row (by EXPRESSION_LIST_CELL order) whose path has actually sampled.
+ * Combining multiple rows into one description/sweep is a natural
+ * follow-up, not attempted here (see the PR description).
+ */
+function getPrimaryRow(graph: CellGraph): { rowId: string; ids: ReturnType<typeof cellIdsMultiRow> } | null {
+  for (const rowId of graph.get<string[]>(EXPRESSION_LIST_CELL)) {
+    const ids = cellIdsMultiRow(rowId);
+    // `ids.expr` is eagerly `set()` by `seedRow` at row-creation time, unlike
+    // `ids.path` (a lazy `define()` that only gets a real cached value once
+    // something actually reads it) -- checking `hasValue(path)` here would
+    // wrongly return null on the very first redraw, before the main draw
+    // loop below has triggered that first read.
+    if (graph.hasValue(ids.expr)) return { rowId, ids };
+  }
+  return null;
+}
+
 export function GraphCanvasMulti() {
   const graph = useMultiGraph();
   const rowIds = useCell<string[]>(graph, EXPRESSION_LIST_CELL);
@@ -295,6 +318,12 @@ export function GraphCanvasMulti() {
   // reads its sibling finger's last-known position back out of it.
   const activePointersRef = useRef<Map<number, { sx: number; sy: number }>>(new Map());
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  // Issue #50: a generated prose description of the FIRST row's curve
+  // (roots/extrema/discontinuities), used as the canvas's accessible name.
+  // Scoped to one row for v1 -- see the PR description for why multi-curve
+  // description composition is a natural follow-up rather than in scope here.
+  const [description, setDescription] = useState("No curves plotted yet.");
+  const sonifyPlayerRef = useRef<{ stop: () => void } | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(() =>
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("session") : null,
   );
@@ -601,6 +630,49 @@ export function GraphCanvasMulti() {
     };
   }, []);
 
+  // Issue #50: ArrowLeft/ArrowRight step the point readout one sampled
+  // point at a time along the primary row's curve (see getPrimaryRow) --
+  // the keyboard counterpart to click-to-read-a-point. Only takes over
+  // from a click-set readout when that readout is already on the primary
+  // row; otherwise (or with no readout yet) it starts fresh at that row's
+  // first/last sample, same as `stepReadoutAlongPath`'s own convention.
+  function handleCanvasKeyDown(e: KeyboardEvent<HTMLCanvasElement>) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const primary = getPrimaryRow(graph);
+    if (!primary) return;
+    e.preventDefault();
+    const path = graph.get<Path2D>(primary.ids.path);
+    const color = graph.get<number>(primary.ids.color);
+    const currentX = pointReadout && pointReadout.rowId === primary.rowId ? pointReadout.x : null;
+    const next = stepReadoutAlongPath(primary.rowId, path, color, currentX, e.key === "ArrowRight" ? 1 : -1);
+    graph.set(POINT_READOUT_CELL, next, { auxiliary: true });
+    setReadoutMissed(false);
+  }
+
+  // Issue #50: sweeps the primary row's curve across the current viewport,
+  // mapping f(x) to pitch (discontinuities as silences, roots as clicks --
+  // see sonify-curve.ts). Stops any already-playing sweep first so
+  // repeated clicks don't stack overlapping tones.
+  function handlePlaySound() {
+    const primary = getPrimaryRow(graph);
+    if (!primary) return;
+    sonifyPlayerRef.current?.stop();
+    const path = graph.get<Path2D>(primary.ids.path);
+    const discontinuities = graph.hasValue(primary.ids.discontinuities)
+      ? graph.get<{ before: { x: number; y: number }; after: { x: number; y: number } }[]>(primary.ids.discontinuities)
+      : [];
+    const roots = graph.hasValue(primary.ids.roots) ? graph.get<{ x: number; y: number }[]>(primary.ids.roots) : [];
+    const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
+    const durationSeconds = 3;
+    const schedule = buildSonificationSchedule(path, discontinuities, viewport, durationSeconds);
+    const rootTimes = roots.map((r) => xToSweepTime(r.x, viewport, durationSeconds));
+    sonifyPlayerRef.current = playSonification(schedule, rootTimes);
+  }
+
+  useEffect(() => {
+    return () => sonifyPlayerRef.current?.stop();
+  }, []);
+
   function resetView() {
     if (zoomCommitTimerRef.current) {
       clearTimeout(zoomCommitTimerRef.current);
@@ -672,6 +744,26 @@ export function GraphCanvasMulti() {
       const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
       drawAxes(ctx, viewport, WIDTH, HEIGHT);
       const theme = getThemeColors();
+
+      // Issue #50: regenerate the accessible-name description alongside
+      // every redraw, from the primary row's already-computed roots/
+      // extrema/discontinuities -- cheap (string formatting over data
+      // that's already sampled) compared to the redraw itself.
+      const primary = getPrimaryRow(graph);
+      if (!primary) {
+        setDescription("No curves plotted yet.");
+      } else {
+        try {
+          const source = graph.get<string>(primary.ids.expr);
+          const roots = graph.get<{ x: number; y: number }[]>(primary.ids.roots);
+          const discontinuities = graph.get<{ before: { x: number; y: number }; after: { x: number; y: number } }[]>(primary.ids.discontinuities);
+          const extrema = graph.get<CurveExtrema>(primary.ids.extrema);
+          setDescription(describeCurve(`f(x) = ${source}`, viewport, roots, extrema, discontinuities));
+        } catch {
+          setDescription("Description unavailable for the current curve.");
+        }
+      }
+
       for (const id of graph.get<string[]>(EXPRESSION_LIST_CELL)) {
         const ids = cellIdsMultiRow(id);
         try {
@@ -872,6 +964,10 @@ export function GraphCanvasMulti() {
           onPointerUp={handleCanvasPointerUp}
           onPointerCancel={handleCanvasPointerUp}
           onWheel={handleCanvasWheel}
+          onKeyDown={handleCanvasKeyDown}
+          tabIndex={0}
+          role="img"
+          aria-label={description}
         />
       </div>
       {pointReadout &&
@@ -897,8 +993,12 @@ export function GraphCanvasMulti() {
       )}
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="multi-expression" />{" "}
-        <SvgExportButton getSvg={() => getMultiGraphSvg(graph, rowIds)} label="multi-expression" />
+        <SvgExportButton getSvg={() => getMultiGraphSvg(graph, rowIds)} label="multi-expression" />{" "}
+        <button type="button" onClick={handlePlaySound}>
+          🔊 Play sound
+        </button>
       </div>
+      <p style={{ margin: "0.25rem 0", color: "var(--muted)", fontSize: "0.85rem" }}>{description}</p>
       {annotations.length > 0 && (
         <div style={{ margin: "0.5rem 0" }}>
           <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Annotations</div>
