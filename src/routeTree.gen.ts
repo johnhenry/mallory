@@ -27,6 +27,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as App3dRouteImport } from './routes/_app/3d'
 import { Route as AppCalculatorRouteImport } from './routes/_app/calculator'
 import { Route as AppCalculusRouteImport } from './routes/_app/calculus'
+import { Route as AppCellularAutomataRouteImport } from './routes/_app/cellular-automata'
 import { Route as AppDataRouteImport } from './routes/_app/data'
 import { Route as AppDigitClassifierRouteImport } from './routes/_app/digit-classifier'
 import { Route as AppGalleryRouteImport } from './routes/_app/gallery'
@@ -132,6 +133,11 @@ const AppCalculusRoute = AppCalculusRouteImport.update({
   path: '/calculus',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCellularAutomataRoute = AppCellularAutomataRouteImport.update({
+  id: '/cellular-automata',
+  path: '/cellular-automata',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDataRoute = AppDataRouteImport.update({
   id: '/data',
   path: '/data',
@@ -226,6 +232,7 @@ export interface FileRoutesByFullPath {
   '/3d': typeof App3dRoute
   '/calculator': typeof AppCalculatorRoute
   '/calculus': typeof AppCalculusRoute
+  '/cellular-automata': typeof AppCellularAutomataRoute
   '/data': typeof AppDataRoute
   '/digit-classifier': typeof AppDigitClassifierRoute
   '/gallery': typeof AppGalleryRoute
@@ -259,6 +266,7 @@ export interface FileRoutesByTo {
   '/3d': typeof App3dRoute
   '/calculator': typeof AppCalculatorRoute
   '/calculus': typeof AppCalculusRoute
+  '/cellular-automata': typeof AppCellularAutomataRoute
   '/data': typeof AppDataRoute
   '/digit-classifier': typeof AppDigitClassifierRoute
   '/gallery': typeof AppGalleryRoute
@@ -295,6 +303,7 @@ export interface FileRoutesById {
   '/_app/3d': typeof App3dRoute
   '/_app/calculator': typeof AppCalculatorRoute
   '/_app/calculus': typeof AppCalculusRoute
+  '/_app/cellular-automata': typeof AppCellularAutomataRoute
   '/_app/data': typeof AppDataRoute
   '/_app/digit-classifier': typeof AppDigitClassifierRoute
   '/_app/gallery': typeof AppGalleryRoute
@@ -332,6 +341,7 @@ export interface FileRouteTypes {
     | '/3d'
     | '/calculator'
     | '/calculus'
+    | '/cellular-automata'
     | '/data'
     | '/digit-classifier'
     | '/gallery'
@@ -365,6 +375,7 @@ export interface FileRouteTypes {
     | '/3d'
     | '/calculator'
     | '/calculus'
+    | '/cellular-automata'
     | '/data'
     | '/digit-classifier'
     | '/gallery'
@@ -400,6 +411,7 @@ export interface FileRouteTypes {
     | '/_app/3d'
     | '/_app/calculator'
     | '/_app/calculus'
+    | '/_app/cellular-automata'
     | '/_app/data'
     | '/_app/digit-classifier'
     | '/_app/gallery'
@@ -565,6 +577,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCalculusRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/cellular-automata': {
+      id: '/_app/cellular-automata'
+      path: '/cellular-automata'
+      fullPath: '/cellular-automata'
+      preLoaderRoute: typeof AppCellularAutomataRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/data': {
       id: '/_app/data'
       path: '/data'
@@ -677,6 +696,7 @@ interface AppRouteChildren {
   App3dRoute: typeof App3dRoute
   AppCalculatorRoute: typeof AppCalculatorRoute
   AppCalculusRoute: typeof AppCalculusRoute
+  AppCellularAutomataRoute: typeof AppCellularAutomataRoute
   AppDataRoute: typeof AppDataRoute
   AppDigitClassifierRoute: typeof AppDigitClassifierRoute
   AppGalleryRoute: typeof AppGalleryRoute
@@ -697,6 +717,7 @@ const AppRouteChildren: AppRouteChildren = {
   App3dRoute: App3dRoute,
   AppCalculatorRoute: AppCalculatorRoute,
   AppCalculusRoute: AppCalculusRoute,
+  AppCellularAutomataRoute: AppCellularAutomataRoute,
   AppDataRoute: AppDataRoute,
   AppDigitClassifierRoute: AppDigitClassifierRoute,
   AppGalleryRoute: AppGalleryRoute,
