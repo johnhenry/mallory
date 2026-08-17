@@ -187,7 +187,13 @@ export function VectorField3DPanel({ cellId = "vector-field-3d-1" }: { cellId?: 
   useEffect(() => {
     const group = groupRef.current;
     if (!group || !pointsResult.ok) return;
-    for (const child of [...group.children]) group.remove(child);
+    for (const child of [...group.children]) {
+      group.remove(child);
+      // ArrowHelper has no top-level .geometry/.material -- its cone/line
+      // sub-objects hold them, and ArrowHelper.dispose() (see three.js's own
+      // source) is the sanctioned way to free the per-instance materials.
+      if (child instanceof THREE.ArrowHelper) child.dispose();
+    }
     const maxMagnitude = Math.max(1e-9, ...pointsResult.value.map((p) => Math.hypot(p.dx, p.dy, p.dz)));
     for (const point of pointsResult.value) {
       const magnitude = Math.hypot(point.dx, point.dy, point.dz);
