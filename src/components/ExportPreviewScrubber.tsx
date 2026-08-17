@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 export interface ExportPreviewScrubberProps {
   /** Upper bound of the scrub range -- the export's own duration (plus any prelude the caller's clip plays before it, e.g. 2D's root-crossing Flash). */
@@ -20,17 +20,26 @@ export function ExportPreviewScrubber({ maxTime, fetchFrame }: ExportPreviewScru
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Request-generation counter (issue #237): dragging, releasing, then
+  // dragging+releasing again before the first release's fetchFrame resolves
+  // fires two overlapping fetches. Incremented per call, checked before
+  // applying a result so a slow earlier release can't overwrite the preview
+  // for a since-superseded, faster-resolving later one.
+  const requestIdRef = useRef(0);
 
   async function fetchAt(t: number) {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
       const frame = await fetchFrame(t);
+      if (requestId !== requestIdRef.current) return; // a later release already fetched a newer frame
       setSrc(`data:${frame.mimeType};base64,${frame.data}`);
     } catch (e) {
+      if (requestId !== requestIdRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }
 

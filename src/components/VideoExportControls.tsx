@@ -1,6 +1,7 @@
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getExportVideoJob } from "../lib/export-video.ts";
+import { pollUntilSettled } from "../lib/poll-job.ts";
 
 export interface VideoExportControlsProps {
   /** Kick off the export job for the chosen format/duration; returns the job id to poll. */
@@ -45,22 +46,27 @@ export function VideoExportControls({
   const [error, setError] = useState<string | null>(null);
   const getExportVideoJobFn = useServerFn(getExportVideoJob);
 
+  // Guards every post-await state update below against firing on an
+  // unmounted component (issue #237): the poll loop itself now stops via
+  // pollUntilSettled's `isCancelled`, but `start()`'s own await and the
+  // final download step need the same check.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   async function handleExport() {
     setExporting(true);
     setError(null);
     try {
       const { jobId } = await start(format, duration);
-      const job = await new Promise<Awaited<ReturnType<typeof getExportVideoJobFn>>>((resolve, reject) => {
-        const poll = () => {
-          getExportVideoJobFn({ data: { jobId } }).then((status) => {
-            if (status.status === "pending") setTimeout(poll, 1000);
-            else resolve(status);
-          }, reject);
-        };
-        poll();
-      });
-      if (job.status !== "done") {
-        throw new Error(job.status === "error" ? job.message : "Export job did not complete.");
+      const job = await pollUntilSettled(() => getExportVideoJobFn({ data: { jobId } }), () => !mountedRef.current);
+      if (!mountedRef.current) return; // unmounted (navigated away) before the job settled -- nothing left to update
+      if (!job || job.status !== "done") {
+        throw new Error(job?.status === "error" ? job.message : "Export job did not complete.");
       }
       const bytes = Uint8Array.from(atob(job.result.data), (c) => c.charCodeAt(0));
       const url = URL.createObjectURL(new Blob([bytes], { type: job.result.mimeType }));
@@ -70,9 +76,9 @@ export function VideoExportControls({
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (mountedRef.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setExporting(false);
+      if (mountedRef.current) setExporting(false);
     }
   }
 

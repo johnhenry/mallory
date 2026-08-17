@@ -48,6 +48,13 @@ export function DigitClassifierPanel() {
   const padRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const modelRef = useRef<OnnxModel | null>(null);
+  // Request-generation counter (issue #237): each stroke's pointerUp fires
+  // its own classify() call (model load + inference, both async), so a
+  // multi-stroke digit can have several in flight at once. Incremented at
+  // the start of every call; checked after each await so a call whose id
+  // has since been superseded discards its result instead of overwriting a
+  // newer, more complete prediction.
+  const requestIdRef = useRef(0);
   const [hasDrawing, setHasDrawing] = useState(false);
   const [predictions, setPredictions] = useState<DigitPrediction[] | null>(null);
   const [status, setStatus] = useState<"idle" | "loading-model" | "classifying" | "error">("idle");
@@ -78,18 +85,22 @@ export function DigitClassifierPanel() {
     const canvas = padRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
+    const requestId = ++requestIdRef.current;
     setError(null);
     try {
       const model = await getModel();
+      if (requestId !== requestIdRef.current) return; // a later stroke's classify() has already superseded this one
       setStatus("classifying");
       const { data } = ctx.getImageData(0, 0, PAD_SIZE, PAD_SIZE);
       const input = canvasToMnistInput(data, PAD_SIZE, PAD_SIZE);
       const outputs = await model.run({ [model.inputNames[0]!]: input });
+      if (requestId !== requestIdRef.current) return;
       const logits = outputs[model.outputNames[0]!];
       if (!logits) throw new Error("Model returned no output.");
       setPredictions(rankDigitPredictions(logits));
       setStatus("idle");
     } catch (e) {
+      if (requestId !== requestIdRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
       setStatus("error");
     }
