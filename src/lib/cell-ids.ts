@@ -862,6 +862,16 @@ export function cellIdsTiles(cellId: string) {
     triSolveStatus: `tilesTriSolveStatus:${cellId}`,
     triSolveGrid: `tilesTriSolveGrid:${cellId}`,
     triSolveError: `tilesTriSolveError:${cellId}`,
+    // Cube lattice (issue #92 M4). `depth` is the cube-only 3rd grid
+    // dimension (width/height cover the other two, shared with every other
+    // lattice's own cells); otherwise the same "own text/result/solve
+    // status/grid/error cells" shape as hex/tri.
+    depth: `tilesDepth:${cellId}`,
+    cubeTilesText: `tilesCubeTilesText:${cellId}`,
+    cubeTileSetResult: `tilesCubeTileSetResult:${cellId}`,
+    cubeSolveStatus: `tilesCubeSolveStatus:${cellId}`,
+    cubeSolveGrid: `tilesCubeSolveGrid:${cellId}`,
+    cubeSolveError: `tilesCubeSolveError:${cellId}`,
   };
 }
 

@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsTiles, TIME_CELL, type CellIdsTiles } from "../lib/cell-ids.ts";
+import { DEFAULT_CUBE_TILES_TEXT, parseCubeTileSetText } from "../lib/cube-tile-set-text.ts";
 import { DEFAULT_HEX_TILES_TEXT, parseHexTileSetText } from "../lib/hex-tile-set-text.ts";
 import { DEFAULT_TILES_TEXT, parseTileSetText } from "../lib/tile-set-text.ts";
 import {
@@ -13,6 +16,7 @@ import {
   type TilesSolverKind,
   type TilesState,
 } from "../lib/tiles-state.ts";
+import { solveCube, type CubeGrid, type CubeTileSet } from "../lib/tiles/cube-tile-model.ts";
 import { autocorrelationSurface, diffractionSpectrum, tileIdsPresent } from "../lib/tiles/diffraction.ts";
 import { stripEntropy, type StripEntropyResult } from "../lib/tiles/entropy.ts";
 import { hexCenter, hexCorners } from "../lib/tiles/hex-geometry.ts";
@@ -25,6 +29,7 @@ import { DEFAULT_TRI_TILES_TEXT, parseTriTileSetText } from "../lib/tri-tile-set
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { drawGrayscaleGrid } from "../lib/image-frequency.ts";
+import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
 import { triOrientation } from "mallory-math";
@@ -44,6 +49,11 @@ const DIFFRACTION_CANVAS_SIZE = 200;
 // MAX_CELLS-style guard as the square lattice, at a smaller cap since
 // their backtracking has more neighbor-direction checks per cell.
 const MAX_HEX_TRI_CELLS = 100;
+// Same reasoning and cap as MAX_HEX_TRI_CELLS -- cube backtracking checks 3
+// already-placed neighbor directions per cell (W/N/D), the same order of
+// per-cell work as hex's 3 (NE/NW/W), so the cube lattice (issue #92 M4)
+// reuses the identical cell-count ceiling rather than inventing a new one.
+const MAX_CUBE_CELLS = 100;
 
 // stripEntropy's own transfer-matrix build is O(numColumns^2), and
 // numColumns can be as large as (expanded tile count)^height -- this caps
@@ -83,11 +93,13 @@ function seedState(graph: CellGraph, ids: CellIdsTiles, state: TilesState): void
   graph.set(ids.lattice, state.lattice);
   graph.set(ids.hexTilesText, state.hexTilesText);
   graph.set(ids.triTilesText, state.triTilesText);
+  graph.set(ids.cubeTilesText, state.cubeTilesText);
+  graph.set(ids.depth, state.depth);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
   return {
-    v: 3,
+    v: 4,
     tilesText: graph.get<string>(ids.tilesText),
     width: graph.get<number>(ids.width),
     height: graph.get<number>(ids.height),
@@ -97,6 +109,8 @@ function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
     lattice: graph.get<TilesLattice>(ids.lattice),
     hexTilesText: graph.get<string>(ids.hexTilesText),
     triTilesText: graph.get<string>(ids.triTilesText),
+    cubeTilesText: graph.get<string>(ids.cubeTilesText),
+    depth: graph.get<number>(ids.depth),
   };
 }
 
@@ -123,6 +137,9 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.set(ids.triSolveStatus, "idle" as SolveStatus, { auxiliary: true });
     graph.set(ids.triSolveGrid, null as TriGrid | null, { auxiliary: true });
     graph.set(ids.triSolveError, "", { auxiliary: true });
+    graph.set(ids.cubeSolveStatus, "idle" as SolveStatus, { auxiliary: true });
+    graph.set(ids.cubeSolveGrid, null as CubeGrid | null, { auxiliary: true });
+    graph.set(ids.cubeSolveError, "", { auxiliary: true });
 
     graph.define(ids.tileSetResult, (): Result<TileSet> => {
       try {
@@ -143,6 +160,14 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.define(ids.triTileSetResult, (): Result<TriTileSet> => {
       try {
         return { ok: true, value: parseTriTileSetText(graph.get<string>(ids.triTilesText)) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.cubeTileSetResult, (): Result<CubeTileSet> => {
+      try {
+        return { ok: true, value: parseCubeTileSetText(graph.get<string>(ids.cubeTilesText)) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
@@ -214,6 +239,119 @@ async function drainSolveToGrid<TStep, TGrid>(gen: AsyncGenerator<TStep, TGrid |
   return next.value;
 }
 
+const CUBE_VIEW_SIZE = 400;
+// Spacing between adjacent cube-cell centers -- slightly over the 0.9-unit
+// box size below so neighboring faces sit close without z-fighting.
+const CUBE_CELL_SPACING = 1.1;
+// A single shared, immutable box geometry reused across every cell mesh (all
+// cells are the same size) -- only each mesh's per-tile-id-colored material
+// is created/disposed per render, matching VectorField3DPanel's own
+// "geometry is cheap and stateless, materials carry the per-instance data"
+// split.
+const CUBE_CELL_GEOMETRY = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+
+/**
+ * Renders a solved `CubeGrid` as a grid of colored boxes in an orbit-
+ * controllable 3D scene (issue #92 M4) -- same Scene/Camera/Renderer/
+ * OrbitControls/lighting/Group setup as VectorField3DPanel, with one
+ * `THREE.Mesh` per placed cell (colored via `tileColor`) instead of one
+ * arrow per sampled vector. A standalone, props-only component (no own
+ * CellGraph) since it just visualizes whatever grid `TilesPanel` passes in.
+ */
+function CubeGridView({ grid }: { grid: CubeGrid | null }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const groupRef = useRef<THREE.Group | null>(null);
+  const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(getThemeColors().surface);
+    const unsubscribeTheme = subscribeToThemeChange(() => {
+      scene.background = new THREE.Color(getThemeColors().surface);
+    });
+
+    const camera = new THREE.PerspectiveCamera(50, CUBE_VIEW_SIZE / CUBE_VIEW_SIZE, 0.1, 1000);
+    camera.position.set(6, 6, 6);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(CUBE_VIEW_SIZE, CUBE_VIEW_SIZE, false);
+    container.appendChild(renderer.domElement);
+    rendererCanvasRef.current = renderer.domElement;
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
+    directional.position.set(5, 10, 7);
+    scene.add(directional);
+    scene.add(new THREE.AxesHelper(3));
+
+    const group = new THREE.Group();
+    groupRef.current = group;
+    scene.add(group);
+
+    let raf = 0;
+    function tick() {
+      controls.update();
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      unsubscribeTheme();
+      controls.dispose();
+      renderer.dispose();
+      container.removeChild(renderer.domElement);
+      groupRef.current = null;
+      rendererCanvasRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    for (const child of [...group.children]) {
+      group.remove(child);
+      if (child instanceof THREE.Mesh) (child.material as THREE.Material).dispose();
+    }
+    if (!grid) return;
+    const depth = grid.length;
+    const height = grid[0]?.length ?? 0;
+    const width = grid[0]?.[0]?.length ?? 0;
+    for (let z = 0; z < depth; z++) {
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const id = grid[z]![y]![x];
+          if (!id) continue;
+          const material = new THREE.MeshStandardMaterial({ color: new THREE.Color(tileColor(id)) });
+          const mesh = new THREE.Mesh(CUBE_CELL_GEOMETRY, material);
+          mesh.position.set(
+            (x - (width - 1) / 2) * CUBE_CELL_SPACING,
+            (y - (height - 1) / 2) * CUBE_CELL_SPACING,
+            (z - (depth - 1) / 2) * CUBE_CELL_SPACING,
+          );
+          group.add(mesh);
+        }
+      }
+    }
+  }, [grid]);
+
+  return (
+    <div>
+      <div ref={containerRef} style={{ position: "relative", maxWidth: CUBE_VIEW_SIZE, border: "1px solid var(--border)" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="tiles-cube" />
+      </div>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom.</p>
+    </div>
+  );
+}
+
 /** A Wang tile laboratory: edit a tile set as text, pick a solver variant, and watch the backtracking search play back step by step (issue #92 M1). */
 export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const graph = useTilesGraph(cellId);
@@ -251,6 +389,12 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const triSolveStatus = useCell<SolveStatus>(graph, ids.triSolveStatus);
   const triSolveGrid = useCell<TriGrid | null>(graph, ids.triSolveGrid);
   const triSolveError = useCell<string>(graph, ids.triSolveError);
+  const depth = useCell<number>(graph, ids.depth);
+  const cubeTilesText = useCell<string>(graph, ids.cubeTilesText);
+  const cubeTileSetResult = useCell<Result<CubeTileSet>>(graph, ids.cubeTileSetResult);
+  const cubeSolveStatus = useCell<SolveStatus>(graph, ids.cubeSolveStatus);
+  const cubeSolveGrid = useCell<CubeGrid | null>(graph, ids.cubeSolveGrid);
+  const cubeSolveError = useCell<string>(graph, ids.cubeSolveError);
 
   const [textInput, setTextInput] = useState(tilesText);
   useEffect(() => setTextInput(tilesText), [tilesText]);
@@ -258,6 +402,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   useEffect(() => setHexTextInput(hexTilesText), [hexTilesText]);
   const [triTextInput, setTriTextInput] = useState(triTilesText);
   useEffect(() => setTriTextInput(triTilesText), [triTilesText]);
+  const [cubeTextInput, setCubeTextInput] = useState(cubeTilesText);
+  useEffect(() => setCubeTextInput(cubeTilesText), [cubeTilesText]);
 
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -406,6 +552,42 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, lattice, triTileSetResult, width, height]);
+
+  // Cube auto-solve (issue #92 M4): same shape as the hex/tri effects above,
+  // just gated on `width * height * depth` instead of `width * height`.
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (lattice !== "cube" || !cubeTileSetResult.ok) {
+        graph.set(ids.cubeSolveStatus, "idle" satisfies SolveStatus);
+        graph.set(ids.cubeSolveGrid, null);
+        graph.set(ids.cubeSolveError, "");
+        return;
+      }
+      if (width < 1 || height < 1 || depth < 1 || width * height * depth > MAX_CUBE_CELLS) {
+        graph.set(ids.cubeSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.cubeSolveError, `Box must be at least 1x1x1 and at most ${MAX_CUBE_CELLS} cells total.`);
+        return;
+      }
+      graph.set(ids.cubeSolveStatus, "solving" satisfies SolveStatus);
+      try {
+        const grid = await drainSolveToGrid(solveCube(cubeTileSetResult.value, width, height, depth));
+        if (cancelled) return;
+        graph.set(ids.cubeSolveGrid, grid);
+        graph.set(ids.cubeSolveError, "");
+        graph.set(ids.cubeSolveStatus, "done" satisfies SolveStatus);
+      } catch (e) {
+        if (cancelled) return;
+        graph.set(ids.cubeSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.cubeSolveError, e instanceof Error ? e.message : String(e));
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, lattice, cubeTileSetResult, width, height, depth]);
 
   // A changed solve restarts the animation from the beginning.
   useEffect(() => {
@@ -652,6 +834,11 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     graph.set(ids.triTilesText, value);
   }
 
+  function updateCubeText(value: string) {
+    setCubeTextInput(value);
+    graph.set(ids.cubeTilesText, value);
+  }
+
   return (
     <div>
       <div style={{ margin: "0.25rem 0" }}>
@@ -661,12 +848,13 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             <option value="square">Square (4 edges)</option>
             <option value="hex">Hexagonal (6 edges)</option>
             <option value="tri">Triangular (4 edges, 3 used per cell)</option>
+            <option value="cube">Cube (6 faces, 3D)</option>
           </select>
         </label>
         {lattice !== "square" && (
           <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0 0" }}>
-            Symmetry, entropy, and diffraction analysis are square-lattice-only for now (issue #92 M3). {lattice === "hex" ? "Hexagonal" : "Triangular"}{" "}
-            tiling supports editing, solving, and rendering.
+            Symmetry, entropy, and diffraction analysis are square-lattice-only for now (issue #92 M3).{" "}
+            {lattice === "hex" ? "Hexagonal" : lattice === "tri" ? "Triangular" : "Cube"} tiling supports editing, solving, and rendering.
           </p>
         )}
       </div>
@@ -904,6 +1092,45 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
           </div>
           {triSolveStatus === "solving" && <p>Solving…</p>}
           {triSolveStatus === "done" && <p>{triSolveGrid ? "Tiling found." : `No tiling exists for this tile set at ${width}x${height} cells.`}</p>}
+        </>
+      )}
+
+      {lattice === "cube" && (
+        <>
+          <div style={{ margin: "0.25rem 0" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Tile set (one per line: <code>id N S E W U D</code>)
+            </label>
+            <textarea
+              value={cubeTextInput}
+              onChange={(e) => updateCubeText(e.target.value)}
+              rows={5}
+              style={{ font: "inherit", fontFamily: "monospace", width: "24ch" }}
+            />
+            <div>
+              <button type="button" onClick={() => updateCubeText(DEFAULT_CUBE_TILES_TEXT)}>
+                Reset to default set
+              </button>
+            </div>
+          </div>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              width: <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+            <label>
+              height: <input type="number" min={1} value={height} onChange={(e) => graph.set(ids.height, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+            <label>
+              depth: <input type="number" min={1} value={depth} onChange={(e) => graph.set(ids.depth, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+          </div>
+          {!cubeTileSetResult.ok && <p style={{ color: "crimson" }}>{cubeTileSetResult.message}</p>}
+          {cubeSolveStatus === "error" && <p style={{ color: "crimson" }}>{cubeSolveError}</p>}
+          <CubeGridView grid={cubeSolveGrid} />
+          {cubeSolveStatus === "solving" && <p>Solving…</p>}
+          {cubeSolveStatus === "done" && (
+            <p>{cubeSolveGrid ? "Tiling found." : `No tiling exists for this tile set at ${width}x${height}x${depth} cells.`}</p>
+          )}
         </>
       )}
     </div>
