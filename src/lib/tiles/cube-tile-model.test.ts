@@ -93,3 +93,11 @@ test("solveCube: steps include both placements and (for an unsatisfiable set) a 
   assert.ok(steps.length > 0);
   assert.ok(steps.some((s) => s.contradiction));
 });
+
+test("solveCube: trackSteps: false yields grid: null on every step but doesn't change the final result", async () => {
+  const tile: CubeTile = { id: "t", faces: { N: "x", S: "x", E: "b", W: "a", U: "x", D: "x" } };
+  const { steps, result } = await drain(solveCube({ tiles: [tile] }, 2, 1, 1, { trackSteps: false }));
+  assert.equal(result, null);
+  assert.ok(steps.length > 0);
+  for (const step of steps) assert.equal(step.grid, null);
+});

@@ -64,8 +64,15 @@ export function buildHexCompatibilityDigraph(tiles: readonly HexTile[], d: HexDi
 export type HexGrid = ReadonlyArray<ReadonlyArray<string>>;
 
 export interface HexSolveStep {
-  /** The grid so far, row-major over `r` then `q`, `null` for not-yet-decided cells. */
-  grid: ReadonlyArray<ReadonlyArray<string | null>>;
+  /**
+   * The grid so far, row-major over `r` then `q`, `null` for not-yet-decided
+   * cells -- or `null` itself when `options.trackSteps` is `false` (see
+   * `solveHex`'s own doc comment): a full-grid deep clone costs O(width *
+   * height) and a caller that only wants the final grid (no step-by-step
+   * animation) would otherwise pay that cost on every placement AND every
+   * backtrack for nothing.
+   */
+  grid: ReadonlyArray<ReadonlyArray<string | null>> | null;
   q: number;
   r: number;
   contradiction: boolean;
@@ -93,8 +100,22 @@ const ALREADY_PLACED_DIRECTIONS: readonly HexDirection[] = [1, 2, 3];
  * (same "streamed so long searches stay pausable" reasoning as
  * `solveWang`): yields a `HexSolveStep` after every placement and every
  * backtrack.
+ *
+ * `options.trackSteps` (default `true`) controls whether each yielded step
+ * carries a full grid snapshot. `TilesPanel` currently drains this solver
+ * straight to its final grid (no step-by-step animation for hex -- see
+ * `MAX_HEX_TRI_CELLS`'s own doc comment) and discards every intermediate
+ * step, so it passes `trackSteps: false` to skip the O(width * height)
+ * clone on every step -- otherwise a hard-to-satisfy tile set needing many
+ * backtracks pays that cost for a value nobody reads.
  */
-export async function* solveHex(tileSet: HexTileSet, width: number, height: number): AsyncGenerator<HexSolveStep, HexGrid | null> {
+export async function* solveHex(
+  tileSet: HexTileSet,
+  width: number,
+  height: number,
+  options: { trackSteps?: boolean } = {},
+): AsyncGenerator<HexSolveStep, HexGrid | null> {
+  const trackSteps = options.trackSteps ?? true;
   const tiles = tileSet.tiles;
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const grid: (string | null)[][] = Array.from({ length: height }, () => Array<string | null>(width).fill(null));
@@ -111,8 +132,8 @@ export async function* solveHex(tileSet: HexTileSet, width: number, height: numb
     });
   }
 
-  function snapshot(): (string | null)[][] {
-    return grid.map((row) => [...row]);
+  function snapshot(): (string | null)[][] | null {
+    return trackSteps ? grid.map((row) => [...row]) : null;
   }
 
   async function* backtrack(index: number): AsyncGenerator<HexSolveStep, boolean> {

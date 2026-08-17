@@ -472,10 +472,15 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       }
       graph.set(ids.solveStatus, "solving" satisfies SolveStatus);
       try {
+        // trackSteps: showAnimation -- a run with the animation toggle off
+        // never reads `.grid` on any intermediate step (the canvas only
+        // reads `currentStep.grid` when `showAnimation` is true), so
+        // skipping that per-step full-grid clone here avoids paying an
+        // O(width*height) cost on every placement/backtrack for nothing.
         const gen =
           solver === "torus"
-            ? solveTorus(expandedTileSetResult.value, width, height)
-            : solveWang(expandedTileSetResult.value, width, height);
+            ? solveTorus(expandedTileSetResult.value, width, height, { trackSteps: showAnimation })
+            : solveWang(expandedTileSetResult.value, width, height, { trackSteps: showAnimation });
         if (solver === "sat") {
           const grid = solveWangViaSat(expandedTileSetResult.value, width, height);
           if (cancelled) return;
@@ -502,7 +507,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, lattice, expandedTileSetResult, width, height, solver]);
+  }, [graph, lattice, expandedTileSetResult, width, height, solver, showAnimation]);
 
   // Hex/tri auto-solve: same "drain the async generator, write the result
   // back via graph.set" shape as the square lattice's own effect above,
@@ -526,7 +531,10 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       }
       graph.set(ids.hexSolveStatus, "solving" satisfies SolveStatus);
       try {
-        const grid = await drainSolveToGrid(solveHex(hexTileSetResult.value, width, height));
+        // No step-by-step animation for hex (see MAX_HEX_TRI_CELLS's own doc
+        // comment), so trackSteps: false skips the per-step grid clone --
+        // drainSolveToGrid already discards every intermediate step anyway.
+        const grid = await drainSolveToGrid(solveHex(hexTileSetResult.value, width, height, { trackSteps: false }));
         if (cancelled) return;
         graph.set(ids.hexSolveGrid, grid);
         graph.set(ids.hexSolveError, "");
@@ -560,7 +568,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       }
       graph.set(ids.triSolveStatus, "solving" satisfies SolveStatus);
       try {
-        const grid = await drainSolveToGrid(solveTri(triTileSetResult.value, width, height));
+        // Same trackSteps: false reasoning as the hex effect above.
+        const grid = await drainSolveToGrid(solveTri(triTileSetResult.value, width, height, { trackSteps: false }));
         if (cancelled) return;
         graph.set(ids.triSolveGrid, grid);
         graph.set(ids.triSolveError, "");
@@ -596,7 +605,10 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       }
       graph.set(ids.cubeSolveStatus, "solving" satisfies SolveStatus);
       try {
-        const grid = await drainSolveToGrid(solveCube(cubeTileSetResult.value, width, height, depth));
+        // Same trackSteps: false reasoning as the hex effect above -- and
+        // the biggest win of the three, since a cube step snapshot is an
+        // O(width*height*depth) 3D-array clone, not a 2D one.
+        const grid = await drainSolveToGrid(solveCube(cubeTileSetResult.value, width, height, depth, { trackSteps: false }));
         if (cancelled) return;
         graph.set(ids.cubeSolveGrid, grid);
         graph.set(ids.cubeSolveError, "");

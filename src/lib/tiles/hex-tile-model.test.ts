@@ -82,3 +82,11 @@ test("solveHex: steps include both placements and (for an unsatisfiable set) a f
   assert.ok(steps.length > 0);
   assert.ok(steps.some((s) => s.contradiction));
 });
+
+test("solveHex: trackSteps: false yields grid: null on every step but doesn't change the final result (issue #92 perf fix -- skips the per-step O(width*height) grid clone since TilesPanel discards every intermediate hex step anyway)", async () => {
+  const tile: HexTile = { id: "t", edges: { 0: "a", 1: "x", 2: "x", 3: "b", 4: "x", 5: "x" } };
+  const { steps, result } = await drain(solveHex({ tiles: [tile] }, 2, 1, { trackSteps: false }));
+  assert.equal(result, null);
+  assert.ok(steps.length > 0);
+  for (const step of steps) assert.equal(step.grid, null);
+});

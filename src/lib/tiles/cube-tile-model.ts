@@ -58,8 +58,14 @@ function cubeNeighborCoords(x: number, y: number, z: number, d: CubeDirection): 
 export type CubeGrid = ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>;
 
 export interface CubeSolveStep {
-  /** The grid so far, `[z][y][x]`, `null` for not-yet-decided cells. */
-  grid: ReadonlyArray<ReadonlyArray<ReadonlyArray<string | null>>>;
+  /**
+   * The grid so far, `[z][y][x]`, `null` for not-yet-decided cells -- or
+   * `null` itself when `options.trackSteps` is `false` (see `solveCube`'s
+   * own doc comment), skipping the O(width * height * depth) clone a
+   * caller that only wants the final grid would otherwise pay on every
+   * placement AND every backtrack for nothing.
+   */
+  grid: ReadonlyArray<ReadonlyArray<ReadonlyArray<string | null>>> | null;
   x: number;
   y: number;
   z: number;
@@ -83,8 +89,22 @@ const ALREADY_PLACED_CUBE_DIRECTIONS: readonly CubeDirection[] = ["W", "N", "D"]
  * `solveWang`/`solveHex`/`solveTri`. Same "core solver only" scoping:
  * async generator yielding a `CubeSolveStep` after every placement and
  * every backtrack, no torus/SAT variants yet.
+ *
+ * `options.trackSteps` (default `true`), same escape hatch as `solveHex`'s/
+ * `solveTri`'s own: `TilesPanel` drains this straight to the final grid and
+ * discards every intermediate step (no step-by-step animation for cube),
+ * so it passes `trackSteps: false` to skip the O(width * height * depth)
+ * clone on every step -- otherwise a hard-to-satisfy tile set needing many
+ * backtracks pays that 3D-grid-copy cost for a value nobody reads.
  */
-export async function* solveCube(tileSet: CubeTileSet, width: number, height: number, depth: number): AsyncGenerator<CubeSolveStep, CubeGrid | null> {
+export async function* solveCube(
+  tileSet: CubeTileSet,
+  width: number,
+  height: number,
+  depth: number,
+  options: { trackSteps?: boolean } = {},
+): AsyncGenerator<CubeSolveStep, CubeGrid | null> {
+  const trackSteps = options.trackSteps ?? true;
   const tiles = tileSet.tiles;
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const grid: (string | null)[][][] = Array.from({ length: depth }, () =>
@@ -103,8 +123,8 @@ export async function* solveCube(tileSet: CubeTileSet, width: number, height: nu
     });
   }
 
-  function snapshot(): (string | null)[][][] {
-    return grid.map((layer) => layer.map((row) => [...row]));
+  function snapshot(): (string | null)[][][] | null {
+    return trackSteps ? grid.map((layer) => layer.map((row) => [...row])) : null;
   }
 
   async function* backtrack(index: number): AsyncGenerator<CubeSolveStep, boolean> {
