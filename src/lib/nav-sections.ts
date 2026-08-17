@@ -96,6 +96,11 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Digit classifier",
     icon: '<path d="M3 12.5 5.5 3.5h5L13 12.5" stroke-linejoin="round"/><path d="M4.5 8.5h7" stroke-linecap="round"/>',
   },
+  {
+    to: "/cellular-automata",
+    label: "Cellular automata",
+    icon: '<rect x="1.8" y="1.8" width="3.4" height="3.4"/><rect x="6.3" y="1.8" width="3.4" height="3.4"/><rect x="10.8" y="1.8" width="3.4" height="3.4"/><rect x="6.3" y="6.3" width="3.4" height="3.4"/><rect x="1.8" y="10.8" width="3.4" height="3.4"/><rect x="10.8" y="10.8" width="3.4" height="3.4"/>',
+  },
 ];
 
 export const SECTION_PATHS = NAV_SECTIONS.map((item) => item.to).concat(["/demos"]);

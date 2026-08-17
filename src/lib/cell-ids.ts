@@ -887,3 +887,35 @@ export function cellIdsTiles(cellId: string) {
 }
 
 export type CellIdsTiles = ReturnType<typeof cellIdsTiles>;
+
+/**
+ * Cell ids for the n-D cellular automata lab (issue #229). Unlike the
+ * Wang tile lab's solvers, CA evolution has no combinatorial search --
+ * it's a fixed amount of work per cell per generation -- so both
+ * `spacetime1d`/`spacetime2d` are plain `define`d derived cells (pure,
+ * synchronous, cached until an input changes), not the async-generator +
+ * free-cell pattern the tile solvers need.
+ */
+export function cellIdsCellularAutomata(cellId: string) {
+  return {
+    dimension: `caDimension:${cellId}`,
+    ruleNumber: `caRuleNumber:${cellId}`,
+    width1d: `caWidth1d:${cellId}`,
+    generations1d: `caGenerations1d:${cellId}`,
+    boundary1d: `caBoundary1d:${cellId}`,
+    initial1d: `caInitial1d:${cellId}`,
+    seed1d: `caSeed1d:${cellId}`,
+    spacetime1dResult: `caSpacetime1dResult:${cellId}`,
+    bsRule: `caBsRule:${cellId}`,
+    width2d: `caWidth2d:${cellId}`,
+    height2d: `caHeight2d:${cellId}`,
+    generations2d: `caGenerations2d:${cellId}`,
+    boundary2d: `caBoundary2d:${cellId}`,
+    seed2d: `caSeed2d:${cellId}`,
+    density2d: `caDensity2d:${cellId}`,
+    spacetime2dResult: `caSpacetime2dResult:${cellId}`,
+    showVoxelView: `caShowVoxelView:${cellId}`,
+  };
+}
+
+export type CellIdsCellularAutomata = ReturnType<typeof cellIdsCellularAutomata>;
