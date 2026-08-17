@@ -872,6 +872,17 @@ export function cellIdsTiles(cellId: string) {
     cubeSolveStatus: `tilesCubeSolveStatus:${cellId}`,
     cubeSolveGrid: `tilesCubeSolveGrid:${cellId}`,
     cubeSolveError: `tilesCubeSolveError:${cellId}`,
+    // Differentiable-relaxation experiment (issue #92 M5, square-lattice
+    // only). Run on demand via a button, not auto-solved -- same "on-demand
+    // free cells" shape as entropy (compute-heavy, and unlike entropy's
+    // stripEntropy this ALSO doesn't derive from expandedTileSetResult
+    // alone, since width/height/steps/lr all matter too), so relaxSteps/
+    // relaxLr get their own free cells rather than living in TilesState.
+    relaxSteps: `tilesRelaxSteps:${cellId}`,
+    relaxLr: `tilesRelaxLr:${cellId}`,
+    relaxStatus: `tilesRelaxStatus:${cellId}`,
+    relaxResult: `tilesRelaxResult:${cellId}`,
+    relaxError: `tilesRelaxError:${cellId}`,
   };
 }
 

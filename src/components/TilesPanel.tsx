@@ -17,6 +17,7 @@ import {
   type TilesState,
 } from "../lib/tiles-state.ts";
 import { solveCube, type CubeGrid, type CubeTileSet } from "../lib/tiles/cube-tile-model.ts";
+import { relaxWangTiling, type RelaxResult } from "../lib/tiles/differentiable-relax.ts";
 import { autocorrelationSurface, diffractionSpectrum, tileIdsPresent } from "../lib/tiles/diffraction.ts";
 import { stripEntropy, type StripEntropyResult } from "../lib/tiles/entropy.ts";
 import { hexCenter, hexCorners } from "../lib/tiles/hex-geometry.ts";
@@ -29,7 +30,9 @@ import { DEFAULT_TRI_TILES_TEXT, parseTriTileSetText } from "../lib/tri-tile-set
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { drawGrayscaleGrid } from "../lib/image-frequency.ts";
+import { drawAxes, drawPolyline } from "../lib/render-path.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
+import type { Viewport } from "../lib/viewport.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
 import { triOrientation } from "mallory-math";
@@ -37,11 +40,14 @@ import { triOrientation } from "mallory-math";
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 type SolveStatus = "idle" | "solving" | "done" | "error";
 type EntropyStatus = "idle" | "computing" | "done" | "error";
+type RelaxStatus = "idle" | "running" | "done" | "error";
 interface DiffractionResult {
   spectrum: number[][];
   autocorrelation: number[][];
 }
 const DIFFRACTION_CANVAS_SIZE = 200;
+const RELAX_ENERGY_WIDTH = 300;
+const RELAX_ENERGY_HEIGHT = 120;
 // Hex/tri (issue #92 M3's lattice generalization) get a much smaller
 // scoped-down feature set than the square lattice: tile editing + solving
 // + rendering only, no symmetry/entropy/diffraction, no step-by-step
@@ -54,6 +60,15 @@ const MAX_HEX_TRI_CELLS = 100;
 // per-cell work as hex's 3 (NE/NW/W), so the cube lattice (issue #92 M4)
 // reuses the identical cell-count ceiling rather than inventing a new one.
 const MAX_CUBE_CELLS = 100;
+// The relaxation experiment (issue #92 M5) runs a fixed-`steps` Adam loop
+// SYNCHRONOUSLY (see relaxWangTiling's own doc comment on why it isn't a
+// pausable generator) on click -- a much lower cell cap than the backtracking
+// solvers' MAX_CELLS keeps that click from noticeably blocking the UI thread
+// (measured: a 300-step run on a small grid is comfortably sub-second;
+// scaling both grid area and step count up multiplies the per-step tensor
+// work, so both get their own conservative cap).
+const MAX_RELAX_CELLS = 36;
+const MAX_RELAX_STEPS = 2000;
 
 // stripEntropy's own transfer-matrix build is O(numColumns^2), and
 // numColumns can be as large as (expanded tile count)^height -- this caps
@@ -140,6 +155,11 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.set(ids.cubeSolveStatus, "idle" as SolveStatus, { auxiliary: true });
     graph.set(ids.cubeSolveGrid, null as CubeGrid | null, { auxiliary: true });
     graph.set(ids.cubeSolveError, "", { auxiliary: true });
+    graph.set(ids.relaxSteps, 300, { auxiliary: true });
+    graph.set(ids.relaxLr, 0.3, { auxiliary: true });
+    graph.set(ids.relaxStatus, "idle" as RelaxStatus, { auxiliary: true });
+    graph.set(ids.relaxResult, null as RelaxResult | null, { auxiliary: true });
+    graph.set(ids.relaxError, "", { auxiliary: true });
 
     graph.define(ids.tileSetResult, (): Result<TileSet> => {
       try {
@@ -376,6 +396,11 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const entropyError = useCell<string>(graph, ids.entropyError);
   const diffractionTileId = useCell<string>(graph, ids.diffractionTileId);
   const diffractionResult = useCell<DiffractionResult | null>(graph, ids.diffractionResult);
+  const relaxSteps = useCell<number>(graph, ids.relaxSteps);
+  const relaxLr = useCell<number>(graph, ids.relaxLr);
+  const relaxStatus = useCell<RelaxStatus>(graph, ids.relaxStatus);
+  const relaxResult = useCell<RelaxResult | null>(graph, ids.relaxResult);
+  const relaxError = useCell<string>(graph, ids.relaxError);
   const time = useCell<number>(graph, TIME_CELL);
 
   const lattice = useCell<TilesLattice>(graph, ids.lattice);
@@ -662,6 +687,60 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     },
   });
 
+  // Same "stale result would be misleading, but it's on-demand so only clear
+  // it rather than re-running" shape as entropy's own effect above -- also
+  // keyed on width/height (entropy's isn't, since strip entropy has no
+  // notion of a grid width/height) since those directly change what the
+  // relaxation optimizes over.
+  useEffect(() => {
+    graph.set(ids.relaxStatus, "idle" satisfies RelaxStatus);
+    graph.set(ids.relaxResult, null);
+    graph.set(ids.relaxError, "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedTileSetResult, width, height]);
+
+  /** Issue #92 M5: runs `relaxWangTiling` synchronously on the current (symmetry-expanded) tile set -- see MAX_RELAX_CELLS's own doc comment on why this stays capped well below the backtracking solvers' own grid-size cap. */
+  function runRelax() {
+    if (!expandedTileSetResult.ok) return;
+    if (width < 1 || height < 1 || width * height > MAX_RELAX_CELLS) {
+      graph.set(ids.relaxStatus, "error" satisfies RelaxStatus);
+      graph.set(ids.relaxError, `Grid must be at least 1x1 and at most ${MAX_RELAX_CELLS} cells total for the relaxation experiment.`);
+      return;
+    }
+    if (relaxSteps < 1 || relaxSteps > MAX_RELAX_STEPS) {
+      graph.set(ids.relaxStatus, "error" satisfies RelaxStatus);
+      graph.set(ids.relaxError, `Steps must be between 1 and ${MAX_RELAX_STEPS}.`);
+      return;
+    }
+    graph.set(ids.relaxStatus, "running" satisfies RelaxStatus);
+    try {
+      const result = relaxWangTiling(expandedTileSetResult.value, width, height, { steps: relaxSteps, lr: relaxLr });
+      graph.set(ids.relaxResult, result);
+      graph.set(ids.relaxError, "");
+      graph.set(ids.relaxStatus, "done" satisfies RelaxStatus);
+    } catch (e) {
+      graph.set(ids.relaxStatus, "error" satisfies RelaxStatus);
+      graph.set(ids.relaxError, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useModelContextTool({
+    name: `tiles_${cellId}_relax`,
+    description:
+      "Run the differentiable-relaxation experiment (issue #92 M5) on the panel's current (symmetry-expanded) square-lattice tile set: a softmax tile assignment per cell, minimized against a mismatch-count energy via Adam. Returns the resulting grid, whether it's actually a valid tiling, and the energy trajectory's final value -- a genuinely open question whether this converges to a valid tiling faster than the backtracking solver on hard sets.",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      runRelax();
+      const result = graph.get<RelaxResult | null>(ids.relaxResult);
+      return {
+        status: graph.get<RelaxStatus>(ids.relaxStatus),
+        valid: result?.valid ?? null,
+        finalEnergy: result ? result.energyHistory[result.energyHistory.length - 1] : null,
+        error: graph.get<string>(ids.relaxError),
+      };
+    },
+  });
+
   const currentStepIndex = solveSteps.length > 0 ? Math.min(solveSteps.length - 1, Math.floor(time / STEP_SECONDS)) : -1;
   const currentStep = currentStepIndex >= 0 ? solveSteps[currentStepIndex] : undefined;
 
@@ -809,6 +888,57 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     if (!diffractionResult) return;
     drawGrayscaleGrid(ctx, diffractionResult.autocorrelation, DIFFRACTION_CANVAS_SIZE, DIFFRACTION_CANVAS_SIZE);
   }, [diffractionResult]);
+
+  // Relax grid canvas: same plain square-cell rendering as the main solve
+  // canvas above (tileColor fill + id label), just driven by relaxResult.grid
+  // instead of solveGrid/currentStep -- no animation, since relaxWangTiling
+  // isn't a step-by-step generator (see its own doc comment).
+  const relaxCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const relaxCanvasWidth = Math.max(1, width) * CELL_SIZE;
+  const relaxCanvasHeight = Math.max(1, height) * CELL_SIZE;
+
+  useEffect(() => {
+    const ctx = relaxCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, relaxCanvasWidth, relaxCanvasHeight);
+    if (!relaxResult) return;
+    for (let row = 0; row < relaxResult.grid.length; row++) {
+      for (let col = 0; col < relaxResult.grid[row]!.length; col++) {
+        const id = relaxResult.grid[row]![col]!;
+        const x = col * CELL_SIZE;
+        const y = row * CELL_SIZE;
+        ctx.fillStyle = tileColor(id);
+        ctx.strokeStyle = "#00000022";
+        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+        ctx.strokeRect(x, y, CELL_SIZE, CELL_SIZE);
+        ctx.fillStyle = "#fff";
+        ctx.font = "13px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(id, x + CELL_SIZE / 2, y + CELL_SIZE / 2);
+      }
+    }
+  }, [relaxCanvasWidth, relaxCanvasHeight, relaxResult]);
+
+  const relaxEnergyCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const ctx = relaxEnergyCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, RELAX_ENERGY_WIDTH, RELAX_ENERGY_HEIGHT);
+    if (!relaxResult || relaxResult.energyHistory.length < 2) return;
+    const maxEnergy = Math.max(...relaxResult.energyHistory, 1e-9);
+    const viewport: Viewport = { xMin: 0, xMax: relaxResult.energyHistory.length - 1, yMin: 0, yMax: maxEnergy * 1.05 };
+    drawAxes(ctx, viewport, RELAX_ENERGY_WIDTH, RELAX_ENERGY_HEIGHT);
+    drawPolyline(
+      ctx,
+      relaxResult.energyHistory.map((e, i) => ({ x: i, y: e })),
+      viewport,
+      RELAX_ENERGY_WIDTH,
+      RELAX_ENERGY_HEIGHT,
+      "#dc2626",
+    );
+  }, [relaxResult]);
 
   useEffect(() => {
     function writeUrl() {
@@ -1017,6 +1147,69 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
               </div>
             </div>
             {!diffractionResult && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Solve for a tiling to see its diffraction pattern.</p>}
+          </div>
+
+          <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Differentiable relaxation (issue #92 M5, experiment) -- softmax tile assignment minimized against a mismatch-count energy via Adam, run on demand
+            </label>
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center", margin: "0.25rem 0" }}>
+              <label>
+                steps:{" "}
+                <input
+                  type="number"
+                  min={1}
+                  max={MAX_RELAX_STEPS}
+                  value={relaxSteps}
+                  onChange={(e) => graph.set(ids.relaxSteps, Math.max(1, Number(e.target.value)))}
+                  style={{ font: "inherit", width: "6ch" }}
+                />
+              </label>
+              <label>
+                lr:{" "}
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={relaxLr}
+                  onChange={(e) => graph.set(ids.relaxLr, Number(e.target.value))}
+                  style={{ font: "inherit", width: "6ch" }}
+                />
+              </label>
+              <button type="button" onClick={runRelax} disabled={!expandedTileSetResult.ok || relaxStatus === "running"}>
+                Run relaxation
+              </button>
+            </div>
+            {relaxStatus === "error" && <p style={{ color: "crimson" }}>{relaxError}</p>}
+            {relaxStatus === "running" && <p>Optimizing…</p>}
+            {relaxStatus === "done" && relaxResult && (
+              <>
+                <p>
+                  {relaxResult.valid ? "Converged to a valid tiling." : "Did not converge to a valid tiling"} (final energy ≈{" "}
+                  {relaxResult.energyHistory[relaxResult.energyHistory.length - 1]!.toFixed(4)}).
+                </p>
+                <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                  <div>
+                    <canvas ref={relaxCanvasRef} width={relaxCanvasWidth} height={relaxCanvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+                    <div style={{ margin: "0.25rem 0" }}>
+                      <PngExportButton getCanvas={() => relaxCanvasRef.current} label="tiles-relax" />
+                    </div>
+                  </div>
+                  <div>
+                    <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>Energy vs. step</p>
+                    <canvas
+                      ref={relaxEnergyCanvasRef}
+                      width={RELAX_ENERGY_WIDTH}
+                      height={RELAX_ENERGY_HEIGHT}
+                      style={{ border: "1px solid #ccc", maxWidth: "100%" }}
+                    />
+                    <div style={{ margin: "0.25rem 0" }}>
+                      <PngExportButton getCanvas={() => relaxEnergyCanvasRef.current} label="tiles-relax-energy" />
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </>
       )}
