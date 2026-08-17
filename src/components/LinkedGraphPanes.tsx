@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIds } from "../lib/cell-ids.ts";
 import { DEFAULT_GRAPH_STATE, decodeGraphState, encodeGraphState, type GraphState } from "../lib/graph-state.ts";
+import { useDebouncedSubscribeAll } from "../hooks/use-debounced-subscribe-all.ts";
 import { GraphCanvas } from "./GraphCanvas.tsx";
 
 const PANE_IDS = ["pane-a", "pane-b"] as const;
@@ -76,26 +77,35 @@ export function LinkedGraphPanes() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function writeUrl() {
+    const cells = PANE_IDS.map((cellId) => {
+      const ids = cellIds(cellId);
+      const names = graph.get<string[]>(ids.freeVars);
+      const params: Record<string, number> = {};
+      for (const name of names) params[name] = graph.get<number>(ids.param(name));
+      return {
+        id: cellId,
+        source: graph.get<string>(ids.expr),
+        params,
+        structureModulus: graph.get<number | null>(ids.structure),
+      };
+    });
+    const state: GraphState = { v: 3, cells, viewport: DEFAULT_GRAPH_STATE.viewport, mode: "float" };
+    window.history.replaceState(null, "", `#${encodeGraphState(state)}`);
+  }
   useEffect(() => {
-    function writeUrl() {
-      const cells = PANE_IDS.map((cellId) => {
-        const ids = cellIds(cellId);
-        const names = graph.get<string[]>(ids.freeVars);
-        const params: Record<string, number> = {};
-        for (const name of names) params[name] = graph.get<number>(ids.param(name));
-        return {
-          id: cellId,
-          source: graph.get<string>(ids.expr),
-          params,
-          structureModulus: graph.get<number | null>(ids.structure),
-        };
-      });
-      const state: GraphState = { v: 3, cells, viewport: DEFAULT_GRAPH_STATE.viewport, mode: "float" };
-      window.history.replaceState(null, "", `#${encodeGraphState(state)}`);
-    }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
+  // Debounced (issue #235), not a plain subscribeAll: writeUrl reads neither
+  // TIME_CELL nor a pane's viewport (this component's own doc comment notes
+  // it always writes DEFAULT_GRAPH_STATE.viewport), so a subscribeAll here
+  // used to re-run writeUrl on every RAF tick of the shared transport's
+  // playback -- both panes' curves animate off TIME_CELL, but the URL never
+  // encodes playback position. Each pane's own free-variable set is dynamic
+  // (depends on its current expression), so unlike the fixed-cell-list
+  // panels this can't cleanly switch to `subscribeMany`.
+  useDebouncedSubscribeAll(graph, writeUrl);
 
   return (
     <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>

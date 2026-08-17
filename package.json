@@ -62,6 +62,6 @@
     "dev": "vite",
     "build": "vite build && tsc --noEmit",
     "start": "node server.js",
-    "test": "node --experimental-strip-types --experimental-test-module-mocks --experimental-loader ./scripts/jsx-test-loader.mjs --test 'src/**/*.test.ts' '*.test.mjs'"
+    "test": "node --experimental-strip-types --experimental-loader ./scripts/jsx-test-loader.mjs --experimental-test-module-mocks --test 'src/**/*.test.ts' '*.test.mjs'"
   }
 }
