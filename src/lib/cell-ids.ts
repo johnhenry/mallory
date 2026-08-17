@@ -833,6 +833,13 @@ export function cellIdsTiles(cellId: string) {
     entropyStatus: `tilesEntropyStatus:${cellId}`,
     entropyResult: `tilesEntropyResult:${cellId}`,
     entropyError: `tilesEntropyError:${cellId}`,
+    // Diffraction/autocorrelation (issue #92 M3's square-lattice slice):
+    // which solved tile id the two views are computed for, and a `define`d
+    // derivation off solveGrid -- pure and synchronous like symmetry
+    // expansion, so it derives on read rather than needing its own
+    // status/error free cells the way entropy does.
+    diffractionTileId: `tilesDiffractionTileId:${cellId}`,
+    diffractionResult: `tilesDiffractionResult:${cellId}`,
   };
 }
 

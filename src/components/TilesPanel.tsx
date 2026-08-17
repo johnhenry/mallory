@@ -11,17 +11,24 @@ import {
   type TilesSolverKind,
   type TilesState,
 } from "../lib/tiles-state.ts";
+import { autocorrelationSurface, diffractionSpectrum, tileIdsPresent } from "../lib/tiles/diffraction.ts";
 import { stripEntropy, type StripEntropyResult } from "../lib/tiles/entropy.ts";
 import { expandTileSetSymmetry, type SymmetryGroup } from "../lib/tiles/symmetry.ts";
 import { solveTorus, solveWang, solveWangViaSat, type SolveStep, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
+import { drawGrayscaleGrid } from "../lib/image-frequency.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 type SolveStatus = "idle" | "solving" | "done" | "error";
 type EntropyStatus = "idle" | "computing" | "done" | "error";
+interface DiffractionResult {
+  spectrum: number[][];
+  autocorrelation: number[][];
+}
+const DIFFRACTION_CANVAS_SIZE = 200;
 
 // stripEntropy's own transfer-matrix build is O(numColumns^2), and
 // numColumns can be as large as (expanded tile count)^height -- this caps
@@ -88,6 +95,7 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.set(ids.entropyStatus, "idle" as EntropyStatus, { auxiliary: true });
     graph.set(ids.entropyResult, null as StripEntropyResult | null, { auxiliary: true });
     graph.set(ids.entropyError, "", { auxiliary: true });
+    graph.set(ids.diffractionTileId, "", { auxiliary: true });
 
     graph.define(ids.tileSetResult, (): Result<TileSet> => {
       try {
@@ -103,6 +111,19 @@ function useTilesGraph(cellId: string): CellGraph {
       const base = graph.get<Result<TileSet>>(ids.tileSetResult);
       if (!base.ok) return base;
       return { ok: true, value: expandTileSetSymmetry(base.value, graph.get<SymmetryGroup>(ids.symmetry)) };
+    });
+
+    // Diffraction/autocorrelation: also pure and synchronous (both operate
+    // on an already-solved grid, no search of their own), so this derives
+    // on read too. `null` means "no completed tiling to analyze yet" or
+    // "the selected tile id isn't in this solve" -- both real, common
+    // states (an in-progress/failed solve, or a stale selection left over
+    // from a since-changed tile set), not errors.
+    graph.define(ids.diffractionResult, (): DiffractionResult | null => {
+      const grid = graph.get<WangGrid | null>(ids.solveGrid);
+      const tileId = graph.get<string>(ids.diffractionTileId);
+      if (!grid || !tileId || !tileIdsPresent(grid).includes(tileId)) return null;
+      return { spectrum: diffractionSpectrum(grid, tileId), autocorrelation: autocorrelationSurface(grid, tileId) };
     });
 
     ref.current = graph;
@@ -160,6 +181,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const entropyStatus = useCell<EntropyStatus>(graph, ids.entropyStatus);
   const entropyResult = useCell<StripEntropyResult | null>(graph, ids.entropyResult);
   const entropyError = useCell<string>(graph, ids.entropyError);
+  const diffractionTileId = useCell<string>(graph, ids.diffractionTileId);
+  const diffractionResult = useCell<DiffractionResult | null>(graph, ids.diffractionResult);
   const time = useCell<number>(graph, TIME_CELL);
 
   const [textInput, setTextInput] = useState(tilesText);
@@ -244,6 +267,19 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     graph.set(TIME_CELL, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [solveSteps]);
+
+  // Keep the diffraction tile-id selection valid across a new solve: pick
+  // the first available id when the current selection isn't (or never was)
+  // present in the newly-solved grid. `diffractionResult` itself already
+  // reads `solveGrid` in its `define`, so this effect's only job is
+  // choosing WHICH id to look at -- it never touches diffractionResult.
+  useEffect(() => {
+    const available = solveGrid ? tileIdsPresent(solveGrid) : [];
+    if (!available.includes(diffractionTileId)) {
+      graph.set(ids.diffractionTileId, available[0] ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [solveGrid]);
 
   // A stale entropy result/error for a now-different tile set or height
   // would be actively misleading (unlike solving, entropy is NOT
@@ -342,6 +378,28 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       ctx.strokeRect(x + 1.5, y + 1.5, CELL_SIZE - 3, CELL_SIZE - 3);
     }
   }, [canvasWidth, canvasHeight, showAnimation, currentStep, solveGrid]);
+
+  const diffractionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const autocorrelationCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const ctx = diffractionCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, DIFFRACTION_CANVAS_SIZE, DIFFRACTION_CANVAS_SIZE);
+    if (!diffractionResult) return;
+    // log1p-scaled, same reasoning as ImageFrequencyPanel's own magnitude
+    // spectrum: the DC bin dwarfs everything else on a linear scale.
+    const logSpectrum = diffractionResult.spectrum.map((row) => row.map((v) => Math.log1p(v)));
+    drawGrayscaleGrid(ctx, logSpectrum, DIFFRACTION_CANVAS_SIZE, DIFFRACTION_CANVAS_SIZE);
+  }, [diffractionResult]);
+
+  useEffect(() => {
+    const ctx = autocorrelationCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, DIFFRACTION_CANVAS_SIZE, DIFFRACTION_CANVAS_SIZE);
+    if (!diffractionResult) return;
+    drawGrayscaleGrid(ctx, diffractionResult.autocorrelation, DIFFRACTION_CANVAS_SIZE, DIFFRACTION_CANVAS_SIZE);
+  }, [diffractionResult]);
 
   useEffect(() => {
     function writeUrl() {
@@ -466,6 +524,55 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             {!entropyResult.converged ? ", power iteration did not fully converge -- treat as approximate" : ""})
           </p>
         )}
+      </div>
+
+      <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
+        <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+          Diffraction spectrum + autocorrelation (issue #92 M3) -- for a solved tiling's indicator field of the chosen tile id
+        </label>
+        <div style={{ margin: "0.25rem 0" }}>
+          <label>
+            tile:{" "}
+            <select
+              value={diffractionTileId}
+              onChange={(e) => graph.set(ids.diffractionTileId, e.target.value)}
+              disabled={!solveGrid}
+            >
+              {!solveGrid && <option value="">(no completed tiling yet)</option>}
+              {solveGrid &&
+                tileIdsPresent(solveGrid).map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+          <div>
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>
+              Spectrum (log-scaled, DC centered)
+            </p>
+            <canvas
+              ref={diffractionCanvasRef}
+              width={DIFFRACTION_CANVAS_SIZE}
+              height={DIFFRACTION_CANVAS_SIZE}
+              style={{ border: "1px solid #ccc", maxWidth: "100%" }}
+            />
+          </div>
+          <div>
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>
+              Autocorrelation surface (zero-lag centered)
+            </p>
+            <canvas
+              ref={autocorrelationCanvasRef}
+              width={DIFFRACTION_CANVAS_SIZE}
+              height={DIFFRACTION_CANVAS_SIZE}
+              style={{ border: "1px solid #ccc", maxWidth: "100%" }}
+            />
+          </div>
+        </div>
+        {!diffractionResult && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Solve for a tiling to see its diffraction pattern.</p>}
       </div>
     </div>
   );
