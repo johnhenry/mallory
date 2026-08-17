@@ -620,3 +620,100 @@ test("subscribeWrites: the returned unsubscribe function stops future notificati
   g.set("a", 2);
   assert.deepEqual(writes, [{ id: "a", value: 1 }]);
 });
+
+// -----------------------------------------------------------------------
+// Regression tests for github.com/johnhenry/mallory-graph issue #234:
+// subscribeAll over-firing (bug 1) and reentrant-write swallowing (bug 2).
+// -----------------------------------------------------------------------
+
+test("subscribeAll: a single set() on the root of a diamond dependency graph fires global listeners exactly once, not once per cascaded dependent (#234 bug 1)", () => {
+  const g = new CellGraph();
+  g.set("root", 1);
+  g.define("left", () => g.get<number>("root") + 1);
+  g.define("right", () => g.get<number>("root") + 2);
+  g.define("bottom", () => g.get<number>("left") + g.get<number>("right"));
+  // Prime everything so it's clean/cached before the edit under test.
+  g.get("left");
+  g.get("right");
+  g.get("bottom");
+
+  let calls = 0;
+  g.subscribeAll(() => calls++);
+
+  g.set("root", 2); // one logical write, cascades dirty through left, right, bottom
+  assert.equal(calls, 1, "one subscribeAll notification for the whole cascade, not one per dirtied cell");
+
+  // A second logical write is its own, separate notification.
+  g.set("root", 3);
+  assert.equal(calls, 2);
+});
+
+test("subscribeAll: a define() redefine that cascades to dependents also fires global listeners exactly once (#234 bug 1)", () => {
+  const g = new CellGraph();
+  g.set("a", 1);
+  g.define("b", () => g.get<number>("a") * 2);
+  g.define("c", () => g.get<number>("b") + 1);
+  g.get("b");
+  g.get("c");
+
+  let calls = 0;
+  g.subscribeAll(() => calls++);
+
+  g.define("b", () => g.get<number>("a") * 10); // redefine -- recomputes b synchronously, cascades to c
+  assert.equal(calls, 1);
+});
+
+test("subscribeAll: delete() cascading dirty to multiple former dependents still fires global listeners exactly once (#234 bug 1)", () => {
+  const g = new CellGraph();
+  g.set("shared", 1);
+  g.define("readerA", () => g.get<number>("shared") + 1);
+  g.define("readerB", () => g.get<number>("shared") + 2);
+  g.get("readerA");
+  g.get("readerB");
+
+  let calls = 0;
+  g.subscribeAll(() => calls++);
+
+  g.delete("shared"); // dirties both readerA and readerB in one logical write
+  assert.equal(calls, 1);
+});
+
+test("subscribeAll: a reentrant set() on a DIFFERENT cell from inside a global listener is not swallowed -- both changes are eventually delivered (#234 bug 2)", () => {
+  const g = new CellGraph();
+  g.set("x", 1);
+  g.set("y", 1);
+
+  const seen: string[] = [];
+  let reentered = false;
+  g.subscribeAll(() => {
+    seen.push(`fired (x=${g.get("x")}, y=${g.get("y")})`);
+    if (!reentered) {
+      reentered = true;
+      g.set("y", 2); // distinct cell, synchronously, from inside the global listener
+    }
+  });
+
+  g.set("x", 2);
+
+  // Before the fix, the reentrant write to "y" was silently dropped because
+  // the single shared `notifyingGlobal` boolean blocked ANY global
+  // notification while one was already in flight for "x" -- so only 1 call
+  // was ever recorded despite 2 real, distinct cell changes.
+  assert.equal(seen.length, 2, "both the original write and the reentrant write to a different cell notify");
+  assert.equal(g.get("y"), 2, "the reentrant write itself was never lost -- only its notification was");
+});
+
+test("subscribeAll: a reentrant set() on the SAME cell from inside a global listener does not recurse unboundedly (still bounded/sane) (#234 bug 2 edge case)", () => {
+  const g = new CellGraph();
+  g.set("x", 1);
+
+  let calls = 0;
+  g.subscribeAll(() => {
+    calls++;
+    if (g.get<number>("x") < 3) g.set("x", (g.get<number>("x") as number) + 1);
+  });
+
+  g.set("x", 2); // kicks off a same-cell reentrant chain: 2 -> 3, each write its own notification
+  assert.equal(g.get("x"), 3);
+  assert.equal(calls, 2, "one notification per real distinct value the cell actually passed through (2 -> 3)");
+});
