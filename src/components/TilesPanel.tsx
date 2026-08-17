@@ -3,23 +3,31 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsTiles, TIME_CELL, type CellIdsTiles } from "../lib/cell-ids.ts";
+import { DEFAULT_HEX_TILES_TEXT, parseHexTileSetText } from "../lib/hex-tile-set-text.ts";
 import { DEFAULT_TILES_TEXT, parseTileSetText } from "../lib/tile-set-text.ts";
 import {
   DEFAULT_TILES_STATE,
   decodeTilesState,
   encodeTilesState,
+  type TilesLattice,
   type TilesSolverKind,
   type TilesState,
 } from "../lib/tiles-state.ts";
 import { autocorrelationSurface, diffractionSpectrum, tileIdsPresent } from "../lib/tiles/diffraction.ts";
 import { stripEntropy, type StripEntropyResult } from "../lib/tiles/entropy.ts";
+import { hexCenter, hexCorners } from "../lib/tiles/hex-geometry.ts";
+import { solveHex, type HexGrid, type HexTileSet } from "../lib/tiles/hex-tile-model.ts";
 import { expandTileSetSymmetry, type SymmetryGroup } from "../lib/tiles/symmetry.ts";
 import { solveTorus, solveWang, solveWangViaSat, type SolveStep, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
+import { triCorners } from "../lib/tiles/tri-geometry.ts";
+import { solveTri, type TriGrid, type TriTileSet } from "../lib/tiles/tri-tile-model.ts";
+import { DEFAULT_TRI_TILES_TEXT, parseTriTileSetText } from "../lib/tri-tile-set-text.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { drawGrayscaleGrid } from "../lib/image-frequency.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
+import { triOrientation } from "mallory-math";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 type SolveStatus = "idle" | "solving" | "done" | "error";
@@ -29,6 +37,13 @@ interface DiffractionResult {
   autocorrelation: number[][];
 }
 const DIFFRACTION_CANVAS_SIZE = 200;
+// Hex/tri (issue #92 M3's lattice generalization) get a much smaller
+// scoped-down feature set than the square lattice: tile editing + solving
+// + rendering only, no symmetry/entropy/diffraction, no step-by-step
+// animation (their solvers are drained straight to a final grid). Same
+// MAX_CELLS-style guard as the square lattice, at a smaller cap since
+// their backtracking has more neighbor-direction checks per cell.
+const MAX_HEX_TRI_CELLS = 100;
 
 // stripEntropy's own transfer-matrix build is O(numColumns^2), and
 // numColumns can be as large as (expanded tile count)^height -- this caps
@@ -65,17 +80,23 @@ function seedState(graph: CellGraph, ids: CellIdsTiles, state: TilesState): void
   graph.set(ids.solver, state.solver);
   graph.set(ids.showAnimation, state.showAnimation);
   graph.set(ids.symmetry, state.symmetry);
+  graph.set(ids.lattice, state.lattice);
+  graph.set(ids.hexTilesText, state.hexTilesText);
+  graph.set(ids.triTilesText, state.triTilesText);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
   return {
-    v: 2,
+    v: 3,
     tilesText: graph.get<string>(ids.tilesText),
     width: graph.get<number>(ids.width),
     height: graph.get<number>(ids.height),
     solver: graph.get<TilesSolverKind>(ids.solver),
     showAnimation: graph.get<boolean>(ids.showAnimation),
     symmetry: graph.get<SymmetryGroup>(ids.symmetry),
+    lattice: graph.get<TilesLattice>(ids.lattice),
+    hexTilesText: graph.get<string>(ids.hexTilesText),
+    triTilesText: graph.get<string>(ids.triTilesText),
   };
 }
 
@@ -96,10 +117,32 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.set(ids.entropyResult, null as StripEntropyResult | null, { auxiliary: true });
     graph.set(ids.entropyError, "", { auxiliary: true });
     graph.set(ids.diffractionTileId, "", { auxiliary: true });
+    graph.set(ids.hexSolveStatus, "idle" as SolveStatus, { auxiliary: true });
+    graph.set(ids.hexSolveGrid, null as HexGrid | null, { auxiliary: true });
+    graph.set(ids.hexSolveError, "", { auxiliary: true });
+    graph.set(ids.triSolveStatus, "idle" as SolveStatus, { auxiliary: true });
+    graph.set(ids.triSolveGrid, null as TriGrid | null, { auxiliary: true });
+    graph.set(ids.triSolveError, "", { auxiliary: true });
 
     graph.define(ids.tileSetResult, (): Result<TileSet> => {
       try {
         return { ok: true, value: parseTileSetText(graph.get<string>(ids.tilesText)) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.hexTileSetResult, (): Result<HexTileSet> => {
+      try {
+        return { ok: true, value: parseHexTileSetText(graph.get<string>(ids.hexTilesText)) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.triTileSetResult, (): Result<TriTileSet> => {
+      try {
+        return { ok: true, value: parseTriTileSetText(graph.get<string>(ids.triTilesText)) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
@@ -159,6 +202,18 @@ async function drainSolve(
   return { steps, grid: next.value };
 }
 
+/** Drains a hex/tri solver straight to its final grid -- no step tracking, since neither gets step-by-step animation in this first cut (see MAX_HEX_TRI_CELLS's own doc comment). */
+async function drainSolveToGrid<TStep, TGrid>(gen: AsyncGenerator<TStep, TGrid | null>): Promise<TGrid | null> {
+  let step = 0;
+  let next = await gen.next();
+  while (!next.done) {
+    step++;
+    if (step > MAX_STEPS) throw new Error(`Search exceeded ${MAX_STEPS} steps -- reduce the grid size or tile set.`);
+    next = await gen.next();
+  }
+  return next.value;
+}
+
 /** A Wang tile laboratory: edit a tile set as text, pick a solver variant, and watch the backtracking search play back step by step (issue #92 M1). */
 export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const graph = useTilesGraph(cellId);
@@ -185,8 +240,24 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const diffractionResult = useCell<DiffractionResult | null>(graph, ids.diffractionResult);
   const time = useCell<number>(graph, TIME_CELL);
 
+  const lattice = useCell<TilesLattice>(graph, ids.lattice);
+  const hexTilesText = useCell<string>(graph, ids.hexTilesText);
+  const hexTileSetResult = useCell<Result<HexTileSet>>(graph, ids.hexTileSetResult);
+  const hexSolveStatus = useCell<SolveStatus>(graph, ids.hexSolveStatus);
+  const hexSolveGrid = useCell<HexGrid | null>(graph, ids.hexSolveGrid);
+  const hexSolveError = useCell<string>(graph, ids.hexSolveError);
+  const triTilesText = useCell<string>(graph, ids.triTilesText);
+  const triTileSetResult = useCell<Result<TriTileSet>>(graph, ids.triTileSetResult);
+  const triSolveStatus = useCell<SolveStatus>(graph, ids.triSolveStatus);
+  const triSolveGrid = useCell<TriGrid | null>(graph, ids.triSolveGrid);
+  const triSolveError = useCell<string>(graph, ids.triSolveError);
+
   const [textInput, setTextInput] = useState(tilesText);
   useEffect(() => setTextInput(tilesText), [tilesText]);
+  const [hexTextInput, setHexTextInput] = useState(hexTilesText);
+  useEffect(() => setHexTextInput(hexTilesText), [hexTilesText]);
+  const [triTextInput, setTriTextInput] = useState(triTilesText);
+  useEffect(() => setTriTextInput(triTilesText), [triTilesText]);
 
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -216,7 +287,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!expandedTileSetResult.ok) {
+      if (lattice !== "square" || !expandedTileSetResult.ok) {
         graph.set(ids.solveStatus, "idle" satisfies SolveStatus);
         graph.set(ids.solveSteps, []);
         graph.set(ids.solveGrid, null);
@@ -260,7 +331,81 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, expandedTileSetResult, width, height, solver]);
+  }, [graph, lattice, expandedTileSetResult, width, height, solver]);
+
+  // Hex/tri auto-solve: same "drain the async generator, write the result
+  // back via graph.set" shape as the square lattice's own effect above,
+  // simplified since hex/tri only have the one backtracking solver variant
+  // (no torus/SAT) and no step-by-step animation to preserve (see
+  // MAX_HEX_TRI_CELLS's doc comment) -- so there's nothing to keep except
+  // the final grid.
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (lattice !== "hex" || !hexTileSetResult.ok) {
+        graph.set(ids.hexSolveStatus, "idle" satisfies SolveStatus);
+        graph.set(ids.hexSolveGrid, null);
+        graph.set(ids.hexSolveError, "");
+        return;
+      }
+      if (width < 1 || height < 1 || width * height > MAX_HEX_TRI_CELLS) {
+        graph.set(ids.hexSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.hexSolveError, `Grid must be at least 1x1 and at most ${MAX_HEX_TRI_CELLS} cells total.`);
+        return;
+      }
+      graph.set(ids.hexSolveStatus, "solving" satisfies SolveStatus);
+      try {
+        const grid = await drainSolveToGrid(solveHex(hexTileSetResult.value, width, height));
+        if (cancelled) return;
+        graph.set(ids.hexSolveGrid, grid);
+        graph.set(ids.hexSolveError, "");
+        graph.set(ids.hexSolveStatus, "done" satisfies SolveStatus);
+      } catch (e) {
+        if (cancelled) return;
+        graph.set(ids.hexSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.hexSolveError, e instanceof Error ? e.message : String(e));
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, lattice, hexTileSetResult, width, height]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (lattice !== "tri" || !triTileSetResult.ok) {
+        graph.set(ids.triSolveStatus, "idle" satisfies SolveStatus);
+        graph.set(ids.triSolveGrid, null);
+        graph.set(ids.triSolveError, "");
+        return;
+      }
+      if (width < 1 || height < 1 || width * height > MAX_HEX_TRI_CELLS) {
+        graph.set(ids.triSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.triSolveError, `Grid must be at least 1x1 and at most ${MAX_HEX_TRI_CELLS} cells total.`);
+        return;
+      }
+      graph.set(ids.triSolveStatus, "solving" satisfies SolveStatus);
+      try {
+        const grid = await drainSolveToGrid(solveTri(triTileSetResult.value, width, height));
+        if (cancelled) return;
+        graph.set(ids.triSolveGrid, grid);
+        graph.set(ids.triSolveError, "");
+        graph.set(ids.triSolveStatus, "done" satisfies SolveStatus);
+      } catch (e) {
+        if (cancelled) return;
+        graph.set(ids.triSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.triSolveError, e instanceof Error ? e.message : String(e));
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, lattice, triTileSetResult, width, height]);
 
   // A changed solve restarts the animation from the beginning.
   useEffect(() => {
@@ -379,6 +524,88 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     }
   }, [canvasWidth, canvasHeight, showAnimation, currentStep, solveGrid]);
 
+  // Hex canvas: the axial-to-pixel map is affine in (q, r), so the pixel
+  // bounding box of the width x height parallelogram is exactly the
+  // bounding box of its 4 corners -- evaluate those, then translate
+  // everything by (-minX, -minY) plus a hex-radius margin so no part of
+  // any hex corner clips the canvas edge.
+  const HEX_SIZE = 26;
+  const hexCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hexCorners4 = [hexCenter(0, 0, HEX_SIZE), hexCenter(width - 1, 0, HEX_SIZE), hexCenter(0, height - 1, HEX_SIZE), hexCenter(width - 1, height - 1, HEX_SIZE)];
+  const hexMinX = Math.min(...hexCorners4.map((p) => p.x)) - HEX_SIZE;
+  const hexMinY = Math.min(...hexCorners4.map((p) => p.y)) - HEX_SIZE;
+  const hexMaxX = Math.max(...hexCorners4.map((p) => p.x)) + HEX_SIZE;
+  const hexMaxY = Math.max(...hexCorners4.map((p) => p.y)) + HEX_SIZE;
+  const hexCanvasWidth = Math.max(1, hexMaxX - hexMinX);
+  const hexCanvasHeight = Math.max(1, hexMaxY - hexMinY);
+
+  useEffect(() => {
+    const ctx = hexCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, hexCanvasWidth, hexCanvasHeight);
+    if (!hexSolveGrid) return;
+    for (let r = 0; r < hexSolveGrid.length; r++) {
+      for (let q = 0; q < hexSolveGrid[r]!.length; q++) {
+        const id = hexSolveGrid[r]![q]!;
+        const center = hexCenter(q, r, HEX_SIZE);
+        const cx = center.x - hexMinX;
+        const cy = center.y - hexMinY;
+        const corners = hexCorners(cx, cy, HEX_SIZE);
+        ctx.beginPath();
+        corners.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+        ctx.closePath();
+        ctx.fillStyle = tileColor(id);
+        ctx.fill();
+        ctx.strokeStyle = "#00000022";
+        ctx.stroke();
+        ctx.fillStyle = "#fff";
+        ctx.font = "11px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(id, cx, cy);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hexCanvasWidth, hexCanvasHeight, hexSolveGrid]);
+
+  // Tri canvas: the simplified bounding-box layout (see tri-geometry.ts's
+  // own doc comment) means the canvas is just a plain width*cellWidth by
+  // height*cellHeight rectangle, same sizing shape as the square lattice.
+  const TRI_CELL_WIDTH = 48;
+  const TRI_CELL_HEIGHT = 48;
+  const triCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const triCanvasWidth = Math.max(1, width) * TRI_CELL_WIDTH;
+  const triCanvasHeight = Math.max(1, height) * TRI_CELL_HEIGHT;
+
+  useEffect(() => {
+    const ctx = triCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, triCanvasWidth, triCanvasHeight);
+    if (!triSolveGrid) return;
+    for (let y = 0; y < triSolveGrid.length; y++) {
+      for (let x = 0; x < triSolveGrid[y]!.length; x++) {
+        const id = triSolveGrid[y]![x]!;
+        const orientation = triOrientation(x, y);
+        const corners = triCorners(x, y, TRI_CELL_WIDTH, TRI_CELL_HEIGHT, orientation);
+        ctx.beginPath();
+        corners.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+        ctx.closePath();
+        ctx.fillStyle = tileColor(id);
+        ctx.fill();
+        ctx.strokeStyle = "#00000022";
+        ctx.stroke();
+        const midX = (x + 0.5) * TRI_CELL_WIDTH;
+        const midY = orientation === "up" ? (y + 0.65) * TRI_CELL_HEIGHT : (y + 0.35) * TRI_CELL_HEIGHT;
+        ctx.fillStyle = "#fff";
+        ctx.font = "10px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(id, midX, midY);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [triCanvasWidth, triCanvasHeight, triSolveGrid]);
+
   const diffractionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autocorrelationCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -415,165 +642,270 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     graph.set(ids.tilesText, value);
   }
 
+  function updateHexText(value: string) {
+    setHexTextInput(value);
+    graph.set(ids.hexTilesText, value);
+  }
+
+  function updateTriText(value: string) {
+    setTriTextInput(value);
+    graph.set(ids.triTilesText, value);
+  }
+
   return (
     <div>
       <div style={{ margin: "0.25rem 0" }}>
-        <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
-          Tile set (one per line: <code>id N E S W</code>)
-        </label>
-        <textarea
-          value={textInput}
-          onChange={(e) => updateText(e.target.value)}
-          rows={5}
-          style={{ font: "inherit", fontFamily: "monospace", width: "24ch" }}
-        />
-        <div>
-          <button type="button" onClick={() => updateText(DEFAULT_TILES_TEXT)}>
-            Reset to default set
-          </button>
-        </div>
-      </div>
-      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <label>
-          width: <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
-        </label>
-        <label>
-          height: <input type="number" min={1} value={height} onChange={(e) => graph.set(ids.height, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
-        </label>
-        <label>
-          solver:{" "}
-          <select value={solver} onChange={(e) => graph.set(ids.solver, e.target.value as TilesSolverKind)}>
-            <option value="wang">Backtracking</option>
-            <option value="torus">Backtracking (torus/periodic)</option>
-            <option value="sat">SAT cross-check</option>
+          lattice:{" "}
+          <select value={lattice} onChange={(e) => graph.set(ids.lattice, e.target.value as TilesLattice)}>
+            <option value="square">Square (4 edges)</option>
+            <option value="hex">Hexagonal (6 edges)</option>
+            <option value="tri">Triangular (4 edges, 3 used per cell)</option>
           </select>
         </label>
-        <label>
-          symmetry:{" "}
-          <select value={symmetry} onChange={(e) => graph.set(ids.symmetry, e.target.value as SymmetryGroup)}>
-            <option value="none">None (translations only)</option>
-            <option value="rotations">Rotations (C4)</option>
-            <option value="rotations-reflections">Rotations + reflections (D4)</option>
-          </select>
-        </label>
-        {solver !== "sat" && (
-          <label>
-            <input type="checkbox" checked={showAnimation} onChange={(e) => graph.set(ids.showAnimation, e.target.checked)} /> Animate step by step
-          </label>
-        )}
-      </div>
-
-      {!tileSetResult.ok && <p style={{ color: "crimson" }}>{tileSetResult.message}</p>}
-      {tileSetResult.ok && symmetry !== "none" && expandedTileSetResult.ok && (
-        <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
-          Symmetry expansion: {tileSetResult.value.tiles.length} tile{tileSetResult.value.tiles.length === 1 ? "" : "s"} →{" "}
-          {expandedTileSetResult.value.tiles.length} oriented variant{expandedTileSetResult.value.tiles.length === 1 ? "" : "s"} used for solving.
-        </p>
-      )}
-      {solveStatus === "error" && <p style={{ color: "crimson" }}>{solveError}</p>}
-
-      <canvas ref={canvasRef} width={canvasWidth} height={canvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
-      <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="tiles" />
-      </div>
-
-      {showAnimation && solver !== "sat" && solveSteps.length > 0 && (
-        <>
-          <TransportControls graph={graph} time={time} duration={duration} playing={playing} setPlaying={setPlaying} loop={loop} setLoop={setLoop} speed={speed} setSpeed={setSpeed} />
-          {currentStep && (
-            <p style={{ fontSize: "0.85rem", color: "var(--muted)" }} aria-live="polite">
-              {stepLabel(currentStep)}
-            </p>
-          )}
-        </>
-      )}
-
-      {solveStatus === "solving" && <p>Solving…</p>}
-      {solveStatus === "done" && (
-        <p>
-          {solveGrid
-            ? `Tiling found${solver !== "sat" ? ` in ${solveSteps.length} search steps` : ""}.`
-            : `No tiling exists for this tile set at ${width}x${height}${solver !== "sat" ? ` (search exhausted after ${solveSteps.length} steps)` : ""}.`}
-        </p>
-      )}
-
-      <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
-        <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
-          Entropy (transfer-matrix method, issue #92 M2) -- per-cell entropy of the height-h strip, using the current symmetry-expanded tile set
-        </label>
-        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center", margin: "0.25rem 0" }}>
-          <label>
-            strip height:{" "}
-            <input
-              type="number"
-              min={1}
-              value={entropyHeight}
-              onChange={(e) => graph.set(ids.entropyHeight, Math.max(1, Number(e.target.value)))}
-              style={{ font: "inherit", width: "4ch" }}
-            />
-          </label>
-          <button type="button" onClick={computeEntropy} disabled={!expandedTileSetResult.ok}>
-            Compute entropy
-          </button>
-        </div>
-        {entropyStatus === "error" && <p style={{ color: "crimson" }}>{entropyError}</p>}
-        {entropyStatus === "done" && entropyResult && (
-          <p>
-            entropy ≈ {entropyResult.entropy.toFixed(4)} (dominant eigenvalue ≈ {entropyResult.dominantEigenvalue.toFixed(4)}, {entropyResult.numColumns}{" "}
-            valid column{entropyResult.numColumns === 1 ? "" : "s"}
-            {!entropyResult.converged ? ", power iteration did not fully converge -- treat as approximate" : ""})
+        {lattice !== "square" && (
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0 0" }}>
+            Symmetry, entropy, and diffraction analysis are square-lattice-only for now (issue #92 M3). {lattice === "hex" ? "Hexagonal" : "Triangular"}{" "}
+            tiling supports editing, solving, and rendering.
           </p>
         )}
       </div>
 
-      <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
-        <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
-          Diffraction spectrum + autocorrelation (issue #92 M3) -- for a solved tiling's indicator field of the chosen tile id
-        </label>
-        <div style={{ margin: "0.25rem 0" }}>
-          <label>
-            tile:{" "}
-            <select
-              value={diffractionTileId}
-              onChange={(e) => graph.set(ids.diffractionTileId, e.target.value)}
-              disabled={!solveGrid}
-            >
-              {!solveGrid && <option value="">(no completed tiling yet)</option>}
-              {solveGrid &&
-                tileIdsPresent(solveGrid).map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-            </select>
-          </label>
-        </div>
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-          <div>
-            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>
-              Spectrum (log-scaled, DC centered)
-            </p>
-            <canvas
-              ref={diffractionCanvasRef}
-              width={DIFFRACTION_CANVAS_SIZE}
-              height={DIFFRACTION_CANVAS_SIZE}
-              style={{ border: "1px solid #ccc", maxWidth: "100%" }}
+      {lattice === "square" && (
+        <>
+          <div style={{ margin: "0.25rem 0" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Tile set (one per line: <code>id N E S W</code>)
+            </label>
+            <textarea
+              value={textInput}
+              onChange={(e) => updateText(e.target.value)}
+              rows={5}
+              style={{ font: "inherit", fontFamily: "monospace", width: "24ch" }}
             />
+            <div>
+              <button type="button" onClick={() => updateText(DEFAULT_TILES_TEXT)}>
+                Reset to default set
+              </button>
+            </div>
           </div>
-          <div>
-            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>
-              Autocorrelation surface (zero-lag centered)
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              width: <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+            <label>
+              height: <input type="number" min={1} value={height} onChange={(e) => graph.set(ids.height, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+            <label>
+              solver:{" "}
+              <select value={solver} onChange={(e) => graph.set(ids.solver, e.target.value as TilesSolverKind)}>
+                <option value="wang">Backtracking</option>
+                <option value="torus">Backtracking (torus/periodic)</option>
+                <option value="sat">SAT cross-check</option>
+              </select>
+            </label>
+            <label>
+              symmetry:{" "}
+              <select value={symmetry} onChange={(e) => graph.set(ids.symmetry, e.target.value as SymmetryGroup)}>
+                <option value="none">None (translations only)</option>
+                <option value="rotations">Rotations (C4)</option>
+                <option value="rotations-reflections">Rotations + reflections (D4)</option>
+              </select>
+            </label>
+            {solver !== "sat" && (
+              <label>
+                <input type="checkbox" checked={showAnimation} onChange={(e) => graph.set(ids.showAnimation, e.target.checked)} /> Animate step by step
+              </label>
+            )}
+          </div>
+
+          {!tileSetResult.ok && <p style={{ color: "crimson" }}>{tileSetResult.message}</p>}
+          {tileSetResult.ok && symmetry !== "none" && expandedTileSetResult.ok && (
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+              Symmetry expansion: {tileSetResult.value.tiles.length} tile{tileSetResult.value.tiles.length === 1 ? "" : "s"} →{" "}
+              {expandedTileSetResult.value.tiles.length} oriented variant{expandedTileSetResult.value.tiles.length === 1 ? "" : "s"} used for solving.
             </p>
-            <canvas
-              ref={autocorrelationCanvasRef}
-              width={DIFFRACTION_CANVAS_SIZE}
-              height={DIFFRACTION_CANVAS_SIZE}
-              style={{ border: "1px solid #ccc", maxWidth: "100%" }}
-            />
+          )}
+          {solveStatus === "error" && <p style={{ color: "crimson" }}>{solveError}</p>}
+
+          <canvas ref={canvasRef} width={canvasWidth} height={canvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => canvasRef.current} label="tiles" />
           </div>
-        </div>
-        {!diffractionResult && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Solve for a tiling to see its diffraction pattern.</p>}
-      </div>
+
+          {showAnimation && solver !== "sat" && solveSteps.length > 0 && (
+            <>
+              <TransportControls graph={graph} time={time} duration={duration} playing={playing} setPlaying={setPlaying} loop={loop} setLoop={setLoop} speed={speed} setSpeed={setSpeed} />
+              {currentStep && (
+                <p style={{ fontSize: "0.85rem", color: "var(--muted)" }} aria-live="polite">
+                  {stepLabel(currentStep)}
+                </p>
+              )}
+            </>
+          )}
+
+          {solveStatus === "solving" && <p>Solving…</p>}
+          {solveStatus === "done" && (
+            <p>
+              {solveGrid
+                ? `Tiling found${solver !== "sat" ? ` in ${solveSteps.length} search steps` : ""}.`
+                : `No tiling exists for this tile set at ${width}x${height}${solver !== "sat" ? ` (search exhausted after ${solveSteps.length} steps)` : ""}.`}
+            </p>
+          )}
+
+          <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Entropy (transfer-matrix method, issue #92 M2) -- per-cell entropy of the height-h strip, using the current symmetry-expanded tile set
+            </label>
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center", margin: "0.25rem 0" }}>
+              <label>
+                strip height:{" "}
+                <input
+                  type="number"
+                  min={1}
+                  value={entropyHeight}
+                  onChange={(e) => graph.set(ids.entropyHeight, Math.max(1, Number(e.target.value)))}
+                  style={{ font: "inherit", width: "4ch" }}
+                />
+              </label>
+              <button type="button" onClick={computeEntropy} disabled={!expandedTileSetResult.ok}>
+                Compute entropy
+              </button>
+            </div>
+            {entropyStatus === "error" && <p style={{ color: "crimson" }}>{entropyError}</p>}
+            {entropyStatus === "done" && entropyResult && (
+              <p>
+                entropy ≈ {entropyResult.entropy.toFixed(4)} (dominant eigenvalue ≈ {entropyResult.dominantEigenvalue.toFixed(4)}, {entropyResult.numColumns}{" "}
+                valid column{entropyResult.numColumns === 1 ? "" : "s"}
+                {!entropyResult.converged ? ", power iteration did not fully converge -- treat as approximate" : ""})
+              </p>
+            )}
+          </div>
+
+          <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Diffraction spectrum + autocorrelation (issue #92 M3) -- for a solved tiling's indicator field of the chosen tile id
+            </label>
+            <div style={{ margin: "0.25rem 0" }}>
+              <label>
+                tile:{" "}
+                <select
+                  value={diffractionTileId}
+                  onChange={(e) => graph.set(ids.diffractionTileId, e.target.value)}
+                  disabled={!solveGrid}
+                >
+                  {!solveGrid && <option value="">(no completed tiling yet)</option>}
+                  {solveGrid &&
+                    tileIdsPresent(solveGrid).map((id) => (
+                      <option key={id} value={id}>
+                        {id}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+              <div>
+                <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>
+                  Spectrum (log-scaled, DC centered)
+                </p>
+                <canvas
+                  ref={diffractionCanvasRef}
+                  width={DIFFRACTION_CANVAS_SIZE}
+                  height={DIFFRACTION_CANVAS_SIZE}
+                  style={{ border: "1px solid #ccc", maxWidth: "100%" }}
+                />
+              </div>
+              <div>
+                <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>
+                  Autocorrelation surface (zero-lag centered)
+                </p>
+                <canvas
+                  ref={autocorrelationCanvasRef}
+                  width={DIFFRACTION_CANVAS_SIZE}
+                  height={DIFFRACTION_CANVAS_SIZE}
+                  style={{ border: "1px solid #ccc", maxWidth: "100%" }}
+                />
+              </div>
+            </div>
+            {!diffractionResult && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Solve for a tiling to see its diffraction pattern.</p>}
+          </div>
+        </>
+      )}
+
+      {lattice === "hex" && (
+        <>
+          <div style={{ margin: "0.25rem 0" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Tile set (one per line: <code>id e0 e1 e2 e3 e4 e5</code>, directions E/NE/NW/W/SW/SE)
+            </label>
+            <textarea
+              value={hexTextInput}
+              onChange={(e) => updateHexText(e.target.value)}
+              rows={5}
+              style={{ font: "inherit", fontFamily: "monospace", width: "24ch" }}
+            />
+            <div>
+              <button type="button" onClick={() => updateHexText(DEFAULT_HEX_TILES_TEXT)}>
+                Reset to default set
+              </button>
+            </div>
+          </div>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              width (q): <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+            <label>
+              height (r): <input type="number" min={1} value={height} onChange={(e) => graph.set(ids.height, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+          </div>
+          {!hexTileSetResult.ok && <p style={{ color: "crimson" }}>{hexTileSetResult.message}</p>}
+          {hexSolveStatus === "error" && <p style={{ color: "crimson" }}>{hexSolveError}</p>}
+          <canvas ref={hexCanvasRef} width={hexCanvasWidth} height={hexCanvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => hexCanvasRef.current} label="tiles-hex" />
+          </div>
+          {hexSolveStatus === "solving" && <p>Solving…</p>}
+          {hexSolveStatus === "done" && <p>{hexSolveGrid ? "Tiling found." : `No tiling exists for this tile set at ${width}x${height} axial cells.`}</p>}
+        </>
+      )}
+
+      {lattice === "tri" && (
+        <>
+          <div style={{ margin: "0.25rem 0" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Tile set (one per line: <code>id left right top bottom</code>)
+            </label>
+            <textarea
+              value={triTextInput}
+              onChange={(e) => updateTriText(e.target.value)}
+              rows={5}
+              style={{ font: "inherit", fontFamily: "monospace", width: "24ch" }}
+            />
+            <div>
+              <button type="button" onClick={() => updateTriText(DEFAULT_TRI_TILES_TEXT)}>
+                Reset to default set
+              </button>
+            </div>
+          </div>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              width: <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+            <label>
+              height: <input type="number" min={1} value={height} onChange={(e) => graph.set(ids.height, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+          </div>
+          {!triTileSetResult.ok && <p style={{ color: "crimson" }}>{triTileSetResult.message}</p>}
+          {triSolveStatus === "error" && <p style={{ color: "crimson" }}>{triSolveError}</p>}
+          <canvas ref={triCanvasRef} width={triCanvasWidth} height={triCanvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => triCanvasRef.current} label="tiles-tri" />
+          </div>
+          {triSolveStatus === "solving" && <p>Solving…</p>}
+          {triSolveStatus === "done" && <p>{triSolveGrid ? "Tiling found." : `No tiling exists for this tile set at ${width}x${height} cells.`}</p>}
+        </>
+      )}
     </div>
   );
 }

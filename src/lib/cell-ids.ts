@@ -840,6 +840,28 @@ export function cellIdsTiles(cellId: string) {
     // status/error free cells the way entropy does.
     diffractionTileId: `tilesDiffractionTileId:${cellId}`,
     diffractionResult: `tilesDiffractionResult:${cellId}`,
+    // Lattice picker (issue #92 M3's hex/tri generalization). `lattice`
+    // selects which of the 3 tile models is active; the other lattices'
+    // own tile-set text, solve state, etc. live in SEPARATE cells (not a
+    // shared/unioned set) rather than repurposing the square lattice's own
+    // cells, since the 3 lattices have genuinely different Tile/TileSet/
+    // Grid types and this keeps every cell's stored value type simple and
+    // uniform instead of a runtime-tagged union. Symmetry/entropy/
+    // diffraction stay square-lattice-only for now -- hex/tri only get
+    // tile editing + solving + rendering in this first cut, no
+    // step-by-step animation either (their solvers are drained straight to
+    // a final grid, matching this scope-down).
+    lattice: `tilesLattice:${cellId}`,
+    hexTilesText: `tilesHexTilesText:${cellId}`,
+    hexTileSetResult: `tilesHexTileSetResult:${cellId}`,
+    hexSolveStatus: `tilesHexSolveStatus:${cellId}`,
+    hexSolveGrid: `tilesHexSolveGrid:${cellId}`,
+    hexSolveError: `tilesHexSolveError:${cellId}`,
+    triTilesText: `tilesTriTilesText:${cellId}`,
+    triTileSetResult: `tilesTriTileSetResult:${cellId}`,
+    triSolveStatus: `tilesTriSolveStatus:${cellId}`,
+    triSolveGrid: `tilesTriSolveGrid:${cellId}`,
+    triSolveError: `tilesTriSolveError:${cellId}`,
   };
 }
 
