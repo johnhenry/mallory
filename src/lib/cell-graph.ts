@@ -52,7 +52,37 @@ export class CellGraph {
   private writeListeners = new Set<(id: string, value: unknown) => void>();
   private stack: string[] = [];
   private emitting = new Set<string>();
-  private notifyingGlobal = false;
+  /**
+   * Nesting depth of the current "logical write" -- incremented around the
+   * body of every top-level mutating entry point ({@link set}, {@link
+   * define}, {@link delete}) and decremented in a `finally` when it returns.
+   * A single `set()` on a root of a diamond-shaped dependency graph cascades
+   * through `propagateDirty` and calls `emit()` once per cell it reaches
+   * (root, then each newly-dirtied dependent) -- all of those belong to the
+   * SAME logical write and must produce exactly one `subscribeAll`
+   * notification, not one per cell. While this is above zero, a request to
+   * notify global listeners (see {@link scheduleGlobalNotify}) is deferred
+   * instead of firing immediately; it only actually fires once depth
+   * unwinds back to zero, i.e. once the outermost `set`/`define`/`delete`
+   * call (including any cells it transitively dirtied) has fully finished.
+   */
+  private globalNotifyDepth = 0;
+  /** Set by {@link scheduleGlobalNotify} while `globalNotifyDepth > 0`, so the deferred notification isn't lost once depth returns to zero. */
+  private globalNotifyPending = false;
+  /**
+   * Guards the global-listener-invocation loop itself against being
+   * re-entered while it's already running -- e.g. a global listener that
+   * synchronously calls `set()` on a DIFFERENT cell from inside its own
+   * callback. Unlike the shared boolean this replaces, a reentrant request
+   * that arrives while this is `true` is NOT dropped: it re-arms {@link
+   * globalNotifyPending}, which is drained (fired again) right after the
+   * in-progress loop finishes -- see {@link flushGlobalNotify}. This is what
+   * keeps a reentrant write to a different cell from being silently
+   * swallowed (issue #234), while still bounding recursion depth to one
+   * extra level per reentrant write, the same way `emitting` bounds it for
+   * same-id reentrancy on local listeners.
+   */
+  private notifyingGlobalListeners = false;
 
   /**
    * Write a raw source-of-truth value (e.g. a slider drag or text input).
@@ -68,32 +98,34 @@ export class CellGraph {
    * is left as originally set.
    */
   set<T>(id: string, value: T, options?: { auxiliary?: boolean }): void {
-    const cell = this.ensure<T>(id);
-    const wasCompute = cell.compute !== undefined;
-    cell.compute = undefined;
-    if (wasCompute) {
-      // This cell is transitioning from dependent (had a compute fn) to
-      // free -- detach its recorded dependency edges the same way
-      // recomputeAndEmit() and delete() already do, so former upstream
-      // cells stop spuriously dirtying/emitting a cell they no longer feed
-      // into.
-      for (const depId of cell.dependencies) this.cells.get(depId)?.dependents.delete(id);
-      cell.dependencies = new Set();
-    }
-    if (options?.auxiliary !== undefined && (wasCompute || !cell.hasValue)) cell.auxiliary = options.auxiliary;
-    cell.hasError = false;
-    cell.error = undefined;
-    const unchanged = cell.hasValue && structuralEqual(cell.value, value);
-    cell.dirty = false;
-    if (unchanged) return;
-    // Only replace the cached reference on a real change, so a write that's
-    // structurally equal to the old value never disturbs downstream identity.
-    cell.value = value;
-    cell.hasValue = true;
-    cell.version++;
-    this.emitWrite(id, value);
-    this.emit(id);
-    this.propagateDirty(id);
+    this.runBatched(() => {
+      const cell = this.ensure<T>(id);
+      const wasCompute = cell.compute !== undefined;
+      cell.compute = undefined;
+      if (wasCompute) {
+        // This cell is transitioning from dependent (had a compute fn) to
+        // free -- detach its recorded dependency edges the same way
+        // recomputeAndEmit() and delete() already do, so former upstream
+        // cells stop spuriously dirtying/emitting a cell they no longer feed
+        // into.
+        for (const depId of cell.dependencies) this.cells.get(depId)?.dependents.delete(id);
+        cell.dependencies = new Set();
+      }
+      if (options?.auxiliary !== undefined && (wasCompute || !cell.hasValue)) cell.auxiliary = options.auxiliary;
+      cell.hasError = false;
+      cell.error = undefined;
+      const unchanged = cell.hasValue && structuralEqual(cell.value, value);
+      cell.dirty = false;
+      if (unchanged) return;
+      // Only replace the cached reference on a real change, so a write that's
+      // structurally equal to the old value never disturbs downstream identity.
+      cell.value = value;
+      cell.hasValue = true;
+      cell.version++;
+      this.emitWrite(id, value);
+      this.emit(id);
+      this.propagateDirty(id);
+    });
   }
 
   /**
@@ -127,6 +159,10 @@ export class CellGraph {
    * dependent).
    */
   define<T>(id: string, compute: ComputeFn<T>, options?: { auxiliary?: boolean }): void {
+    this.runBatched(() => this.defineImpl(id, compute, options));
+  }
+
+  private defineImpl<T>(id: string, compute: ComputeFn<T>, options?: { auxiliary?: boolean }): void {
     const cell = this.ensure<T>(id);
     const wasFree = cell.compute === undefined && cell.hasValue;
     const isRedefine = cell.hasValue;
@@ -354,20 +390,22 @@ export class CellGraph {
    * like ExpressionRow's params compute already handle.
    */
   delete(id: string): void {
-    const cell = this.cells.get(id);
-    if (!cell) return;
-    const formerDependents = [...cell.dependents];
-    for (const depId of cell.dependencies) this.cells.get(depId)?.dependents.delete(id);
-    for (const depId of cell.dependents) this.cells.get(depId)?.dependencies.delete(id);
-    this.cells.delete(id);
-    this.listeners.delete(id);
-    for (const depId of formerDependents) {
-      const dep = this.cells.get(depId);
-      if (!dep || dep.dirty) continue;
-      dep.dirty = true;
-      this.emit(depId);
-      this.propagateDirty(depId);
-    }
+    this.runBatched(() => {
+      const cell = this.cells.get(id);
+      if (!cell) return;
+      const formerDependents = [...cell.dependents];
+      for (const depId of cell.dependencies) this.cells.get(depId)?.dependents.delete(id);
+      for (const depId of cell.dependents) this.cells.get(depId)?.dependencies.delete(id);
+      this.cells.delete(id);
+      this.listeners.delete(id);
+      for (const depId of formerDependents) {
+        const dep = this.cells.get(depId);
+        if (!dep || dep.dirty) continue;
+        dep.dirty = true;
+        this.emit(depId);
+        this.propagateDirty(depId);
+      }
+    });
   }
 
   private ensure<T>(id: string): CellRecord<T> {
@@ -423,22 +461,84 @@ export class CellGraph {
    * nested notification: any consumer notified mid-flight still reads the
    * freshest value the next time it calls `get()`, so no update is lost by
    * collapsing repeat notifications for the same id into one.
+   *
+   * The global (`subscribeAll`) notification is requested here but not
+   * fired directly -- see {@link scheduleGlobalNotify}: a single logical
+   * write (e.g. one `set()` on the root of a diamond-shaped dependency
+   * graph) calls `emit()` once per cell it transitively dirties, but must
+   * still only produce ONE `subscribeAll` notification (issue #234).
    */
   private emit(id: string): void {
     if (this.emitting.has(id)) return;
     this.emitting.add(id);
     try {
       for (const fn of this.listeners.get(id) ?? []) fn();
-      if (!this.notifyingGlobal) {
-        this.notifyingGlobal = true;
-        try {
-          for (const fn of this.globalListeners) fn();
-        } finally {
-          this.notifyingGlobal = false;
-        }
-      }
+      this.scheduleGlobalNotify();
     } finally {
       this.emitting.delete(id);
+    }
+  }
+
+  /**
+   * Run `fn` as one "logical write" for the purposes of global-listener
+   * batching -- see {@link globalNotifyDepth}. Reentrant calls (e.g. a
+   * `subscribe()` listener triggered mid-cascade that synchronously calls
+   * `get()`, which recomputes and dirties further cells) nest transparently:
+   * only the outermost call's `finally` can bring the depth back to zero and
+   * trigger the deferred flush.
+   */
+  private runBatched<T>(fn: () => T): T {
+    this.globalNotifyDepth++;
+    try {
+      return fn();
+    } finally {
+      this.globalNotifyDepth--;
+      if (this.globalNotifyDepth === 0 && this.globalNotifyPending) this.flushGlobalNotify();
+    }
+  }
+
+  /**
+   * Request a `subscribeAll` notification. While a logical write is still
+   * in progress ({@link globalNotifyDepth} > 0), the request is only
+   * recorded ({@link globalNotifyPending}) -- {@link runBatched} flushes it
+   * once that write (including everything it cascaded into) fully unwinds.
+   * Outside of any write (e.g. a standalone `get()` that lazily recomputes a
+   * dirty cell with no `set`/`define`/`delete` on the stack), there's no
+   * outer call to flush later, so it fires immediately.
+   */
+  private scheduleGlobalNotify(): void {
+    this.globalNotifyPending = true;
+    if (this.globalNotifyDepth === 0) this.flushGlobalNotify();
+  }
+
+  /**
+   * Actually invoke every `subscribeAll` listener, once, for the batch of
+   * cell changes accumulated since the last flush.
+   *
+   * Guarded against reentering the listener-invocation loop itself --
+   * `notifyingGlobalListeners`, scoped to "is a global-listener loop
+   * currently on the stack" rather than per-cell-id, because by this point
+   * the notification is no longer about any single cell; it's "this batch
+   * of writes changed something." A listener that synchronously starts a
+   * NEW logical write (e.g. `set()` on a different cell) re-arms {@link
+   * globalNotifyPending} instead of recursing into a second, nested
+   * invocation of every listener -- that pending flag is drained in the
+   * `while` loop below once the in-progress loop returns, so that second
+   * write's notification still fires (once), it's just deferred to right
+   * after the first finishes rather than dropped. This is what fixes issue
+   * #234's bug 2: the previous shared `notifyingGlobal` boolean guard
+   * skipped (silently discarded) exactly this case instead of deferring it.
+   */
+  private flushGlobalNotify(): void {
+    if (this.notifyingGlobalListeners) return; // already mid-loop; that loop's own drain (below) will pick this up
+    this.notifyingGlobalListeners = true;
+    try {
+      while (this.globalNotifyPending) {
+        this.globalNotifyPending = false;
+        for (const fn of this.globalListeners) fn();
+      }
+    } finally {
+      this.notifyingGlobalListeners = false;
     }
   }
 }
