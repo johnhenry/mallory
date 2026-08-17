@@ -122,12 +122,17 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
     setExprInput(exprText);
   }, [exprText]);
 
+  // subscribeMany (not subscribeAll, issue #242 -- follow-up to #235) --
+  // getCurrentSeriesState only reads the fixed cell list below, never
+  // ids.viewport/ids.liveViewport, so a subscribeAll here used to re-run
+  // writeUrl on every pan/pinch/wheel-zoom gesture tick even though the URL
+  // never encodes viewport state at all.
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeSeriesState(getCurrentSeriesState(graph, ids))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany([ids.exprText, ids.variable, ids.fromN, ids.toN, ids.plotCount], writeUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 

@@ -334,12 +334,36 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
     },
   });
 
+  // subscribeMany (not subscribeAll, issue #242 -- follow-up to #235) --
+  // getCurrentState only reads the fixed cell list below, never TIME_CELL,
+  // so a subscribeAll here used to re-run writeUrl on every RAF tick of the
+  // generation-scrubbing transport during playback even though the URL
+  // never encodes playback position at all.
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeCaState(getCurrentState(graph, ids))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany(
+      [
+        ids.dimension,
+        ids.ruleNumber,
+        ids.width1d,
+        ids.generations1d,
+        ids.boundary1d,
+        ids.initial1d,
+        ids.seed1d,
+        ids.bsRule,
+        ids.width2d,
+        ids.height2d,
+        ids.generations2d,
+        ids.boundary2d,
+        ids.seed2d,
+        ids.density2d,
+        ids.showVoxelView,
+      ],
+      writeUrl,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 

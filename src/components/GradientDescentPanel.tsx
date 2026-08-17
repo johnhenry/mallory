@@ -256,12 +256,34 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [descentResults]);
 
+  // subscribeMany (not subscribeAll, issue #242 -- follow-up to #235) --
+  // getCurrentState only reads the fixed cell list below, never TIME_CELL,
+  // so a subscribeAll here used to re-run writeUrl on every RAF tick of
+  // per-step playback of the precomputed optimizer trajectory even though
+  // the URL never encodes playback position at all.
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeGradientDescentState(getCurrentState(graph, ids))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany(
+      [
+        ids.exprText,
+        ids.startX,
+        ids.startY,
+        ids.lr,
+        ids.steps,
+        ids.showSgd,
+        ids.showAdam,
+        ids.showRmsprop,
+        ids.useSchedule,
+        ids.stepSize,
+        ids.gamma,
+        ids.momentum,
+        ids.nesterov,
+      ],
+      writeUrl,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 

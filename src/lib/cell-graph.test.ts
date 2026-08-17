@@ -1,5 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import {
+  cellIdsCellularAutomata,
+  cellIdsFourier,
+  cellIdsGeometry,
+  cellIdsGradientDescent,
+  cellIdsOde2,
+  cellIdsSeries,
+  cellIdsTaylor,
+  cellIdsTiles,
+  TIME_CELL,
+} from "./cell-ids.ts";
 import { CellGraph, CircularDependencyError, structuralEqual } from "./cell-graph.ts";
 
 test("set/get a raw source cell", () => {
@@ -776,4 +787,147 @@ test("subscribeAll: a reentrant set() on the SAME cell from inside a global list
   g.set("x", 2); // kicks off a same-cell reentrant chain: 2 -> 3, each write its own notification
   assert.equal(g.get("x"), 3);
   assert.equal(calls, 2, "one notification per real distinct value the cell actually passed through (2 -> 3)");
+});
+
+// Issue #242 (follow-up audit to #235): several more panels' writeUrl
+// effects had the exact same subscribeAll-as-shorthand-for-a-few-cells bug,
+// found after #235's own 8-site PR (#243) shipped. Each test below mirrors
+// the real fix in the named panel file: it subscribes with the exact same
+// watched-id list writeUrl now uses (via the panel's own real cellIds
+// function, not string literals), then confirms a burst of writes to the
+// specific high-frequency cell that used to leak through (the shared
+// TIME_CELL playback clock, a liveViewport gesture cell, or a solve-loop
+// progress cell) never fires the listener, while a write to any watched
+// cell still does.
+
+test("subscribeMany (CellularAutomataPanel's writeUrl fix, issue #242): TIME_CELL RAF ticks from generation-scrubbing playback don't fire, a watched config cell still does", () => {
+  const g = new CellGraph();
+  const ids = cellIdsCellularAutomata("ca-test");
+  g.set(ids.ruleNumber, 30);
+  g.set(TIME_CELL, 0);
+  let calls = 0;
+  g.subscribeMany(
+    [
+      ids.dimension,
+      ids.ruleNumber,
+      ids.width1d,
+      ids.generations1d,
+      ids.boundary1d,
+      ids.initial1d,
+      ids.seed1d,
+      ids.bsRule,
+      ids.width2d,
+      ids.height2d,
+      ids.generations2d,
+      ids.boundary2d,
+      ids.seed2d,
+      ids.density2d,
+      ids.showVoxelView,
+    ],
+    () => calls++,
+  );
+  for (let frame = 1; frame <= 60; frame++) g.set(TIME_CELL, frame);
+  assert.equal(calls, 0, "60 TIME_CELL RAF ticks during playback must not fire writeUrl");
+  g.set(ids.ruleNumber, 90);
+  assert.equal(calls, 1);
+});
+
+test("subscribeMany (GradientDescentPanel's writeUrl fix, issue #242): TIME_CELL RAF ticks from trajectory playback don't fire, a watched config cell still does", () => {
+  const g = new CellGraph();
+  const ids = cellIdsGradientDescent("gd-test");
+  g.set(ids.lr, "0.1");
+  g.set(TIME_CELL, 0);
+  let calls = 0;
+  g.subscribeMany(
+    [ids.exprText, ids.startX, ids.startY, ids.lr, ids.steps, ids.showSgd, ids.showAdam, ids.showRmsprop, ids.useSchedule, ids.stepSize, ids.gamma, ids.momentum, ids.nesterov],
+    () => calls++,
+  );
+  for (let frame = 1; frame <= 60; frame++) g.set(TIME_CELL, frame);
+  assert.equal(calls, 0, "60 TIME_CELL RAF ticks during trajectory playback must not fire writeUrl");
+  g.set(ids.lr, "0.05");
+  assert.equal(calls, 1);
+});
+
+test("subscribeMany (TilesPanel's writeUrl fix, issue #242): TIME_CELL RAF ticks and solve-loop progress writes don't fire, a watched config cell still does", () => {
+  const g = new CellGraph();
+  const ids = cellIdsTiles("tiles-test");
+  g.set(ids.width, 4);
+  g.set(TIME_CELL, 0);
+  g.set(ids.solveSteps, [] as unknown[]);
+  let calls = 0;
+  g.subscribeMany(
+    [ids.tilesText, ids.width, ids.height, ids.solver, ids.showAnimation, ids.symmetry, ids.lattice, ids.hexTilesText, ids.triTilesText, ids.cubeTilesText, ids.depth],
+    () => calls++,
+  );
+  for (let frame = 1; frame <= 60; frame++) g.set(TIME_CELL, frame);
+  for (let step = 1; step <= 30; step++) g.set(ids.solveSteps, [{ step }]);
+  assert.equal(calls, 0, "TIME_CELL ticks and solve-loop progress writes must not fire writeUrl");
+  g.set(ids.width, 8);
+  assert.equal(calls, 1);
+});
+
+test("subscribeMany (FourierPanel's writeUrl fix, issue #242): live-viewport pan/pinch/wheel-zoom gesture ticks don't fire, a watched cell still does", () => {
+  const g = new CellGraph();
+  const ids = cellIdsFourier("fourier-test");
+  g.set(ids.waveType, "square");
+  g.set(ids.liveViewport, null);
+  let calls = 0;
+  g.subscribeMany([ids.waveType, ids.harmonics], () => calls++);
+  for (let tick = 1; tick <= 40; tick++) g.set(ids.liveViewport, { xMin: -tick, xMax: tick, yMin: -1, yMax: 1 });
+  assert.equal(calls, 0, "40 mid-gesture liveViewport ticks must not fire writeUrl");
+  g.set(ids.harmonics, "5");
+  assert.equal(calls, 1);
+});
+
+test("subscribeMany (GeometryPanel's writeUrl fix, issue #242): dragging an existing point (its own position cell, not opsLog) doesn't fire, an opsLog write still does", () => {
+  const g = new CellGraph();
+  const listIds = cellIdsGeometry("geo-test");
+  g.set(listIds.opsLog, [] as unknown[]);
+  g.set("geomPoint:p1", { x: 0, y: 0 });
+  let calls = 0;
+  g.subscribeMany([listIds.opsLog], () => calls++);
+  for (let step = 1; step <= 30; step++) g.set("geomPoint:p1", { x: step, y: step }); // simulated pointermove drag
+  assert.equal(calls, 0, "30 pointermove drag writes to the point's own position cell must not fire writeUrl -- it isn't part of opsLog");
+  g.set(listIds.opsLog, [{ tool: "point", id: "p2", x: 9, y: 9 }]);
+  assert.equal(calls, 1);
+});
+
+test("subscribeMany (Ode2Panel's writeUrl fix, issue #242): live-viewport pan/pinch/wheel-zoom gesture ticks don't fire, a watched cell still does", () => {
+  const g = new CellGraph();
+  const ids = cellIdsOde2("ode2-test");
+  g.set(ids.a, "1");
+  g.set(ids.liveViewport, null);
+  let calls = 0;
+  g.subscribeMany([ids.a, ids.b, ids.c, ids.x0, ids.y0, ids.yPrime0, ids.xMin, ids.xMax, ids.yMin, ids.yMax], () => calls++);
+  for (let tick = 1; tick <= 40; tick++) g.set(ids.liveViewport, { xMin: -tick, xMax: tick, yMin: -tick, yMax: tick });
+  assert.equal(calls, 0, "40 mid-gesture liveViewport ticks must not fire writeUrl -- the URL only encodes the committed xMin/xMax/yMin/yMax");
+  g.set(ids.a, "2");
+  assert.equal(calls, 1);
+});
+
+test("subscribeMany (TaylorPanel's writeUrl fix, issue #242): live-viewport pan/pinch/wheel-zoom gesture ticks don't fire, a watched cell still does", () => {
+  const g = new CellGraph();
+  const ids = cellIdsTaylor("taylor-test");
+  g.set(ids.expr, "sin(x)");
+  g.set(ids.liveViewport, null);
+  let calls = 0;
+  g.subscribeMany([ids.expr, ids.center, ids.order, ids.xMin, ids.xMax, ids.yMin, ids.yMax, ids.limitPoint, ids.limitDirection], () => calls++);
+  for (let tick = 1; tick <= 40; tick++) g.set(ids.liveViewport, { xMin: -tick, xMax: tick, yMin: -tick, yMax: tick });
+  assert.equal(calls, 0, "40 mid-gesture liveViewport ticks must not fire writeUrl -- the URL only encodes the committed xMin/xMax/yMin/yMax");
+  g.set(ids.order, "5");
+  assert.equal(calls, 1);
+});
+
+test("subscribeMany (SeriesPanel's writeUrl fix, issue #242): live-viewport pan/pinch/wheel-zoom gesture ticks don't fire, a watched cell still does", () => {
+  const g = new CellGraph();
+  const ids = cellIdsSeries("series-test");
+  g.set(ids.exprText, "1/n^2");
+  g.set(ids.viewport, { xMin: 0, xMax: 10, yMin: -1, yMax: 1 });
+  g.set(ids.liveViewport, null);
+  let calls = 0;
+  g.subscribeMany([ids.exprText, ids.variable, ids.fromN, ids.toN, ids.plotCount], () => calls++);
+  for (let tick = 1; tick <= 40; tick++) g.set(ids.liveViewport, { xMin: -tick, xMax: tick, yMin: -1, yMax: 1 });
+  assert.equal(calls, 0, "40 mid-gesture liveViewport ticks must not fire writeUrl -- the URL never encodes viewport state at all");
+  g.set(ids.toN, "50");
+  assert.equal(calls, 1);
 });

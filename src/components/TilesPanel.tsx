@@ -952,12 +952,20 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     );
   }, [relaxResult]);
 
+  // subscribeMany (not subscribeAll, issue #242 -- follow-up to #235) --
+  // getCurrentState only reads the fixed cell list below, never TIME_CELL
+  // or the solve-loop's progress cells (ids.solveSteps etc., not part of the
+  // URL schema), so a subscribeAll here used to re-run writeUrl on every RAF
+  // tick of animated playback and every solve-loop progress write.
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeTilesState(getCurrentState(graph, ids))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany(
+      [ids.tilesText, ids.width, ids.height, ids.solver, ids.showAnimation, ids.symmetry, ids.lattice, ids.hexTilesText, ids.triTilesText, ids.cubeTilesText, ids.depth],
+      writeUrl,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
