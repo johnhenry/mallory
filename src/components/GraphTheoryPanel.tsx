@@ -277,12 +277,20 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
     setEdgeListInput(edgeListText);
   }, [edgeListText]);
 
+  // subscribeMany (not subscribeAll, issue #235) -- getCurrentState only
+  // reads the fixed cell list below, never TIME_CELL, so a subscribeAll
+  // here used to re-run writeUrl on every RAF tick of the step-by-step
+  // algorithm animation (useTimelinePlayback above) even though the URL
+  // never encodes playback position at all.
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeGraphTheoryState(getCurrentState(graph, ids))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany(
+      [ids.edgeListText, ids.directed, ids.startVertex, ids.endVertex, ids.algorithm, ids.showEditor, ids.edgeWeight, ids.showAnimation, ids.vertexPositions],
+      writeUrl,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 

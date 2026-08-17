@@ -27,6 +27,7 @@ import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/po
 import { pathsToSvgDocument, scatterPointsToSvgDocument } from "../lib/svg-export.ts";
 import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useDebouncedSubscribeAll } from "../hooks/use-debounced-subscribe-all.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
 import { CopyableTex } from "./CopyableTex.tsx";
@@ -693,26 +694,36 @@ export function GraphCanvas({
 
   // Keep the URL fragment in sync with the live graph state, so copying the
   // current URL and opening it elsewhere reproduces the graph exactly.
+  // Debounced (issue #235), not a plain subscribeAll: writeUrl reads
+  // neither TIME_CELL nor ids.liveViewport (only the gesture-end-committed
+  // ids.viewport, per the comment below), so a subscribeAll here used to
+  // re-run writeUrl -- rebuilding the params object and calling
+  // history.replaceState -- on every RAF tick of timeline playback and
+  // every mid-gesture pointermove/wheel tick, even though neither changes
+  // what gets written. ids.freeVars/ids.param(name) are a dynamic
+  // per-expression set, so this can't cleanly switch to `subscribeMany`
+  // the way the fixed-cell-list panels (GraphTheoryPanel, ComplexPanel,
+  // MlPlaygroundPanel) did.
+  function writeUrl() {
+    const names = graph.get<string[]>(ids.freeVars);
+    const params: Record<string, number> = {};
+    for (const name of names) params[name] = graph.get<number>(ids.param(name));
+    const state: GraphState = {
+      v: 3,
+      cells: [{ id: cellId, source: graph.get<string>(ids.expr), params, structureModulus: graph.get<number | null>(ids.structure) }],
+      // Committed, not live -- so the URL doesn't wobble on every
+      // mid-gesture pointermove/wheel tick, only on gesture-end commit.
+      viewport: graph.get<Viewport>(ids.viewport),
+      mode,
+    };
+    window.history.replaceState(null, "", `#${encodeGraphState(state)}`);
+  }
   useEffect(() => {
     if (!syncUrl) return;
-    function writeUrl() {
-      const names = graph.get<string[]>(ids.freeVars);
-      const params: Record<string, number> = {};
-      for (const name of names) params[name] = graph.get<number>(ids.param(name));
-      const state: GraphState = {
-        v: 3,
-        cells: [{ id: cellId, source: graph.get<string>(ids.expr), params, structureModulus: graph.get<number | null>(ids.structure) }],
-        // Committed, not live -- so the URL doesn't wobble on every
-        // mid-gesture pointermove/wheel tick, only on gesture-end commit.
-        viewport: graph.get<Viewport>(ids.viewport),
-        mode,
-      };
-      window.history.replaceState(null, "", `#${encodeGraphState(state)}`);
-    }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, mode, syncUrl]);
+  useDebouncedSubscribeAll(graph, writeUrl, 250, syncUrl);
 
   useTimelinePlayback(graph, playing, loop, speed, duration, setPlaying);
 

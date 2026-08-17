@@ -364,13 +364,32 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     }
   }
 
+  // subscribeMany (not subscribeAll, issue #235) -- getCurrentComplexState
+  // only reads the fixed cell list below, never ids.viewport/liveViewport
+  // or the per-free-variable slider cells, so a subscribeAll here used to
+  // re-run writeUrl on every mid-gesture pan/zoom tick (ids.liveViewport)
+  // and every slider drag frame, none of which the URL actually encodes.
   useEffect(() => {
     if (!syncUrl) return;
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeComplexState(getCurrentComplexState(graph, ids))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany(
+      [
+        ids.exprText,
+        ids.probeRe,
+        ids.probeIm,
+        ids.showRootsOfUnity,
+        ids.rootsN,
+        ids.showConformalGrid,
+        ids.conformalGridType,
+        ids.conformalGridSpacing,
+        ids.showZeros,
+        ids.showPoles,
+      ],
+      writeUrl,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, syncUrl]);
 
