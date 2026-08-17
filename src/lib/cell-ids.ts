@@ -819,6 +819,20 @@ export function cellIdsTiles(cellId: string) {
     solveSteps: `tilesSolveSteps:${cellId}`,
     solveGrid: `tilesSolveGrid:${cellId}`,
     solveError: `tilesSolveError:${cellId}`,
+    // M2 additions (issue #92): symmetry expansion is a `define`d derivation
+    // of tileSetResult (pure, synchronous, so unlike solving it CAN use the
+    // usual derive-on-read pattern). Entropy is NOT auto-derived -- strip
+    // height grows the search combinatorially, so it's computed on demand
+    // via a button, with its own status/result/error free cells (same
+    // "async-flavored action -> free cells" shape solveStatus/solveGrid/
+    // solveError already use, even though stripEntropy itself is
+    // synchronous -- the pattern is "on-demand, not auto", not "async").
+    symmetry: `tilesSymmetry:${cellId}`,
+    expandedTileSetResult: `tilesExpandedTileSetResult:${cellId}`,
+    entropyHeight: `tilesEntropyHeight:${cellId}`,
+    entropyStatus: `tilesEntropyStatus:${cellId}`,
+    entropyResult: `tilesEntropyResult:${cellId}`,
+    entropyError: `tilesEntropyError:${cellId}`,
   };
 }
 
