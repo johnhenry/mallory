@@ -2,6 +2,7 @@ import { Symbolic, type DifferentiationStep, type Expr } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import type { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, notebookValueCellId, VIEWPORT_CELL } from "../lib/cell-ids.ts";
+import { findCurveExtrema } from "../lib/curve-extrema.ts";
 import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
 import { exprToLatex } from "../lib/expr-to-latex.ts";
 import { integersModuloStructure } from "../lib/finite-structure.ts";
@@ -195,6 +196,12 @@ function useRowCells(graph: CellGraph, rowId: string, viewportCellId: string = V
       // `roots` above, generalized: every gap in the sampled path (a
       // singularity or domain boundary), not just where it crosses zero.
       graph.define(ids.discontinuities, () => findDiscontinuities(graph.get(ids.path)), { auxiliary: true });
+
+      // Local maxima/minima on the same sampled path (issue #50's
+      // generated-description input) -- the same declarative "condition
+      // cell" pattern as roots/discontinuities above, mirroring
+      // GraphCanvas's own `ids.extrema` cell.
+      graph.define(ids.extrema, () => findCurveExtrema(graph.get(ids.path)), { auxiliary: true });
 
       // f' as just another sampled curve, reusing the same sampleExprAdaptive
       // path every row's own f already goes through -- Symbolic.differentiate

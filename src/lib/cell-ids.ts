@@ -585,6 +585,8 @@ export function cellIdsMultiRow(cellId: string) {
     roots: `multiRoots:${cellId}`,
     /** Every gap (singularity/domain boundary) in the sampled path -- see findDiscontinuities. */
     discontinuities: `multiDiscontinuities:${cellId}`,
+    /** Local maxima/minima on the sampled path (issue #50's generated-description input) -- see findCurveExtrema, GraphCanvas's own `ids.extrema` counterpart. */
+    extrema: `multiExtrema:${cellId}`,
     /** Whether the f' overlay curve is toggled on for this row. */
     showDerivative: `multiShowDerivative:${cellId}`,
     /** The sampled f' curve (same color as `path`, drawn dashed), or null while `showDerivative` is off. Falls back to the last good sample on a mid-typing parse error, like `path` does. */
