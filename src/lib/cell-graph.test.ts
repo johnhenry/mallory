@@ -109,6 +109,66 @@ test("subscribeAll fires for changes on any cell", () => {
   assert.equal(calls, 2);
 });
 
+// subscribeMany (issue #235): several panels' URL-sync/redraw effects used
+// subscribeAll purely as a shorthand for "any of these specific cells I
+// actually read", which meant they ALSO fired on unrelated high-frequency
+// writes elsewhere in the same graph -- a RAF-driven playback clock
+// (TIME_CELL), a live drag preview, a per-epoch training metric -- that the
+// listener's own output never depended on. These tests model that exact
+// shape: a "TIME_CELL"-like hot cell the listener does NOT watch.
+test("subscribeMany fires for a write to any watched cell", () => {
+  const g = new CellGraph();
+  g.set("a", 1);
+  g.set("b", 1);
+  let calls = 0;
+  g.subscribeMany(["a", "b"], () => calls++);
+  g.set("a", 2);
+  g.set("b", 2);
+  assert.equal(calls, 2);
+});
+
+test("subscribeMany does NOT fire for a write to a cell outside the watched set -- e.g. a RAF-driven clock the listener doesn't read", () => {
+  const g = new CellGraph();
+  g.set("exprText", "x");
+  g.set("TIME_CELL", 0);
+  let calls = 0;
+  // Mirrors GraphTheoryPanel/ComplexPanel/MlPlaygroundPanel's writeUrl: only
+  // watches the cells its serialized output actually reads.
+  g.subscribeMany(["exprText"], () => calls++);
+  for (let frame = 1; frame <= 60; frame++) g.set("TIME_CELL", frame); // 60 "RAF ticks" of an unrelated clock
+  assert.equal(calls, 0, "60 writes to an unwatched cell must not fire a subscribeMany listener even once");
+  g.set("exprText", "x^2");
+  assert.equal(calls, 1, "a write to a watched cell still fires normally");
+});
+
+test("subscribeMany: the returned unsubscribe function detaches every watched id, not just the first", () => {
+  const g = new CellGraph();
+  g.set("a", 1);
+  g.set("b", 1);
+  let calls = 0;
+  const unsubscribe = g.subscribeMany(["a", "b"], () => calls++);
+  unsubscribe();
+  g.set("a", 2);
+  g.set("b", 2);
+  assert.equal(calls, 0);
+});
+
+test("subscribeMany: a shared-graph multi-block scenario -- writes to a DIFFERENT block's cells don't fire this block's listener (NotebookGraphBlock's fix)", () => {
+  const g = new CellGraph();
+  // Two notebook blocks sharing one CellGraph, the way NotebookPanel wires
+  // every block onto a single document-wide graph.
+  g.set("blockA.path", "pathA-v1");
+  g.set("blockB.path", "pathB-v1");
+  let blockARedraws = 0;
+  g.subscribeMany(["blockA.path"], () => blockARedraws++);
+  // A slider drag, RAF tick, or training-loop write in block B...
+  for (let i = 0; i < 30; i++) g.set("blockB.path", `pathB-v${i}`);
+  assert.equal(blockARedraws, 0, "block A's redraw must not fire for block B's own writes");
+  // ...but block A's own write still redraws it.
+  g.set("blockA.path", "pathA-v2");
+  assert.equal(blockARedraws, 1);
+});
+
 test("throws on a circular dependency", () => {
   const g = new CellGraph();
   g.define("a", () => g.get<number>("b") + 1);

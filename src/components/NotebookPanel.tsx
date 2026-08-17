@@ -19,6 +19,7 @@ import {
   type CurveTransformOp,
 } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useDebouncedSubscribeAll } from "../hooks/use-debounced-subscribe-all.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import {
@@ -497,15 +498,30 @@ export function NotebookPanel() {
   // Mirrors GraphCanvasMulti's own writeUrl/subscribeAll pattern, plus a
   // second trigger on `blocks` itself (see this component's doc comment for
   // why: block add/remove/reorder/text-edit is plain React state, not a
-  // graph mutation `subscribeAll` would ever see).
+  // graph mutation `subscribeAll` would ever see) -- the effect below still
+  // re-runs (and calls writeUrl() immediately) on every `blocks` change, so
+  // that half doesn't need any debouncing of its own.
+  //
+  // The graph-mutation half DOES need it, though (issue #235): NotebookPanel
+  // puts every block on ONE shared CellGraph (see this component's own doc
+  // comment), and getCurrentNotebookState walks every block's own cells --
+  // so a plain subscribeAll here used to re-walk and re-serialize the WHOLE
+  // document (every block, not just the one being edited) on every single
+  // cell write anywhere in it: a slider drag in one block, an RAF-driven
+  // TIME_CELL tick from an animated graph block elsewhere, a per-epoch
+  // training metric in an embedded ML block. useDebouncedSubscribeAll
+  // coalesces a burst of those into one call, the same "one burst -> one
+  // update" shape useUndoHistory (used a few lines up, over the identical
+  // getCurrentNotebookState reader) already established for the analogous
+  // debounced-snapshot problem.
+  function writeUrl() {
+    window.history.replaceState(null, "", `#${encodeNotebookState(getCurrentNotebookState(graph, blocks))}`);
+  }
   useEffect(() => {
-    function writeUrl() {
-      window.history.replaceState(null, "", `#${encodeNotebookState(getCurrentNotebookState(graph, blocks))}`);
-    }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, blocks]);
+  useDebouncedSubscribeAll(graph, writeUrl);
 
   function addTextBlock() {
     setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "text", content: "" }]);

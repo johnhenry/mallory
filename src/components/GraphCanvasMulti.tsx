@@ -40,6 +40,7 @@ import { ExpressionRow } from "./ExpressionRow.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { useCell } from "../lib/use-cell.ts";
 import { useCollabSession } from "../hooks/use-collab-session.ts";
+import { useDebouncedSubscribeAll } from "../hooks/use-debounced-subscribe-all.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 
 const WIDTH = 600;
@@ -722,13 +723,23 @@ export function GraphCanvasMulti() {
   // Mirrors GraphCanvas's own writeUrl/subscribeAll pattern: keeps the URL
   // hash live-updated with the full row list + viewport, so reload restores
   // the session and "fork" (above) is just opening the current URL anew.
+  // Debounced (issue #235), not a plain subscribeAll: getCurrentMultiGraphState
+  // reads VIEWPORT_CELL (committed) but each row's dependency set is dynamic
+  // (grows/shrinks with EXPRESSION_LIST_CELL), so unlike GraphTheoryPanel/
+  // ComplexPanel/MlPlaygroundPanel's fixed cell lists, this can't switch to
+  // `subscribeMany` without re-deriving that same dynamic set by hand.
+  // Debouncing still fixes the actual hot path this was filed over -- every
+  // mid-drag LIVE_VIEWPORT_CELL tick (writeUrl doesn't even read that cell,
+  // only the gesture-end commit into VIEWPORT_CELL) used to trigger a full
+  // history.replaceState on every pointermove.
+  function writeUrl() {
+    window.history.replaceState(null, "", `#${encodeMultiGraphState(getCurrentMultiGraphState(graph))}`);
+  }
   useEffect(() => {
-    function writeUrl() {
-      window.history.replaceState(null, "", `#${encodeMultiGraphState(getCurrentMultiGraphState(graph))}`);
-    }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
+  useDebouncedSubscribeAll(graph, writeUrl);
 
   // Redraws whenever the row list changes, or any individual row's own
   // cells do -- graph.subscribeAll rather than per-row useCell hooks, since

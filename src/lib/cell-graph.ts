@@ -361,6 +361,28 @@ export class CellGraph {
     return () => this.globalListeners.delete(fn);
   }
 
+  /**
+   * Subscribe to changes on a fixed, known set of specific cells -- e.g.
+   * every cell a serialized URL fragment reads. Narrower than
+   * `subscribeAll`: `fn` fires only for a write on one of `ids`, not for
+   * literally any cell in the graph (issue #235 -- several panels' URL-sync
+   * effects used `subscribeAll` for exactly this "a handful of specific
+   * cells" shape, so they also fired on unrelated high-frequency writes
+   * elsewhere in the same graph -- an RAF-driven playback clock, a live
+   * drag preview, a per-epoch training metric -- that the listener's own
+   * output never actually depended on). Just sugar over one `subscribe`
+   * call per id; not appropriate when the relevant id set is itself dynamic
+   * (e.g. "every currently-visible row's cells", where the row list can
+   * grow/shrink) -- that shape still needs `subscribeAll` (ideally
+   * debounced) or per-id `subscribe` calls re-issued as the id set changes.
+   */
+  subscribeMany(ids: string[], fn: Listener): () => void {
+    const unsubscribes = ids.map((id) => this.subscribe(id, fn));
+    return () => {
+      for (const unsubscribe of unsubscribes) unsubscribe();
+    };
+  }
+
   has(id: string): boolean {
     return this.cells.has(id);
   }

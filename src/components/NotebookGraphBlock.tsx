@@ -124,6 +124,18 @@ export function NotebookGraphBlock({
     if (name) graph.define(notebookCurveCellId(name), () => graph.get<Path2D>(ids.path), { auxiliary: true });
   }
 
+  // subscribeMany (not subscribeAll, issue #235) over blockIds.viewport plus
+  // exactly this block's own rows' path/visible/derivativePath cells --
+  // NotebookPanel puts every block on ONE shared CellGraph (see this
+  // component's own doc comment), so a subscribeAll here used to redraw
+  // this block on every write to ANY other block in the same document too:
+  // a slider drag in a value block, an RAF-driven TIME_CELL tick from a
+  // different graph block's animation, a per-epoch metric from an ML
+  // block, none of which this block's own canvas depends on. `rowIds` is
+  // already tracked reactively above (`useCell(graph, blockIds.expressionList)`),
+  // so the subscribed id list is rebuilt (and re-subscribed) whenever rows
+  // are added/removed/reordered, same as `redraw` itself already re-reads
+  // the row list fresh from the graph each call.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
@@ -148,9 +160,10 @@ export function NotebookGraphBlock({
       }
     }
     redraw();
-    return graph.subscribeAll(redraw);
+    const watchedIds = [blockIds.viewport, ...rowIds.flatMap((id) => [cellIdsMultiRow(id).path, cellIdsMultiRow(id).visible, cellIdsMultiRow(id).derivativePath])];
+    return graph.subscribeMany(watchedIds, redraw);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, blockIds.viewport, blockIds.expressionList]);
+  }, [graph, blockIds.viewport, blockIds.expressionList, rowIds]);
 
   return (
     <div>

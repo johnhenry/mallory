@@ -178,12 +178,21 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
     setTotalEpochs(0);
   }, [modelKey]);
 
+  // subscribeMany (not subscribeAll, issue #235) -- getCurrentState only
+  // reads the fixed config cell list below, never ids.isTraining,
+  // ids.drawnPoints, or a per-epoch ids.metric(name) cell, so a
+  // subscribeAll here used to re-run writeUrl on every single training-loop
+  // epoch (installMetricSink's per-epoch graph.set below) even though the
+  // URL never encodes live training progress at all.
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeMlPlaygroundState(getCurrentState(graph, ids))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany(
+      [ids.dataset, ids.pointsPerClass, ids.dataSeed, ids.modelSeed, ids.hidden, ids.lr, ids.epochs, ids.dropout, ids.useSchedule, ids.stepSize, ids.gamma],
+      writeUrl,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
