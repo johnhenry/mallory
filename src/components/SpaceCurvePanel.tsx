@@ -175,7 +175,13 @@ export function SpaceCurvePanel({ cellId = "space-curve-1" }: { cellId?: string 
   useEffect(() => {
     const group = groupRef.current;
     if (!group || !pointsResult.ok) return;
-    for (const child of [...group.children]) group.remove(child);
+    for (const child of [...group.children]) {
+      group.remove(child);
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
+      }
+    }
     const vectors = pointsResult.value.map((p) => new THREE.Vector3(p.x, p.y, p.z));
     const curve = new THREE.CatmullRomCurve3(vectors);
     const tubularSegments = Math.max(2, vectors.length);

@@ -358,7 +358,13 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   useEffect(() => {
     const group = surfaceGroupRef.current;
     if (!group || !surfaceMeshResult.ok) return;
-    for (const child of [...group.children]) group.remove(child);
+    for (const child of [...group.children]) {
+      group.remove(child);
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
+      }
+    }
     for (const mesh of surfaceMeshResult.value) group.add(new THREE.Mesh(meshToGeometry(mesh), meshToMaterial(mesh)));
   }, [surfaceMeshResult]);
 
@@ -368,7 +374,13 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   useEffect(() => {
     const group = pathGroupRef.current;
     if (!group) return;
-    for (const child of [...group.children]) group.remove(child);
+    for (const child of [...group.children]) {
+      group.remove(child);
+      if (child instanceof THREE.Line || child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
+      }
+    }
     if (!descentResults.ok) return;
     for (const run of descentResults.value) {
       const points = descentPathTo3DPoints(run.result.path, time);
