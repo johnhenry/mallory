@@ -29,7 +29,7 @@ interface RegressionRow {
 
 type FitType = "linear" | "nonlinear";
 type LinearLossMode = "leastSquares" | "huber";
-type HuberFitResult = { ok: true; value: RobustLinearFit } | { ok: false; message: string } | null;
+export type HuberFitResult = { ok: true; value: RobustLinearFit } | { ok: false; message: string } | null;
 
 type FitResult =
   | { ok: true; kind: "linear"; slope: number; intercept: number; r: number; points: { x: number; y: number }[] }
@@ -266,6 +266,18 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const saveGraphFn = useServerFn(saveGraph);
 
+  // Row-edit generation counter (issue #237): handleFitHuber captures
+  // `fit.points` at click time and awaits an async trainer.fit run, but the
+  // (x, y) row inputs aren't disabled while it's in flight -- editing a row
+  // mid-fit must not let the eventual result (computed from the OLD points)
+  // land on top of the now-current data. Bumped whenever `rows` changes;
+  // handleFitHuber compares its captured generation against the latest one
+  // before applying its result, discarding it if rows moved on since.
+  const rowsGenerationRef = useRef(0);
+  useEffect(() => {
+    rowsGenerationRef.current++;
+  }, [rows]);
+
   async function handleSave() {
     const title = window.prompt("Title for this saved regression:", "Untitled");
     if (title === null) return;
@@ -283,14 +295,24 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
   // MlPlaygroundPanel's own precedent for the same reason.
   async function handleFitHuber() {
     if (!fit.ok) return;
+    const requestGeneration = rowsGenerationRef.current;
     graph.set(ids.huberFitting, true);
     graph.set<HuberFitResult>(ids.huberFitResult, null);
     try {
       const value = await fitRobustLinear(fit.points);
-      graph.set<HuberFitResult>(ids.huberFitResult, { ok: true, value });
+      // Only apply if no row edit landed while this fit was in flight --
+      // otherwise `value` was computed from points that no longer match the
+      // displayed data (issue #237).
+      if (rowsGenerationRef.current === requestGeneration) {
+        graph.set<HuberFitResult>(ids.huberFitResult, { ok: true, value });
+      }
     } catch (e) {
-      graph.set<HuberFitResult>(ids.huberFitResult, { ok: false, message: e instanceof Error ? e.message : String(e) });
+      if (rowsGenerationRef.current === requestGeneration) {
+        graph.set<HuberFitResult>(ids.huberFitResult, { ok: false, message: e instanceof Error ? e.message : String(e) });
+      }
     } finally {
+      // Always clear the in-flight flag (even when stale) so a superseded
+      // fit doesn't leave the button stuck disabled/"Fitting…" forever.
       graph.set(ids.huberFitting, false);
     }
   }
