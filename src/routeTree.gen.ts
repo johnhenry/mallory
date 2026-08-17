@@ -28,6 +28,7 @@ import { Route as App3dRouteImport } from './routes/_app/3d'
 import { Route as AppCalculatorRouteImport } from './routes/_app/calculator'
 import { Route as AppCalculusRouteImport } from './routes/_app/calculus'
 import { Route as AppDataRouteImport } from './routes/_app/data'
+import { Route as AppDigitClassifierRouteImport } from './routes/_app/digit-classifier'
 import { Route as AppGalleryRouteImport } from './routes/_app/gallery'
 import { Route as AppGeoRouteImport } from './routes/_app/geo'
 import { Route as AppGraphingRouteImport } from './routes/_app/graphing'
@@ -136,6 +137,11 @@ const AppDataRoute = AppDataRouteImport.update({
   path: '/data',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDigitClassifierRoute = AppDigitClassifierRouteImport.update({
+  id: '/digit-classifier',
+  path: '/digit-classifier',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppGalleryRoute = AppGalleryRouteImport.update({
   id: '/gallery',
   path: '/gallery',
@@ -221,6 +227,7 @@ export interface FileRoutesByFullPath {
   '/calculator': typeof AppCalculatorRoute
   '/calculus': typeof AppCalculusRoute
   '/data': typeof AppDataRoute
+  '/digit-classifier': typeof AppDigitClassifierRoute
   '/gallery': typeof AppGalleryRoute
   '/geo': typeof AppGeoRoute
   '/graphing': typeof AppGraphingRoute
@@ -253,6 +260,7 @@ export interface FileRoutesByTo {
   '/calculator': typeof AppCalculatorRoute
   '/calculus': typeof AppCalculusRoute
   '/data': typeof AppDataRoute
+  '/digit-classifier': typeof AppDigitClassifierRoute
   '/gallery': typeof AppGalleryRoute
   '/geo': typeof AppGeoRoute
   '/graphing': typeof AppGraphingRoute
@@ -288,6 +296,7 @@ export interface FileRoutesById {
   '/_app/calculator': typeof AppCalculatorRoute
   '/_app/calculus': typeof AppCalculusRoute
   '/_app/data': typeof AppDataRoute
+  '/_app/digit-classifier': typeof AppDigitClassifierRoute
   '/_app/gallery': typeof AppGalleryRoute
   '/_app/geo': typeof AppGeoRoute
   '/_app/graphing': typeof AppGraphingRoute
@@ -324,6 +333,7 @@ export interface FileRouteTypes {
     | '/calculator'
     | '/calculus'
     | '/data'
+    | '/digit-classifier'
     | '/gallery'
     | '/geo'
     | '/graphing'
@@ -356,6 +366,7 @@ export interface FileRouteTypes {
     | '/calculator'
     | '/calculus'
     | '/data'
+    | '/digit-classifier'
     | '/gallery'
     | '/geo'
     | '/graphing'
@@ -390,6 +401,7 @@ export interface FileRouteTypes {
     | '/_app/calculator'
     | '/_app/calculus'
     | '/_app/data'
+    | '/_app/digit-classifier'
     | '/_app/gallery'
     | '/_app/geo'
     | '/_app/graphing'
@@ -560,6 +572,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDataRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/digit-classifier': {
+      id: '/_app/digit-classifier'
+      path: '/digit-classifier'
+      fullPath: '/digit-classifier'
+      preLoaderRoute: typeof AppDigitClassifierRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/gallery': {
       id: '/_app/gallery'
       path: '/gallery'
@@ -659,6 +678,7 @@ interface AppRouteChildren {
   AppCalculatorRoute: typeof AppCalculatorRoute
   AppCalculusRoute: typeof AppCalculusRoute
   AppDataRoute: typeof AppDataRoute
+  AppDigitClassifierRoute: typeof AppDigitClassifierRoute
   AppGalleryRoute: typeof AppGalleryRoute
   AppGeoRoute: typeof AppGeoRoute
   AppGraphingRoute: typeof AppGraphingRoute
@@ -678,6 +698,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCalculatorRoute: AppCalculatorRoute,
   AppCalculusRoute: AppCalculusRoute,
   AppDataRoute: AppDataRoute,
+  AppDigitClassifierRoute: AppDigitClassifierRoute,
   AppGalleryRoute: AppGalleryRoute,
   AppGeoRoute: AppGeoRoute,
   AppGraphingRoute: AppGraphingRoute,
