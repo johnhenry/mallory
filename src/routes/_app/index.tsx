@@ -1,30 +1,52 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { NAV_SECTIONS } from "../../lib/nav-sections.ts";
 
 export const Route = createFileRoute("/_app/")({
   component: DashboardPage,
 });
 
-const CARDS: Array<{ to: string; title: string; description: string }> = [
-  { to: "/calculator", title: "Calculator", description: "Quick arithmetic and expressions — no plot, no viewport, just an answer." },
-  { to: "/graphing", title: "Graphing", description: "Multi-expression plots, implicit relations, and parametric & polar curves." },
-  { to: "/3d", title: "3D & Surfaces", description: "z = f(x, y) meshes paired live with their 2D cross-section." },
-  { to: "/geo", title: "Geometry", description: "Compass-and-straightedge constructions with live dependent objects." },
-  { to: "/calculus", title: "Calculus", description: "Single ODEs and coupled systems, slope fields, closed-form solving." },
-  { to: "/data", title: "Data & Algebra", description: "Regression, descriptive statistics, and equation-system solving." },
-  { to: "/signal", title: "Signal", description: "Compose a waveform and see its FFT amplitude spectrum, reactively linked." },
-  { to: "/image", title: "Image", description: "2D Fourier analysis: centered magnitude spectrum, a parametric mask, and the filtered result inverted back." },
-  { to: "/ml", title: "ML", description: "Train a tiny seeded MLP in-browser on toy datasets -- decision boundary and loss curve, fully reproducible." },
-  { to: "/practice", title: "Practice", description: "Random integration problems from a 152-problem corpus -- check your answer, or reveal it." },
-  { to: "/notes", title: "Notebook", description: "Mix text and live graph cells in one reactive document." },
-  { to: "/gallery", title: "Gallery", description: "Every graph and notebook you've saved, in one place." },
-];
+// Curated blurb copy for each panel, keyed by route path. This is the ONLY
+// hand-maintained list left for the dashboard grid -- which tools show up,
+// and their order, comes from NAV_SECTIONS (the sidebar's own single source
+// of truth, see nav-sections.ts) so the grid can't silently drift out of
+// sync with the sidebar / route list the way it did before issue #249 (a
+// newly-added panel would show up in the sidebar but never make it onto the
+// dashboard). A panel added to NAV_SECTIONS without an entry here still
+// renders, just with a generic fallback description below.
+const CARD_DESCRIPTIONS: Record<string, string> = {
+  "/calculator": "Quick arithmetic and expressions — no plot, no viewport, just an answer.",
+  "/graphing": "Multi-expression plots, implicit relations, and parametric & polar curves.",
+  "/3d": "z = f(x, y) meshes paired live with their 2D cross-section.",
+  "/geo": "Compass-and-straightedge constructions with live dependent objects.",
+  "/calculus": "Single ODEs and coupled systems, slope fields, closed-form solving.",
+  "/data": "Regression, descriptive statistics, and equation-system solving.",
+  "/signal": "Compose a waveform and see its FFT amplitude spectrum, reactively linked.",
+  "/image": "2D Fourier analysis: centered magnitude spectrum, a parametric mask, and the filtered result inverted back.",
+  "/ml": "Train a tiny seeded MLP in-browser on toy datasets -- decision boundary and loss curve, fully reproducible.",
+  "/practice": "Random integration problems from a 152-problem corpus -- check your answer, or reveal it.",
+  "/notes": "Mix text and live graph cells in one reactive document.",
+  "/gallery": "Every graph and notebook you've saved, in one place.",
+  "/workspace": "A shared variable graph any panel -- or an outside agent -- can read and write live.",
+  "/tiles": "Arrange several panels side by side in a single custom tiled layout.",
+  "/streaming-dataset": "Watch a live-updating dataset drive a chart in real time, point by point.",
+  "/digit-classifier": "Draw a digit and watch a tiny in-browser classifier read it back.",
+  "/cellular-automata": "Step and animate 1D and 2D cellular automata rules, live.",
+};
+
+export const CARDS: Array<{ to: string; title: string; description: string }> = NAV_SECTIONS.filter(
+  (section) => section.to !== "/",
+).map((section) => ({
+  to: section.to,
+  title: section.label,
+  description: CARD_DESCRIPTIONS[section.to] ?? `Open the ${section.label} tool.`,
+}));
 
 function DashboardPage() {
   return (
     <div>
       <div className="page-head">
         <p className="page-eyebrow">mallory-graph</p>
-        <h1>Twelve tools, one reactive core.</h1>
+        <h1>{CARDS.length} tools, one reactive core.</h1>
         <p className="lede">
           Plot, construct, solve, and animate — every tool below shares the same underlying math engine, so a curve
           you build in Graphing can drive a surface in 3D or a slope field in Calculus.
