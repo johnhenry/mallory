@@ -1,11 +1,12 @@
 /**
- * Two bounded demos for issue #58 ("make the invisible Dataset pipeline
- * visible"), both over synthetic in-memory data -- deliberately NOT the
- * issue's third candidate ("rate-limited fetch of a public dataset"),
- * which would add an external network dependency this repo's other demo
- * panels don't have.
+ * Bounded demos for issue #58 ("make the invisible Dataset pipeline
+ * visible") plus issue #259's follow-up examples, all over synthetic
+ * in-memory data -- deliberately NOT the issue's third candidate
+ * ("rate-limited fetch of a public dataset"), which would add an external
+ * network dependency this repo's other demo panels don't have.
  */
 import { Dataset } from "mallory-data";
+import { mapConcurrentAsync, teeAsync, windowedAsync } from "mallory-iteration";
 
 /**
  * Demo A: "watch epochs reshuffle". Runs a Dataset of `[0, size)` through
@@ -76,4 +77,173 @@ export async function simulatePrefetchTiming(
   const withPrefetch = await runOnce("withPrefetch");
   const withoutPrefetch = await runOnce("withoutPrefetch");
   return { withPrefetch, withoutPrefetch };
+}
+
+export interface ConcurrentOrderingResult {
+  /** Original indices, in the order `mapConcurrentAsync` yielded them with `ordered: true`. */
+  ordered: number[];
+  /** Original indices, in the order `mapConcurrentAsync` yielded them with `ordered: false`. */
+  unordered: number[];
+}
+
+/**
+ * Demo C: "ordered vs. completion-order concurrent map". `mapConcurrentAsync`
+ * runs up to `concurrency` invocations of a (simulated) async transform at
+ * once; `durationsMs[i % durationsMs.length]` gives item `i` a variable
+ * amount of simulated work so some finish faster than others. With
+ * `ordered: true` (mallory-iteration's default) the output always comes back
+ * in input order -- a fast item still has to wait for every slower item
+ * ahead of it. With `ordered: false` items are yielded in completion order,
+ * so fast items can overtake slow ones that started earlier. Same
+ * `concurrency` and `durationsMs` feed both runs, so the only variable is
+ * the ordering mode -- making that specific trade-off (latency vs. a
+ * stable, index-addressable output order) visible side by side.
+ */
+export async function runConcurrentOrderingDemo(
+  itemCount: number,
+  durationsMs: number[],
+  concurrency: number,
+  sleep: (ms: number) => Promise<void> = defaultSleep,
+): Promise<ConcurrentOrderingResult> {
+  if (itemCount <= 0) throw new Error(`itemCount must be positive -- got ${itemCount}.`);
+  if (concurrency <= 0) throw new Error(`concurrency must be positive -- got ${concurrency}.`);
+  if (durationsMs.length === 0) throw new Error("durationsMs must contain at least one value.");
+
+  async function runOnce(ordered: boolean): Promise<number[]> {
+    const source = Array.from({ length: itemCount }, (_, i) => i);
+    const seq: number[] = [];
+    const pipeline = mapConcurrentAsync(
+      async (i: number) => {
+        await sleep(durationsMs[i % durationsMs.length] as number);
+        return i;
+      },
+      source,
+      { concurrency, ordered },
+    );
+    for await (const i of pipeline) {
+      seq.push(i);
+    }
+    return seq;
+  }
+
+  const ordered = await runOnce(true);
+  const unordered = await runOnce(false);
+  return { ordered, unordered };
+}
+
+/** Deterministic PRNG (mulberry32) -- small, seedable, and dependency-free; good enough for a synthetic noisy signal, not for cryptography. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Generates `n` samples of a sine wave plus seeded pseudo-random noise
+ * (uniform in `[-noiseAmplitude, noiseAmplitude]`) -- the raw signal that
+ * {@link computeWindowedAverage} smooths in Demo D.
+ */
+export function generateNoisySignal(n: number, seed: number, noiseAmplitude: number): number[] {
+  if (n <= 0) throw new Error(`n must be positive -- got ${n}.`);
+  const rand = mulberry32(seed);
+  return Array.from({ length: n }, (_, i) => {
+    const noise = (rand() * 2 - 1) * noiseAmplitude;
+    return Math.sin(i / 3) + noise;
+  });
+}
+
+/**
+ * Demo D: "sliding-window smoothing". Runs `values` through
+ * `windowedAsync(values, windowSize)` -- mallory-iteration's overlapping
+ * fixed-size window over a stream -- and averages each window, producing a
+ * moving average with `values.length - windowSize + 1` points. A bigger
+ * `windowSize` averages over more neighbors, trading responsiveness for
+ * smoothness; this is the same sliding-window primitive behind streaming
+ * moving averages, rolling metrics dashboards, and audio/signal smoothing.
+ */
+export async function computeWindowedAverage(values: number[], windowSize: number): Promise<number[]> {
+  if (windowSize <= 0) throw new Error(`windowSize must be positive -- got ${windowSize}.`);
+  if (windowSize > values.length) throw new Error(`windowSize (${windowSize}) must not exceed values.length (${values.length}).`);
+  const out: number[] = [];
+  for await (const window of windowedAsync(values, windowSize)) {
+    out.push(window.reduce((a, b) => a + b, 0) / window.length);
+  }
+  return out;
+}
+
+export interface TeeConsumersResult {
+  /** Arrival time (ms since this run started) of each item the fast consumer read off its branch. */
+  fastArrivals: number[];
+  /** Arrival time (ms since this run started) of each item the slow consumer read off its branch. */
+  slowArrivals: number[];
+}
+
+/**
+ * Demo E: "tee -- independent consumers, unbounded buffering". `teeAsync(2)`
+ * splits one source into 2 independent branches; each branch can be
+ * iterated at its own pace, with items the faster branch has already
+ * consumed held in a per-branch buffer until the slower branch catches up.
+ * Unlike {@link simulatePrefetchTiming}'s `.prefetch(n)` -- which caps how
+ * far ahead the producer gets with a bounded buffer of size `n` -- `tee`
+ * places no bound on that buffer at all: the fast consumer here finishes in
+ * roughly `itemCount * max(produceMs, fastConsumeMs)`, completely
+ * unaffected by how slow the other branch is, while the slow branch's
+ * buffer of not-yet-read items grows for as long as it lags. Both branches
+ * still see every item, in the same order.
+ */
+export async function simulateTeeConsumers(
+  itemCount: number,
+  produceMs: number,
+  fastConsumeMs: number,
+  slowConsumeMs: number,
+  sleep: (ms: number) => Promise<void> = defaultSleep,
+  /** Fires the instant each item arrives on a branch, before that branch's simulated consume delay -- `item` is the original 0-based item value (both branches must see 0, 1, 2, ... in order; a mismatch would indicate the branches desynced). */
+  onArrival?: (branch: "fast" | "slow", item: number, ms: number) => void,
+): Promise<TeeConsumersResult> {
+  if (itemCount <= 0) throw new Error(`itemCount must be positive -- got ${itemCount}.`);
+
+  const start = Date.now();
+  async function* produce(): AsyncGenerator<number> {
+    for (let i = 0; i < itemCount; i++) {
+      await sleep(produceMs);
+      yield i;
+    }
+  }
+  const [fastBranch, slowBranch] = teeAsync(2)(produce()) as [AsyncGenerator<number>, AsyncGenerator<number>];
+
+  // Two branches reading the same tee'd source concurrently is the whole
+  // point of this demo, but a `.next()` call issued on one branch while the
+  // other branch's `.next()` call is *also* in flight against a still-empty
+  // buffer is unspecified -- both would pull directly from the shared
+  // source instead of one filling the other's buffer, which can misalign
+  // which item each branch sees. Serializing just the moment each branch
+  // asks the tee for its next item (not the surrounding produce/consume
+  // delays, which still overlap freely) sidesteps that without giving up
+  // the independent pacing this demo is about.
+  let nextCallChain: Promise<unknown> = Promise.resolve();
+  function serializedNext<T>(branch: AsyncGenerator<T>): Promise<IteratorResult<T>> {
+    const result = nextCallChain.then(() => branch.next());
+    nextCallChain = result.catch(() => {});
+    return result;
+  }
+
+  async function consume(branch: AsyncGenerator<number>, consumeMs: number, tag: "fast" | "slow"): Promise<number[]> {
+    const arrivals: number[] = [];
+    while (true) {
+      const r = await serializedNext(branch);
+      if (r.done) break;
+      const ms = Date.now() - start;
+      arrivals.push(ms);
+      onArrival?.(tag, r.value, ms);
+      await sleep(consumeMs);
+    }
+    return arrivals;
+  }
+
+  const [fastArrivals, slowArrivals] = await Promise.all([consume(fastBranch, fastConsumeMs, "fast"), consume(slowBranch, slowConsumeMs, "slow")]);
+  return { fastArrivals, slowArrivals };
 }
