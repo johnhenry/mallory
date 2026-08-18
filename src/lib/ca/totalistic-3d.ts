@@ -54,6 +54,28 @@ export function totalisticRule3DToString(rule: Totalistic3DRule): string {
   return `B${b}/S${s}`;
 }
 
+/**
+ * Flips whether `count` live neighbors triggers birth, returning the
+ * resulting rule -- issue #260 item 3's minimal 3D extension of the
+ * birth/survival checkbox picker (item 2), reusing the same
+ * toggle-a-Set-membership shape as life-like.ts's own `toggleBirth`, just
+ * over 3D's wider 0-26 neighbor range instead of 2D's 0-8.
+ */
+export function toggleBirth3D(rule: Totalistic3DRule, count: number): Totalistic3DRule {
+  const birth = new Set(rule.birth);
+  if (birth.has(count)) birth.delete(count);
+  else birth.add(count);
+  return { birth, survival: rule.survival };
+}
+
+/** Flips whether `count` live neighbors lets a live cell survive, returning the resulting rule -- the "survival" checkbox counterpart of `toggleBirth3D`. */
+export function toggleSurvival3D(rule: Totalistic3DRule, count: number): Totalistic3DRule {
+  const survival = new Set(rule.survival);
+  if (survival.has(count)) survival.delete(count);
+  else survival.add(count);
+  return { birth: rule.birth, survival };
+}
+
 const NEIGHBOR_OFFSETS_3D: readonly (readonly [number, number, number])[] = (() => {
   const offsets: [number, number, number][] = [];
   for (let dz = -1; dz <= 1; dz++) {

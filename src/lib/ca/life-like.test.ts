@@ -3,11 +3,14 @@ import { test } from "node:test";
 import { Rng } from "mallory-tensor-core";
 import {
   bsRuleToString,
+  initialGrid,
   NAMED_LIFE_LIKE_RULES,
   parseBSRule,
   randomGrid,
   spacetimeLifeLike,
   stepLifeLike,
+  toggleBirth,
+  toggleSurvival,
   type Grid,
 } from "./life-like.ts";
 
@@ -133,6 +136,44 @@ test("spacetimeLifeLike: frame 0 is the initial grid, each later frame is the pr
   assert.equal(st.length, 3);
   assert.deepEqual(st[0], initial);
   for (let g = 1; g < 3; g++) assert.deepEqual(st[g], stepLifeLike(st[g - 1]!, rule, "dead"));
+});
+
+test("toggleBirth: adds a missing count and removes a present one, leaving survival untouched", () => {
+  const rule = parseBSRule("B3/S23");
+  const added = toggleBirth(rule, 6);
+  assert.deepEqual([...added.birth].sort(), [3, 6]);
+  assert.deepEqual([...added.survival].sort(), [2, 3]);
+  const removed = toggleBirth(rule, 3);
+  assert.deepEqual([...removed.birth], []);
+});
+
+test("toggleSurvival: adds a missing count and removes a present one, leaving birth untouched", () => {
+  const rule = parseBSRule("B3/S23");
+  const added = toggleSurvival(rule, 5);
+  assert.deepEqual([...added.survival].sort(), [2, 3, 5]);
+  assert.deepEqual([...added.birth], [3]);
+  const removed = toggleSurvival(rule, 2);
+  assert.deepEqual([...removed.survival].sort(), [3]);
+});
+
+test("toggleBirth/toggleSurvival twice returns to the original rule", () => {
+  const rule = parseBSRule("B36/S23");
+  assert.deepEqual(toggleBirth(toggleBirth(rule, 8), 8), rule);
+  assert.deepEqual(toggleSurvival(toggleSurvival(rule, 4), 4), rule);
+});
+
+test("initialGrid: 'random' dispatches to randomGrid and requires an rng", () => {
+  assert.deepEqual(initialGrid(4, 3, "random", new Rng(7), 0.3), randomGrid(4, 3, new Rng(7), 0.3));
+  assert.throws(() => initialGrid(4, 3, "random"), /requires an rng/);
+});
+
+test("initialGrid: 'custom' decodes the given bitstring row-major, and requires customBits", () => {
+  const grid = initialGrid(3, 2, "custom", undefined, undefined, "110001");
+  assert.deepEqual(grid, [
+    [1, 1, 0],
+    [0, 0, 1],
+  ]);
+  assert.throws(() => initialGrid(3, 2, "custom"), /requires customBits/);
 });
 
 test("NAMED_LIFE_LIKE_RULES: every entry's rule string parses cleanly and round-trips, no duplicate rules", () => {

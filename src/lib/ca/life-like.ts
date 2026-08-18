@@ -7,10 +7,12 @@
  * LifeWiki's own "List of Life-like cellular automata rules".
  */
 import { Rng } from "mallory-tensor-core";
+import { decodeCustomGrid } from "./custom-grid.ts";
 
 export type Cell = 0 | 1;
 export type Boundary = "dead" | "wrap";
 export type Grid = ReadonlyArray<ReadonlyArray<Cell>>;
+export type InitialCondition = "random" | "custom";
 
 export interface LifeLikeRule {
   birth: ReadonlySet<number>;
@@ -30,6 +32,27 @@ export function bsRuleToString(rule: LifeLikeRule): string {
   const b = [...rule.birth].sort((a, c) => a - c).join("");
   const s = [...rule.survival].sort((a, c) => a - c).join("");
   return `B${b}/S${s}`;
+}
+
+/**
+ * Flips whether `count` live neighbors triggers birth on a dead cell,
+ * returning the resulting rule -- the primitive the 2D visual rule picker
+ * (issue #260 item 2's birth/survival-by-neighbor-count checkbox grid)
+ * toggles on each "birth" checkbox click.
+ */
+export function toggleBirth(rule: LifeLikeRule, count: number): LifeLikeRule {
+  const birth = new Set(rule.birth);
+  if (birth.has(count)) birth.delete(count);
+  else birth.add(count);
+  return { birth, survival: rule.survival };
+}
+
+/** Flips whether `count` live neighbors lets a live cell survive, returning the resulting rule -- the "survival" checkbox counterpart of `toggleBirth`. */
+export function toggleSurvival(rule: LifeLikeRule, count: number): LifeLikeRule {
+  const survival = new Set(rule.survival);
+  if (survival.has(count)) survival.delete(count);
+  else survival.add(count);
+  return { birth: rule.birth, survival };
 }
 
 const NEIGHBOR_OFFSETS: readonly (readonly [number, number])[] = [
@@ -74,6 +97,21 @@ export function stepLifeLike(grid: Grid, rule: LifeLikeRule, boundary: Boundary 
 /** Each cell independently alive with probability `density` (default 0.3, a visually sparse-but-active start), via `rng`. */
 export function randomGrid(width: number, height: number, rng: Rng, density = 0.3): Cell[][] {
   return Array.from({ length: height }, () => Array.from({ length: width }, () => (rng.nextFloat() < density ? 1 : 0)));
+}
+
+/**
+ * Dispatches to `randomGrid` or a decoded custom-editor bitstring (issue
+ * #260 item 1) by `initial`, mirroring `elementary.ts`'s own `initialRow`.
+ * `customBits` is the '0'/'1' row-major bitstring a `CustomGridEditor`
+ * painted -- see custom-grid.ts's own doc comment for the encoding.
+ */
+export function initialGrid(width: number, height: number, initial: InitialCondition, rng?: Rng, density = 0.3, customBits?: string): Cell[][] {
+  if (initial === "custom") {
+    if (customBits === undefined) throw new Error('initialGrid("custom", ...) requires customBits.');
+    return decodeCustomGrid(customBits, width, height);
+  }
+  if (!rng) throw new Error('initialGrid("random", ...) requires an rng.');
+  return randomGrid(width, height, rng, density);
 }
 
 export type Spacetime2D = ReadonlyArray<Grid>;

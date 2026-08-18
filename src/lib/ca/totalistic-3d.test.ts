@@ -7,6 +7,8 @@ import {
   randomGrid3D,
   spacetimeTotalistic3D,
   stepTotalistic3D,
+  toggleBirth3D,
+  toggleSurvival3D,
   totalisticRule3DToString,
   type Grid3D,
 } from "./totalistic-3d.ts";
@@ -85,6 +87,30 @@ test("spacetimeTotalistic3D: frame 0 is the initial grid, each later frame is th
   assert.equal(st.length, 3);
   assert.deepEqual(st[0], initial);
   for (let g = 1; g < 3; g++) assert.deepEqual(st[g], stepTotalistic3D(st[g - 1]!, rule, "dead"));
+});
+
+test("toggleBirth3D: adds a missing count and removes a present one, leaving survival untouched, over the full 0-26 range", () => {
+  const rule = parseTotalisticRule3D("B6/S5,6,7");
+  const added = toggleBirth3D(rule, 26);
+  assert.deepEqual([...added.birth].sort((a, b) => a - b), [6, 26]);
+  assert.deepEqual([...added.survival].sort((a, b) => a - b), [5, 6, 7]);
+  const removed = toggleBirth3D(rule, 6);
+  assert.deepEqual([...removed.birth], []);
+});
+
+test("toggleSurvival3D: adds a missing count and removes a present one, leaving birth untouched", () => {
+  const rule = parseTotalisticRule3D("B6/S5,6,7");
+  const added = toggleSurvival3D(rule, 0);
+  assert.deepEqual([...added.survival].sort((a, b) => a - b), [0, 5, 6, 7]);
+  assert.deepEqual([...added.birth], [6]);
+  const removed = toggleSurvival3D(rule, 5);
+  assert.deepEqual([...removed.survival].sort((a, b) => a - b), [6, 7]);
+});
+
+test("toggleBirth3D/toggleSurvival3D twice returns to the original rule", () => {
+  const rule = parseTotalisticRule3D("B4/S6,7,8");
+  assert.deepEqual(toggleBirth3D(toggleBirth3D(rule, 20), 20), rule);
+  assert.deepEqual(toggleSurvival3D(toggleSurvival3D(rule, 12), 12), rule);
 });
 
 test("NAMED_TOTALISTIC_3D_RULES: every entry's rule string parses cleanly and round-trips, no duplicates", () => {
