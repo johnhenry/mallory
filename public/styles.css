@@ -142,6 +142,16 @@ body:has(.app-shell) {
 .wordmark-accent {
   color: var(--accent);
 }
+.wordmark-link {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: inherit;
+  text-decoration: none;
+}
+.wordmark-link:hover {
+  opacity: 0.85;
+}
 .theme-toggle {
   margin-left: auto;
   border: 1px solid var(--border);
@@ -151,6 +161,9 @@ body:has(.app-shell) {
   width: 26px;
   height: 26px;
   cursor: pointer;
+}
+.theme-toggle-icon {
+  transition: transform 0.15s ease;
 }
 .primary-nav {
   display: flex;
