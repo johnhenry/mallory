@@ -12,6 +12,23 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import esbuild from "esbuild";
 
+// vite-tsconfig-paths resolves tsconfig.json's "~/*" -> "./src/*" alias for
+// the real Vite build, but the plain Node module resolver used here (issue
+// #256) has no concept of it -- a `~`-aliased import (route files under
+// src/routes/_app/ use these throughout, e.g. gallery.tsx's `~/lib/
+// saved-graphs.ts`) throws ERR_MODULE_NOT_FOUND without this. Mirrors that
+// same one mapping, resolved relative to THIS file's own location (scripts/)
+// rather than cwd, so it works regardless of which directory `node --test`
+// is invoked from.
+const SRC_DIR = new URL("../src/", import.meta.url);
+
+export async function resolve(specifier, context, nextResolve) {
+  if (specifier.startsWith("~/")) {
+    return nextResolve(new URL(specifier.slice(2), SRC_DIR).href, context);
+  }
+  return nextResolve(specifier, context);
+}
+
 export async function load(url, context, nextLoad) {
   // A bare `import "some-package/styles.css"` (e.g. TexSpan.tsx's katex
   // stylesheet) is a side-effect-only import a bundler (Vite, in this
