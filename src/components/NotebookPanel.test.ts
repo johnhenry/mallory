@@ -30,6 +30,7 @@ function mixedState(overrides?: { valueValue?: number; odeExpr?: string }): Note
       { type: "value", name: "k", value: overrides?.valueValue ?? 1 },
       { type: "graph", rows: [{ source: "sin(x)", color: 0x2563eb, visible: true, params: {} }], viewport: { xMin: -10, xMax: 10, yMin: -10, yMax: 10 } },
       { type: "tensor", source: "1 2\n3 4", op: "none" },
+      { type: "calculator" },
       { type: "ode", state: { ...DEFAULT_ODE_STATE, expr: overrides?.odeExpr ?? DEFAULT_ODE_STATE.expr } },
       { type: "geometry", state: { v: 1, ops: [] } },
     ],
@@ -65,7 +66,7 @@ test("hydrateBlocks (restore): text/value/graph/tensor keep their existing id; o
   // every non-stable type used here is NOT in the stable set -- guards
   // against the mix silently losing coverage of one branch or the other.
   const typesInMix = new Set(initial.map((b) => b.type));
-  assert.ok(["text", "value", "graph", "tensor"].every((t) => typesInMix.has(t as Block["type"])));
+  assert.ok(["text", "value", "graph", "tensor", "calculator"].every((t) => typesInMix.has(t as Block["type"])));
   assert.ok(["ode", "geometry"].every((t) => typesInMix.has(t as Block["type"]) && !STABLE_ID_BLOCK_TYPES.has(t as Block["type"])));
 });
 
@@ -158,7 +159,7 @@ test("disposeBlockCells: geometry block -- deletes only its own objectList/opsLo
   assert.equal(graph.has(ids.opsLog), false);
 });
 
-test("disposeBlockCells: text/tensor blocks own no CellGraph cells -- a no-op that doesn't throw", () => {
+test("disposeBlockCells: text/tensor/calculator blocks own no CellGraph cells -- a no-op that doesn't throw", () => {
   const graph = new CellGraph();
   const textBlock: Block = { id: "t1", type: "text", content: "hi" };
   const tensorBlock: Block = {
@@ -173,6 +174,8 @@ test("disposeBlockCells: text/tensor blocks own no CellGraph cells -- a no-op th
     splitAxis: 0,
     splitSections: "2",
   };
+  const calculatorBlock: Block = { id: "c1", type: "calculator" };
   assert.doesNotThrow(() => disposeBlockCells(graph, textBlock, new Set()));
   assert.doesNotThrow(() => disposeBlockCells(graph, tensorBlock, new Set()));
+  assert.doesNotThrow(() => disposeBlockCells(graph, calculatorBlock, new Set()));
 });

@@ -11,7 +11,10 @@ function StreamingDatasetPage() {
       <div className="page-head">
         <p className="page-eyebrow">Streaming dataset</p>
         <h1>Watch a Dataset pipeline run.</h1>
-        <p className="lede">Two small demos making mallory-data's async Dataset pipeline visible: epoch reshuffling, and prefetch overlap timing.</p>
+        <p className="lede">
+          Five small demos making mallory-data/mallory-iteration's async streaming primitives visible: epoch reshuffling, prefetch overlap timing,
+          concurrent-map ordering, sliding-window smoothing, and tee's independent consumers.
+        </p>
       </div>
       <StreamingDatasetPanel />
     </div>

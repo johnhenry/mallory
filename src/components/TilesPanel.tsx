@@ -991,6 +991,45 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
 
   return (
     <div>
+      <details
+        open
+        style={{ margin: "0 0 0.75rem", padding: "0.5rem 0.75rem", border: "1px solid var(--border, #ccc)", borderRadius: 4 }}
+      >
+        <summary style={{ cursor: "pointer", fontWeight: 600 }}>How this works</summary>
+        <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.5rem" }}>
+          <p style={{ margin: "0 0 0.5rem" }}>
+            This is a <strong>Wang tile laboratory</strong>: a Wang tile is a square (or hex/triangle/cube face) whose edges
+            each carry a label. Two tiles may sit next to each other only when the labels on their touching edges match
+            exactly -- any text works as a label (letters, numbers, or a shared placeholder like <code>x</code> for edges
+            you want to freely match within your own tile set). Define a tile set as text below, pick a grid size, and the
+            panel searches for a way to fill the grid so every shared edge matches.
+          </p>
+          <p style={{ margin: "0 0 0.5rem" }}>
+            <strong>Notation</strong> depends on the lattice: square tiles are <code>id N E S W</code> (edge labels
+            clockwise from north); hexagonal tiles are <code>id e0 e1 e2 e3 e4 e5</code> (E, NE, NW, W, SW, SE); triangular
+            tiles are <code>id left right top bottom</code> (an up- or down-pointing triangle only uses 3 of its 4
+            declared edges); cube tiles are <code>id N S E W U D</code> (the six face labels).
+          </p>
+          <p style={{ margin: "0 0 0.5rem" }}>
+            <strong>Solver</strong> (square lattice): "Backtracking" places tiles left-to-right, top-to-bottom, checking
+            each new tile against its already-placed neighbors, and backtracks out of dead ends -- turn on "Animate step
+            by step" to watch the search happen. "Backtracking (torus/periodic)" additionally requires the grid to wrap
+            edge-to-edge. "SAT cross-check" solves the same constraints with an independent SAT solver, as a check on the
+            backtracking result. <strong>Symmetry</strong> expands every tile into its rotated/reflected variants before
+            solving, so a tile set stays small to write but can be used in any orientation.
+          </p>
+          <p style={{ margin: 0 }}>
+            <strong>Below the grid</strong> (square lattice only): <strong>Entropy</strong> estimates -- via the
+            transfer-matrix method -- how many distinct valid tilings exist per cell on average (higher = more freedom,
+            near zero = a highly constrained tile set). <strong>Diffraction/autocorrelation</strong> treat "where does
+            tile X appear in the solved grid" as a pattern and plot its frequency spectrum and self-similarity: periodic
+            tilings show sharp peaks, disordered ones show a diffuse cloud. <strong>Differentiable relaxation</strong> is
+            an experimental alternate solver that optimizes a soft tile assignment via gradient descent instead of
+            backtracking search, to see whether it converges to a valid tiling.
+          </p>
+        </div>
+      </details>
+
       <div style={{ margin: "0.25rem 0" }}>
         <label>
           lattice:{" "}
@@ -1034,7 +1073,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             <label>
               height: <input type="number" min={1} value={height} onChange={(e) => graph.set(ids.height, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
             </label>
-            <label>
+            <label title="How the grid gets filled -- see &quot;How this works&quot; above for what each option does.">
               solver:{" "}
               <select value={solver} onChange={(e) => graph.set(ids.solver, e.target.value as TilesSolverKind)}>
                 <option value="wang">Backtracking</option>
@@ -1042,7 +1081,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                 <option value="sat">SAT cross-check</option>
               </select>
             </label>
-            <label>
+            <label title="Expands each tile into its rotated/reflected variants before solving, so a small tile set can be used in any orientation.">
               symmetry:{" "}
               <select value={symmetry} onChange={(e) => graph.set(ids.symmetry, e.target.value as SymmetryGroup)}>
                 <option value="none">None (translations only)</option>
