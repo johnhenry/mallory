@@ -70,3 +70,42 @@ test("autocorrelationSurface: an id absent from the grid has zero-lag value 0", 
   const surface = autocorrelationSurface(GRID, "C");
   assert.ok(Math.abs(surface[1]![1]!) < 1e-9);
 });
+
+// Issue #257: the Wang tile panel's own DEFAULT state is a non-power-of-two
+// 4x3 grid, and diffractionSpectrum used to call fft2 directly on the raw
+// (unpadded) indicator field -- fft2 requires a power-of-two length on BOTH
+// axes, so this threw a RangeError on the very first render whenever a
+// solve completed and a diffraction tile got auto-selected (both automatic,
+// no user interaction needed), which crashed the panel via React's error
+// boundary repeatedly remounting-and-recrashing -- the "infinite loop" the
+// bug report described. 3 rows x 4 cols below mirrors that exact shape.
+const RECT_GRID: WangGrid = [
+  ["A", "B", "A", "B"],
+  ["B", "A", "B", "A"],
+  ["A", "B", "A", "B"],
+];
+
+test("diffractionSpectrum: a non-power-of-two grid (3x4, the panel's own default shape) doesn't throw", () => {
+  assert.doesNotThrow(() => diffractionSpectrum(RECT_GRID, "A"));
+});
+
+test("diffractionSpectrum: a non-power-of-two grid is zero-padded up to the next power of two per axis (3 -> 4, 4 -> 4), not cropped or left raw", () => {
+  const spectrum = diffractionSpectrum(RECT_GRID, "A");
+  assert.equal(spectrum.length, 4, "height padded 3 -> 4");
+  assert.equal(spectrum[0]!.length, 4, "width already a power of two, stays 4");
+});
+
+test("diffractionSpectrum: zero-padding doesn't change the DC bin -- still (sum of the indicator field)^2 at the padded array's fftshift center", () => {
+  // "A" occupies 6 of the 12 cells in RECT_GRID -- DC bin = 6^2 = 36,
+  // unaffected by the extra all-zero padded row (padding never touches the
+  // indicator field's own sum).
+  const spectrum = diffractionSpectrum(RECT_GRID, "A");
+  const center = Math.floor(spectrum.length / 2); // 4x4 padded shape -> center index 2
+  assert.ok(Math.abs(spectrum[center]![center]! - 36) < 1e-9, `got ${spectrum[center]![center]}`);
+});
+
+test("diffractionSpectrum: an already power-of-two grid is unaffected (no padding applied) -- same DC-bin behavior as before this fix", () => {
+  const spectrum = diffractionSpectrum(GRID, "A");
+  assert.equal(spectrum.length, 2);
+  assert.equal(spectrum[0]!.length, 2);
+});
