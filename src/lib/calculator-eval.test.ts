@@ -123,3 +123,82 @@ test("submitCalculatorLine in interval mode: assignment stores the midpoint for 
   const state = submitCalculatorLine("k = sqrt(4)", EMPTY_CALCULATOR_STATE, "interval", null);
   assert.equal(state.variables.k, 2);
 });
+
+test("evaluateCalculatorExpr in complex mode: i^2 is -1 (a real result)", () => {
+  const result = evaluateCalculatorExpr("i^2", {}, "complex", null);
+  assert.equal(result.isError, false);
+  assert.equal(result.display, "-1");
+  assert.equal(result.value, -1);
+});
+
+test("evaluateCalculatorExpr in complex mode: basic complex arithmetic with the implicit-multiplication 'bi' form", () => {
+  const result = evaluateCalculatorExpr("(3+4i)*(1-2i)", {}, "complex", null);
+  assert.equal(result.isError, false);
+  assert.equal(result.display, "11-2*i");
+  assert.equal(result.value, null); // genuinely complex -- not storable as a plain number
+});
+
+test("evaluateCalculatorExpr in complex mode: division by a complex number", () => {
+  const result = evaluateCalculatorExpr("1/(2+i)", {}, "complex", null);
+  assert.equal(result.isError, false);
+  assert.equal(result.display, "0.4-0.2*i");
+});
+
+test("evaluateCalculatorExpr in complex mode: a previously-defined real variable is usable as a complex point", () => {
+  const result = evaluateCalculatorExpr("r + i", { r: 3 }, "complex", null);
+  assert.equal(result.isError, false);
+  assert.equal(result.display, "3+i");
+});
+
+test("evaluateCalculatorExpr in complex mode: a transcendental function has no meaning over the field and surfaces as an error, not a throw", () => {
+  const result = evaluateCalculatorExpr("sqrt(i)", {}, "complex", null);
+  assert.equal(result.isError, true);
+  assert.equal(result.value, null);
+});
+
+test("submitCalculatorLine in complex mode: assigning a real-valued complex result stores it normally", () => {
+  const state = submitCalculatorLine("z = i^2", EMPTY_CALCULATOR_STATE, "complex", null);
+  assert.equal(state.variables.z, -1);
+  assert.equal(state.history[0].isAssignment, true);
+});
+
+test("submitCalculatorLine in complex mode: assigning a genuinely complex result does not silently claim success", () => {
+  const state = submitCalculatorLine("z = 2+3i", EMPTY_CALCULATOR_STATE, "complex", null);
+  assert.deepEqual(state.variables, {});
+  assert.equal(state.history[0].isAssignment, false);
+  assert.equal(state.history[0].isError, false);
+  assert.match(state.history[0].display, /not stored/);
+});
+
+test("submitCalculatorLine: 'expr -> name' stores the left-hand value into the right-hand variable", () => {
+  const state = submitCalculatorLine("1 -> x", EMPTY_CALCULATOR_STATE, "float", null);
+  assert.equal(state.variables.x, 1);
+  assert.equal(state.history[0].isAssignment, true);
+  assert.equal(state.history[0].display, "1");
+});
+
+test("submitCalculatorLine: 'name <- expr' stores the right-hand value into the left-hand variable", () => {
+  const state = submitCalculatorLine("y <- 2", EMPTY_CALCULATOR_STATE, "float", null);
+  assert.equal(state.variables.y, 2);
+  assert.equal(state.history[0].isAssignment, true);
+  assert.equal(state.history[0].display, "2");
+});
+
+test("submitCalculatorLine: directional store operators can reference previously-stored variables", () => {
+  let state = submitCalculatorLine("1 -> x", EMPTY_CALCULATOR_STATE, "float", null);
+  state = submitCalculatorLine("y <- 2", state, "float", null);
+  state = submitCalculatorLine("x + y -> z", state, "float", null);
+  assert.equal(state.variables.z, 3);
+});
+
+test("submitCalculatorLine: a failed directional store still appends an error entry but leaves variables untouched", () => {
+  const state = submitCalculatorLine("1 + -> x", EMPTY_CALCULATOR_STATE, "float", null);
+  assert.equal(state.history[0].isError, true);
+  assert.equal(state.history[0].isAssignment, false);
+  assert.deepEqual(state.variables, {});
+});
+
+test("submitCalculatorLine: '->' is not confused with '>=' or a plain comparison", () => {
+  const state = submitCalculatorLine("x >= 1", EMPTY_CALCULATOR_STATE, "float", null);
+  assert.deepEqual(state.variables, {});
+});

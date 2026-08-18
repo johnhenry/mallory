@@ -33,12 +33,12 @@ function loadStoredState(): CalculatorState {
 
 /**
  * A REPL-style "just an answer" tool: type an expression, get a result, or
- * `name = expr` to name a value and reuse it in later lines. No plot/
- * viewport (that's what Graphing is for) -- unlike every other panel in
- * this app, it needs no CellGraph (nothing else derives from its state) and
- * persists to `localStorage` rather than a URL hash or the server-backed
- * Gallery, since a scratch calculation isn't the kind of thing worth a
- * shareable link (mallory-graph's SPA-shell pass).
+ * store a value for later lines to reuse via `name = expr`, `expr -> name`,
+ * or `name <- expr`. No plot/viewport (that's what Graphing is for) --
+ * unlike every other panel in this app, it needs no CellGraph (nothing else
+ * derives from its state) and persists to `localStorage` rather than a URL
+ * hash or the server-backed Gallery, since a scratch calculation isn't the
+ * kind of thing worth a shareable link (mallory-graph's SPA-shell pass).
  */
 export function CalculatorPanel() {
   const [state, setState] = useState<CalculatorState>(loadStoredState);
@@ -69,11 +69,13 @@ export function CalculatorPanel() {
   // being appended to the same persisted history.
   useModelContextTool({
     name: "calculator_evaluate",
-    description: 'Evaluate an expression, or "name = expr" to save a value for later expressions to reference. Uses the calculator\'s current mode (Float/Exact/GF(n)).',
+    description:
+      'Evaluate an expression, or store a value for later expressions to reference: "name = expr", or directionally '
+      + '"expr -> name" / "name <- expr". Uses the calculator\'s current mode (Float/Exact/Units/Interval/Complex/GF(n)).',
     inputSchema: {
       type: "object",
       properties: {
-        expression: { type: "string", description: 'e.g. "12 * (4 + 1/3)" or "r = sqrt(2)"' },
+        expression: { type: "string", description: 'e.g. "12 * (4 + 1/3)", "r = sqrt(2)", or "r*2 -> d"' },
       },
       required: ["expression"],
     },
@@ -100,11 +102,11 @@ export function CalculatorPanel() {
   useModelContextTool({
     name: "calculator_set_mode",
     description:
-      'Set the calculator\'s arithmetic mode: "float", "exact" (fractions), "units" (dimensional analysis, e.g. "5 m/s * 3 s"), "interval" (rigorous bounds, e.g. "sqrt(2)" -> "[1.414..., 1.414...]"), or a finite structure Z/nZ via modulus (2, 5, 7, or 11).',
+      'Set the calculator\'s arithmetic mode: "float", "exact" (fractions), "units" (dimensional analysis, e.g. "5 m/s * 3 s"), "interval" (rigorous bounds, e.g. "sqrt(2)" -> "[1.414..., 1.414...]"), "complex" (basic +-*/^ arithmetic with "i", e.g. "(3+4i)*(1-2i)"), or a finite structure Z/nZ via modulus (2, 5, 7, or 11).',
     inputSchema: {
       type: "object",
       properties: {
-        mode: { type: "string", enum: ["float", "exact", "units", "interval"], description: "Ignored when modulus is set." },
+        mode: { type: "string", enum: ["float", "exact", "units", "interval", "complex"], description: "Ignored when modulus is set." },
         modulus: { type: ["number", "null"], description: "One of 2, 5, 7, 11 for Z/nZ, or null (or omit) for real numbers." },
       },
     },
@@ -116,7 +118,8 @@ export function CalculatorPanel() {
       } else if (input.modulus === null) {
         setModulus(null);
       }
-      if (input.mode === "float" || input.mode === "exact" || input.mode === "units" || input.mode === "interval") setMode(input.mode);
+      if (input.mode === "float" || input.mode === "exact" || input.mode === "units" || input.mode === "interval" || input.mode === "complex")
+        setMode(input.mode);
       return { ok: true };
     },
   });
@@ -139,33 +142,61 @@ export function CalculatorPanel() {
           ))}
         </select>
       </label>
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+        A <em>structure</em> is the algebraic system expressions are evaluated in. <strong>Real numbers</strong> is
+        ordinary arithmetic. The <strong>Z/nZ</strong> options are finite modular arithmetic: every result wraps
+        into <code>{"{0, ..., n-1}"}</code>; with prime <code>n</code> (2, 5, 7, 11 here) every nonzero element has a
+        reciprocal, so division works for anything except 0.
+      </p>
       {modulus === null && (
         <div role="radiogroup" aria-label="Arithmetic mode" style={{ margin: "0.5rem 0" }}>
-          <label>
+          <label title="Ordinary rounded decimal arithmetic.">
             <input type="radio" name="calc-mode" checked={mode === "float"} onChange={() => setMode("float")} /> Float
           </label>{" "}
-          <label>
+          <label title="Keeps results as exact fractions instead of rounding to a decimal.">
             <input type="radio" name="calc-mode" checked={mode === "exact"} onChange={() => setMode("exact")} /> Exact
           </label>{" "}
-          <label>
+          <label title="Dimensional analysis: numbers carry physical units (m, s, kg, ...) and convert between compatible units.">
             <input type="radio" name="calc-mode" checked={mode === "units"} onChange={() => setMode("units")} /> Units
           </label>{" "}
-          <label>
+          <label title="Interval arithmetic: every result comes with mathematically guaranteed lower/upper bounds instead of a single float.">
             <input type="radio" name="calc-mode" checked={mode === "interval"} onChange={() => setMode("interval")} /> Interval
+          </label>{" "}
+          <label title='Complex arithmetic (+, -, *, / and integer powers) using "i" as the imaginary unit.'>
+            <input type="radio" name="calc-mode" checked={mode === "complex"} onChange={() => setMode("complex")} /> Complex
           </label>
         </div>
       )}
       {mode === "units" && modulus === null && (
         <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
-          e.g. <code>5 m/s * 3 s</code>, <code>9.8 m/s^2 * 70 kg in N</code>, <code>3 mi in km</code>
+          <strong>Units</strong> is for dimensional analysis: numbers carry a physical unit (m, s, kg, N, mi, km, ...),
+          arithmetic tracks the combined unit, and <code>in</code> converts to a compatible unit -- e.g.{" "}
+          <code>5 m/s * 3 s</code>, <code>9.8 m/s^2 * 70 kg in N</code>, <code>3 mi in km</code>. Stored variables are
+          plain dimensionless numbers (the magnitude at assignment time), not unit-carrying values.
         </p>
       )}
       {mode === "interval" && modulus === null && (
         <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
-          Every result carries rigorous bounds, e.g. <code>sqrt(2)</code> → <code>[1.4142135..., 1.4142135...]</code>. A
-          named variable is treated as an exact point (its own stored value), not a range.
+          <strong>Interval</strong> is for rigorous error bounds: instead of one (possibly rounded) float, every
+          result comes back as a range guaranteed to contain the true value, e.g. <code>sqrt(2)</code> →{" "}
+          <code>[1.4142135..., 1.4142135...]</code>. A named variable is treated as an exact point (its own stored
+          value), not a range.
         </p>
       )}
+      {mode === "complex" && modulus === null && (
+        <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+          <strong>Complex</strong> supports <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, and
+          integer powers over complex numbers, with <code>i</code> as the imaginary unit -- e.g. <code>i^2</code>,{" "}
+          <code>(3+4i)*(1-2i)</code>, <code>1/(2+i)</code>. Functions like <code>sqrt</code>/<code>sin</code> of a
+          complex argument aren't supported yet, and only real-valued results can be stored into a variable.
+        </p>
+      )}
+
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+        Store a value in a variable with <code>=</code>, or directionally with <code>-&gt;</code>/<code>&lt;-</code>:{" "}
+        <code>k = 3*r</code>, <code>3*r -&gt; k</code>, and <code>k &lt;- 3*r</code> all store the same value in{" "}
+        <code>k</code>.
+      </p>
 
       <div
         ref={historyRef}
@@ -180,7 +211,11 @@ export function CalculatorPanel() {
           font: "0.9rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
         }}
       >
-        {state.history.length === 0 && <p style={{ color: "#888", margin: 0 }}>Type an expression below, or "name = expr" to save a value.</p>}
+        {state.history.length === 0 && (
+          <p style={{ color: "#888", margin: 0 }}>
+            Type an expression below, or "name = expr" (or "expr -&gt; name" / "name &lt;- expr") to save a value.
+          </p>
+        )}
         {state.history.map((entry, i) => (
           <div
             key={i}
@@ -202,7 +237,7 @@ export function CalculatorPanel() {
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSubmit();
           }}
-          placeholder='log(100) + r, or  k = 3*r'
+          placeholder='log(100) + r, or  k = 3*r, or 3*r -> k'
           style={{ flex: 1, font: "inherit", padding: "0.3rem 0.4rem" }}
           autoComplete="off"
         />
