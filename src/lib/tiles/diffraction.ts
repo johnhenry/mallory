@@ -32,21 +32,50 @@ export function tileIndicatorField(grid: WangGrid, tileId: string): Tensor {
   return Tensor.from(data, { dtype: "f64" }).reshape([height, width]);
 }
 
+/** Smallest power of two >= n (n >= 0; nextPow2(0) is 1, same convention as an empty/1-cell field). */
+function nextPow2(n: number): number {
+  let p = 1;
+  while (p < n) p *= 2;
+  return p;
+}
+
 /**
  * `|fftshift(fft2(indicator))|^2` -- the periodogram of `tileId`'s
- * indicator field, as a plain `number[][]` (row-major, matching `grid`'s
- * own shape) ready for a canvas heatmap. DC sits at the array's center
- * (that's what `fftshift` buys here).
+ * indicator field, as a plain `number[][]` ready for a canvas heatmap. DC
+ * sits at the array's center (that's what `fftshift` buys here).
+ *
+ * `fft2` requires a power-of-two length on BOTH axes (mallory-fft's own doc
+ * comment: "no 2-D padded variant yet"), but a Wang tile grid's width/height
+ * are arbitrary user-chosen values (this panel's own default is a
+ * non-power-of-two 4x3) -- calling it on the raw indicator field throws a
+ * `RangeError` for any non-power-of-two dimension, which crashed the panel
+ * on first load. This zero-pads up to the next power of two per axis before
+ * transforming, the same "pad before FFT" technique `mallory-signal`'s own
+ * `correlate2D` already relies on for the identical reason (see its source
+ * comment). Unlike `correlate2D` -- which crops its real-space OUTPUT back
+ * down to a meaningful shape after the inverse transform -- there's no
+ * analogous crop here: the periodogram stays in frequency space the whole
+ * time, so the padded-resolution spectrum (returned at its own, possibly
+ * larger-than-`grid`, shape) IS the meaningful result -- standard
+ * zero-padding-for-resolution FFT practice, not a windowed subset of one.
  */
 export function diffractionSpectrum(grid: WangGrid, tileId: string): number[][] {
   const indicator = tileIndicatorField(grid, tileId);
-  const height = grid.length;
-  const width = height > 0 ? (grid[0] as readonly string[]).length : 0;
-  const shifted = fftshift(fft2(ComplexTensor.fromReal(indicator)));
+  const [height, width] = indicator.shape as [number, number];
+  const paddedHeight = nextPow2(height);
+  const paddedWidth = nextPow2(width);
+  const padded =
+    paddedHeight === height && paddedWidth === width
+      ? indicator
+      : indicator.pad([
+          [0, paddedHeight - height],
+          [0, paddedWidth - width],
+        ]);
+  const shifted = fftshift(fft2(ComplexTensor.fromReal(padded)));
   const spectrum: number[][] = [];
-  for (let row = 0; row < height; row++) {
+  for (let row = 0; row < paddedHeight; row++) {
     const line: number[] = [];
-    for (let col = 0; col < width; col++) {
+    for (let col = 0; col < paddedWidth; col++) {
       const magnitude = shifted.at(row, col).magnitude();
       line.push(magnitude * magnitude);
     }
