@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { inferColumnType, numericColumn, pairedNumericColumns, parseCsv } from "./csv-import.ts";
+import { inferColumnType, labeledPointsFromColumns, numericColumn, pairedNumericColumns, parseCsv } from "./csv-import.ts";
 
 test("parseCsv: plain grid, LF line endings, trailing newline tolerated", () => {
   const parsed = parseCsv("a,b\n1,2\n3,4\n");
@@ -75,4 +75,55 @@ test("pairedNumericColumns: a row skips as a UNIT when either side is non-numeri
     ],
     skipped: 2,
   });
+});
+
+// -- labeledPointsFromColumns (issue #253's CSV-to-ML-playground handoff) ---
+
+test("labeledPointsFromColumns: string labels become 0-indexed classes in first-seen order", () => {
+  const parsed = parseCsv("x,y,species\n1,2,cat\n3,4,dog\n5,6,cat\n7,8,bird");
+  const result = labeledPointsFromColumns(parsed, 0, 1, 2);
+  assert.deepEqual(result, {
+    points: [
+      { x: 1, y: 2, label: 0 },
+      { x: 3, y: 4, label: 1 },
+      { x: 5, y: 6, label: 0 },
+      { x: 7, y: 8, label: 2 },
+    ],
+    classNames: ["cat", "dog", "bird"],
+    skipped: 0,
+  });
+});
+
+test("labeledPointsFromColumns: numeric labels also work, converted to integer class indices the same way as strings", () => {
+  const parsed = parseCsv("x,y,cls\n1,1,0\n2,2,1\n3,3,0");
+  const result = labeledPointsFromColumns(parsed, 0, 1, 2);
+  assert.deepEqual(result.points.map((p) => p.label), [0, 1, 0]);
+  assert.deepEqual(result.classNames, ["0", "1"]);
+});
+
+test("labeledPointsFromColumns: a row with a non-numeric x or y is skipped as a unit, same as pairedNumericColumns", () => {
+  const parsed = parseCsv("x,y,label\n1,2,a\noops,4,b\n5,nope,c\n7,8,a");
+  const result = labeledPointsFromColumns(parsed, 0, 1, 2);
+  assert.deepEqual(result.points, [
+    { x: 1, y: 2, label: 0 },
+    { x: 7, y: 8, label: 0 },
+  ]);
+  assert.deepEqual(result.classNames, ["a"]);
+  assert.equal(result.skipped, 2);
+});
+
+test("labeledPointsFromColumns: rejects an out-of-range column index for x, y, or label", () => {
+  const parsed = parseCsv("x,y\n1,2");
+  assert.throws(() => labeledPointsFromColumns(parsed, 5, 0, 1), /No column at index 5/);
+  assert.throws(() => labeledPointsFromColumns(parsed, 0, 5, 1), /No column at index 5/);
+  assert.throws(() => labeledPointsFromColumns(parsed, 0, 1, 5), /No column at index 5/);
+});
+
+test("labeledPointsFromColumns: a row introducing a class beyond MAX_CLASSES (8) is skipped, not thrown -- the rest of the import still succeeds", () => {
+  const rows = Array.from({ length: 9 }, (_, i) => `${i},${i},class${i}`).join("\n");
+  const parsed = parseCsv(`x,y,label\n${rows}`);
+  const result = labeledPointsFromColumns(parsed, 0, 1, 2);
+  assert.equal(result.points.length, 8, "the 9th, over-cap class's row should be dropped");
+  assert.equal(result.classNames.length, 8);
+  assert.equal(result.skipped, 1);
 });

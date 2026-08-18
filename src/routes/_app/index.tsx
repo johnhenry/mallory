@@ -22,14 +22,13 @@ const CARD_DESCRIPTIONS: Record<string, string> = {
   "/data": "Regression, descriptive statistics, and equation-system solving.",
   "/signal": "Compose a waveform and see its FFT amplitude spectrum, reactively linked.",
   "/image": "2D Fourier analysis: centered magnitude spectrum, a parametric mask, and the filtered result inverted back.",
-  "/ml": "Train a tiny seeded MLP in-browser on toy datasets -- decision boundary and loss curve, fully reproducible.",
+  "/ml": "Train a tiny seeded MLP in-browser on toy or imported datasets, or classify a hand-drawn digit with a real ONNX model.",
   "/practice": "Random integration problems from a 152-problem corpus -- check your answer, or reveal it.",
   "/notes": "Mix text and live graph cells in one reactive document.",
   "/gallery": "Every graph and notebook you've saved, in one place.",
   "/workspace": "A shared variable graph any panel -- or an outside agent -- can read and write live.",
   "/tiles": "Arrange several panels side by side in a single custom tiled layout.",
   "/streaming-dataset": "Watch a live-updating dataset drive a chart in real time, point by point.",
-  "/digit-classifier": "Draw a digit and watch a tiny in-browser classifier read it back.",
   "/cellular-automata": "Step and animate 1D and 2D cellular automata rules, live.",
 };
 

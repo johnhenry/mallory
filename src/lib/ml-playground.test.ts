@@ -3,7 +3,18 @@ import { test } from "node:test";
 import { constant, nn, optim, variable } from "mallory-tensor-autograd";
 import { Tensor } from "mallory-tensor-core";
 import { hasSink, metric } from "mallory-telemetry";
-import { TinyMlp, datasetToBatch, generateDataset, installMetricSink, predictProbabilityGrid, trainModel } from "./ml-playground.ts";
+import {
+  MAX_CLASSES,
+  TinyMlp,
+  datasetToBatch,
+  generateDataset,
+  inferNumClasses,
+  installMetricSink,
+  predictClassGrid,
+  predictProbabilityGrid,
+  trainModel,
+  type LabeledPoint,
+} from "./ml-playground.ts";
 
 test("generateDataset: XOR at noise 0 is exactly the four cluster centers with label = XOR of the center signs", () => {
   const points = generateDataset("xor", 4, 1, 0);
@@ -48,6 +59,11 @@ test("generateDataset: rejects a non-positive or over-cap points count", () => {
 test('generateDataset: "drawn" always returns an empty array, regardless of pointsPerClass/seed -- its points come from user clicks (a separate cell), not procedural generation', () => {
   assert.deepEqual(generateDataset("drawn", 30, 9), []);
   assert.deepEqual(generateDataset("drawn", 1, 1, 0), []);
+});
+
+test('generateDataset: "csv" always returns an empty array, regardless of pointsPerClass/seed -- its points come from an imported CSV column (a separate cell, issue #253), not procedural generation', () => {
+  assert.deepEqual(generateDataset("csv", 30, 9), []);
+  assert.deepEqual(generateDataset("csv", 1, 1, 0), []);
 });
 
 test("datasetToBatch: shapes are [N,2] and [N,1], values in point order", () => {
@@ -319,6 +335,117 @@ test("nn.binaryCrossEntropy stays finite (~0) for saturated correct logits (regr
   const y = variable(Tensor.from([1, 0], { dtype: "f64" }).reshape([2, 1]));
   const loss = nn.binaryCrossEntropy(z, y).value.item() as number;
   assert.ok(Number.isFinite(loss) && loss < 1e-12, `expected ~0, got ${loss}`);
+});
+
+// -- Issue #253: multi-class (more than 2 labels) support --------------------
+
+/** Three tightly-clustered, well-separated classes -- exact fixed points (no RNG) so grid predictions at each center are unambiguous. */
+function threeClassPoints(): LabeledPoint[] {
+  const centers: Array<[number, number, number]> = [
+    [-2, -2, 0],
+    [2, -2, 1],
+    [0, 2, 2],
+  ];
+  const points: LabeledPoint[] = [];
+  for (const [cx, cy, label] of centers) {
+    for (let i = 0; i < 10; i++) {
+      points.push({ x: cx + ((i % 5) - 2) * 0.03, y: cy + (Math.floor(i / 5) - 0.5) * 0.03, label });
+    }
+  }
+  return points;
+}
+
+test("inferNumClasses: empty or binary-only points give 2; the max label present (0-indexed) plus one otherwise", () => {
+  assert.equal(inferNumClasses([]), 2);
+  assert.equal(inferNumClasses([{ x: 0, y: 0, label: 0 }]), 2);
+  assert.equal(inferNumClasses([{ x: 0, y: 0, label: 1 }]), 2);
+  assert.equal(inferNumClasses(threeClassPoints()), 3);
+  assert.equal(inferNumClasses([{ x: 0, y: 0, label: 7 }]), 8);
+});
+
+test("TinyMlp: rejects a numClasses below 2, non-integer, or above MAX_CLASSES", () => {
+  assert.throws(() => new TinyMlp(4, 1, 0, 1), /Number of classes/);
+  assert.throws(() => new TinyMlp(4, 1, 0, 1.5), /Number of classes/);
+  assert.throws(() => new TinyMlp(4, 1, 0, MAX_CLASSES + 1), /Number of classes/);
+});
+
+test("TinyMlp: numClasses defaults to 2 -- the output layer stays width 1, matching the pre-#253 architecture bit-for-bit", () => {
+  const model = new TinyMlp(4, 1);
+  assert.equal(model.numClasses, 2);
+  assert.deepEqual(model.l2.weight.value.shape, [4, 1]);
+});
+
+test("TinyMlp: numClasses=5 widens the output layer to 5 logits", () => {
+  const model = new TinyMlp(4, 1, 0, 5);
+  assert.equal(model.numClasses, 5);
+  assert.deepEqual(model.l2.weight.value.shape, [4, 5]);
+  const input = variable(Tensor.from([0.3, -0.1], { dtype: "f64" }).reshape([1, 2]));
+  assert.deepEqual(model.forward(input).value.shape, [1, 5]);
+});
+
+test("datasetToBatch: numClasses=2 (default, unchanged) gives y shape [N,1]; numClasses>2 gives y shape [N] of integer labels", () => {
+  const points = threeClassPoints();
+  const binary = datasetToBatch(points);
+  assert.deepEqual(binary.y.shape, [points.length, 1]);
+  const multi = datasetToBatch(points, 3);
+  assert.deepEqual(multi.y.shape, [points.length]);
+  assert.deepEqual([...multi.y.toArray()].map(Number), points.map((p) => p.label));
+});
+
+test("trainModel: learns a well-separated 3-class dataset -- loss drops and predictClassGrid recovers each cluster's own label at its center", async () => {
+  const points = threeClassPoints();
+  const model = new TinyMlp(8, 42, 0, 3);
+  const result = await trainModel(model, points, 0.1, 300);
+  assert.equal(result.lossHistory.length, 300);
+  assert.ok(result.lossHistory[0]! > result.lossHistory[299]!, "loss should decrease");
+  assert.ok(result.lossHistory[299]! < 0.2, `final loss ${result.lossHistory[299]}`);
+
+  const grid = predictClassGrid(model, { min: -3, max: 3 }, 13); // x,y in {-3,-2.5,...,3}; -2/2/0 land exactly on grid points
+  const at = (x: number, y: number) => {
+    const i = Math.round(((x + 3) / 6) * 12);
+    const j = Math.round(((y + 3) / 6) * 12);
+    return grid[j]![i]!;
+  };
+  assert.equal(at(-2, -2), 0, "cluster 0's own center should classify as class 0");
+  assert.equal(at(2, -2), 1, "cluster 1's own center should classify as class 1");
+  assert.equal(at(0, 2), 2, "cluster 2's own center should classify as class 2");
+});
+
+test("trainModel: a 3-class model is fully deterministic -- same seeds give an identical lossHistory", async () => {
+  const run = async () => {
+    const model = new TinyMlp(6, 7, 0, 3);
+    return (await trainModel(model, threeClassPoints(), 0.05, 30)).lossHistory;
+  };
+  assert.deepEqual(await run(), await run());
+});
+
+test("predictProbabilityGrid: rejects a model built with more than 2 classes", () => {
+  const model = new TinyMlp(4, 1, 0, 3);
+  assert.throws(() => predictProbabilityGrid(model, { min: -2, max: 2 }, 3), /binary/);
+});
+
+test("predictClassGrid: rejects a binary (numClasses===2, the default) model", () => {
+  const model = new TinyMlp(4, 1);
+  assert.throws(() => predictClassGrid(model, { min: -2, max: 2 }, 3), /3 or more classes/);
+});
+
+test("predictClassGrid: every value is a valid class index, shape resolution x resolution", () => {
+  const model = new TinyMlp(4, 1, 0, 4);
+  const grid = predictClassGrid(model, { min: -2, max: 2 }, 10);
+  assert.equal(grid.length, 10);
+  for (const row of grid) {
+    assert.equal(row.length, 10);
+    for (const c of row) {
+      assert.ok(Number.isInteger(c) && c >= 0 && c < 4);
+    }
+  }
+});
+
+test("predictClassGrid: switches the model to eval mode for inference and restores the prior training flag afterward", () => {
+  const model = new TinyMlp(4, 1, 0.5, 3);
+  model.training = true;
+  predictClassGrid(model, { min: -2, max: 2 }, 3);
+  assert.equal(model.training, true, "predictClassGrid must restore the model's training flag, not leave it in eval mode");
 });
 
 test("trainModel: continuing training well past convergence never NaNs (regression for the saturated-sigmoid loss bug)", async () => {
