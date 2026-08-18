@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { inferColumnType, pairedNumericColumns, parseCsv, type ParsedCsv } from "../lib/csv-import.ts";
+import { inferColumnType, labeledPointsFromColumns, pairedNumericColumns, parseCsv, type ParsedCsv } from "../lib/csv-import.ts";
 import { numericColumn } from "../lib/csv-import.ts";
+import { DEFAULT_ML_PLAYGROUND_STATE, encodeMlPlaygroundState } from "../lib/ml-playground-state.ts";
 import { DEFAULT_REGRESSION_STATE, encodeRegressionState } from "../lib/regression-state.ts";
 import { DEFAULT_STATISTICS_STATE, encodeStatisticsState } from "../lib/statistics-state.ts";
 
@@ -14,18 +15,21 @@ const MAX_STATISTICS_VALUES = 1000;
 const EXAMPLE_CSV = "x,y,label\n1,2.1,a\n2,3.9,b\n3,6.2,c\n4,7.8,d\n5,10.1,e";
 
 /**
- * CSV import (issue #36, CSV-first v1): paste or load a file entirely
- * client-side (FileReader; nothing hits the server), preview the parsed
- * header/rows with inferred column types, then hand picked columns to the
- * existing Regression (x/y pairs) or Statistics (sample) panels.
+ * CSV import (issue #36, CSV-first v1; issue #253 added the ML playground
+ * as a third target): paste or load a file entirely client-side
+ * (FileReader; nothing hits the server), preview the parsed header/rows
+ * with inferred column types, then hand picked columns to the existing
+ * Regression (x/y pairs), Statistics (sample), or ML playground
+ * (x/y/label points) panels.
  *
  * The handoff uses the target panel's OWN URL-state codec: build a
- * RegressionState/StatisticsState, encode it, and navigate to
- * `/data?tab=<target>#<encoded>` -- a full navigation, so the target panel
- * mounts fresh and hydrates from the hash exactly as if the link had been
- * shared. Zero new cross-panel plumbing; each /data tab already owns a
- * private CellGraph, so writing into a sibling's cells directly isn't an
- * option anyway.
+ * RegressionState/StatisticsState/MlPlaygroundState, encode it, and
+ * navigate to `/data?tab=<target>#<encoded>` (or `/ml#<encoded>` for the ML
+ * playground, which lives at its own route, not a /data tab) -- a full
+ * navigation, so the target panel mounts fresh and hydrates from the hash
+ * exactly as if the link had been shared. Zero new cross-panel plumbing;
+ * each target already owns a private CellGraph, so writing into a
+ * sibling's cells directly isn't an option anyway.
  *
  * This panel itself keeps NO url state -- it's a transient scratch surface,
  * and the durable artifact of an import session is the target panel's
@@ -36,6 +40,13 @@ export function DataImportPanel() {
   const [xColumn, setXColumn] = useState(0);
   const [yColumn, setYColumn] = useState(1);
   const [sampleColumn, setSampleColumn] = useState(0);
+  // Defaults match EXAMPLE_CSV's own "x,y,label" layout -- the label column
+  // (unlike x/y) isn't restricted to numericColumns, since a label is
+  // just as often text ("cat"/"dog") as it is numeric (see
+  // labeledPointsFromColumns's own "any column" contract).
+  const [mlXColumn, setMlXColumn] = useState(0);
+  const [mlYColumn, setMlYColumn] = useState(1);
+  const [mlLabelColumn, setMlLabelColumn] = useState(2);
   const [fileError, setFileError] = useState<string | null>(null);
 
   const parsed = useMemo<Result<ParsedCsv>>(() => {
@@ -85,8 +96,32 @@ export function DataImportPanel() {
     window.location.assign(`/data?tab=statistics#${encoded}`);
   }
 
+  function openInMlPlayground() {
+    if (!mlPreview || mlPreview.points.length === 0) return;
+    const encoded = encodeMlPlaygroundState({
+      ...DEFAULT_ML_PLAYGROUND_STATE,
+      dataset: "csv",
+      csvPoints: mlPreview.points,
+      classNames: mlPreview.classNames,
+    });
+    window.location.assign(`/ml#${encoded}`);
+  }
+
   const regressionPreview = parsed.ok && numericColumns.length >= 1 ? pairedNumericColumns(parsed.value, xColumn, yColumn) : null;
   const statisticsPreview = parsed.ok && numericColumns.length >= 1 ? numericColumn(parsed.value, sampleColumn) : null;
+  // Issue #253's "send to ML" handoff -- wrapped in try/catch (unlike the
+  // two previews above) because mlLabelColumn isn't restricted to
+  // numericColumns the way xColumn/yColumn/sampleColumn are, so a column
+  // count change (pasting a narrower CSV) can transiently leave a selected
+  // index out of range before its <select> re-renders with valid options.
+  const mlPreview = useMemo(() => {
+    if (!parsed.ok || numericColumns.length === 0) return null;
+    try {
+      return labeledPointsFromColumns(parsed.value, mlXColumn, mlYColumn, mlLabelColumn);
+    } catch {
+      return null;
+    }
+  }, [parsed, numericColumns, mlXColumn, mlYColumn, mlLabelColumn]);
 
   return (
     <div>
@@ -140,7 +175,7 @@ export function DataImportPanel() {
           </p>
 
           {numericColumns.length === 0 ? (
-            <p style={{ color: "var(--muted)" }}>No numeric columns detected -- nothing to send to Regression or Statistics.</p>
+            <p style={{ color: "var(--muted)" }}>No numeric columns detected -- nothing to send to Regression, Statistics, or ML.</p>
           ) : (
             <>
               <h3>Send to Regression</h3>
@@ -199,6 +234,50 @@ export function DataImportPanel() {
                     {statisticsPreview.values.length === 1 ? "" : "s"}
                     {statisticsPreview.values.length > MAX_STATISTICS_VALUES ? ` (capped at ${MAX_STATISTICS_VALUES})` : ""}
                     {statisticsPreview.skipped > 0 ? `, ${statisticsPreview.skipped} cell(s) skipped` : ""}
+                  </span>
+                )}
+              </div>
+
+              <h3>Send to ML</h3>
+              <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+                <label>
+                  x:{" "}
+                  <select value={mlXColumn} onChange={(e) => setMlXColumn(Number(e.target.value))}>
+                    {numericColumns.map((c) => (
+                      <option key={c.index} value={c.index}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  y:{" "}
+                  <select value={mlYColumn} onChange={(e) => setMlYColumn(Number(e.target.value))}>
+                    {numericColumns.map((c) => (
+                      <option key={c.index} value={c.index}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  label:{" "}
+                  <select value={mlLabelColumn} onChange={(e) => setMlLabelColumn(Number(e.target.value))}>
+                    {parsed.value.header.map((name, index) => (
+                      <option key={index} value={index}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="button" onClick={openInMlPlayground} disabled={!mlPreview || mlPreview.points.length === 0}>
+                  Open in ML
+                </button>
+                {mlPreview && (
+                  <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                    {mlPreview.points.length} point{mlPreview.points.length === 1 ? "" : "s"}, {mlPreview.classNames.length} class
+                    {mlPreview.classNames.length === 1 ? "" : "es"}
+                    {mlPreview.skipped > 0 ? `, ${mlPreview.skipped} row(s) skipped (non-numeric x/y, over the points cap, or over the class cap)` : ""}
                   </span>
                 )}
               </div>

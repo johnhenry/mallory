@@ -533,6 +533,10 @@ export function cellIdsMlPlayground(cellId: string) {
     dropout: `mlDropout:${cellId}`,
     points: `mlPoints:${cellId}`,
     drawnPoints: `mlDrawnPoints:${cellId}`,
+    /** Issue #253's CSV-import dataset (`dataset: "csv"`): points handed off from DataImportPanel's "Open in ML" action, seeded from the decoded URL state (unlike drawnPoints, which is never URL-persisted -- see ml-playground-state.ts's own doc comment on csvPoints). */
+    csvPoints: `mlCsvPoints:${cellId}`,
+    /** Issue #253: display names for csvPoints' label indices (cosmetic legend only, see ml-playground-state.ts). */
+    classNames: `mlClassNames:${cellId}`,
     useSchedule: `mlUseSchedule:${cellId}`,
     stepSize: `mlStepSize:${cellId}`,
     gamma: `mlGamma:${cellId}`,

@@ -1,7 +1,10 @@
 import { Frame, type DType, type FieldDescriptor } from "mallory-frame-arrow";
+import { MAX_CLASSES, type LabeledPoint } from "./ml-playground.ts";
 
 const MAX_ROWS = 10000;
 const MAX_COLS = 64;
+/** Issue #253's CSV-to-ML-playground handoff: the regression handoff caps at 200 pairs (a hand-editable row list); the ML playground just trains on/renders a scatter, so it can take a good deal more before the URL-encoded state (see ml-playground-state.ts's csvPoints) gets unwieldy. */
+const MAX_ML_POINTS = 1000;
 
 export interface ParsedCsv {
   header: string[];
@@ -116,4 +119,65 @@ export function pairedNumericColumns(parsed: ParsedCsv, xIndex: number, yIndex: 
     else skipped++;
   }
   return { pairs, skipped };
+}
+
+export interface LabeledPointsFromColumns {
+  points: LabeledPoint[];
+  /** `classNames[i]` is the original cell text that became label `i` -- first-seen order, so the same CSV always assigns the same indices given the same row order. */
+  classNames: string[];
+  /** Rows dropped: a non-numeric x/y cell, OR a label value seen only after MAX_CLASSES distinct classes were already assigned, OR beyond the MAX_ML_POINTS cap. Reported, never silently absorbed. */
+  skipped: number;
+}
+
+/**
+ * Issue #253's "load custom datasets" for the ML playground: (x, y, label)
+ * triples from three CSV columns, handed off to MlPlaygroundPanel's `"csv"`
+ * dataset (see DataImportPanel.tsx's "Open in ML" action and
+ * ml-playground-state.ts's `csvPoints`/`classNames`).
+ *
+ * The label column can be ANY column (unlike x/y, which must be numeric) --
+ * its distinct cell values, in first-seen row order, become 0-indexed
+ * integer classes (`TinyMlp`'s own label contract, see ml-playground.ts).
+ * A row whose x or y cell isn't numeric is skipped as a unit (same
+ * reasoning as `pairedNumericColumns`); a row introducing a class beyond
+ * `MAX_CLASSES` is also skipped, keeping the imported dataset within what
+ * `TinyMlp`'s output layer can ever represent -- rather than throwing and
+ * discarding an otherwise-good import over one over-cardinality column.
+ */
+export function labeledPointsFromColumns(parsed: ParsedCsv, xIndex: number, yIndex: number, labelIndex: number): LabeledPointsFromColumns {
+  const xName = parsed.header[xIndex];
+  const yName = parsed.header[yIndex];
+  const labelName = parsed.header[labelIndex];
+  if (xName === undefined) throw new Error(`No column at index ${xIndex}.`);
+  if (yName === undefined) throw new Error(`No column at index ${yIndex}.`);
+  if (labelName === undefined) throw new Error(`No column at index ${labelIndex}.`);
+  const classIndex = new Map<string, number>();
+  const classNames: string[] = [];
+  const points: LabeledPoint[] = [];
+  let skipped = 0;
+  for (const row of parsed.typedRows) {
+    if (points.length >= MAX_ML_POINTS) {
+      skipped++;
+      continue;
+    }
+    const x = toNumber(row[xName]);
+    const y = toNumber(row[yName]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      skipped++;
+      continue;
+    }
+    const name = stringifyCell(row[labelName]);
+    let label = classIndex.get(name);
+    if (label === undefined) {
+      if (classIndex.size >= MAX_CLASSES) {
+        skipped++;
+        continue;
+      }
+      label = classIndex.size;
+      classIndex.set(name, label);
+      classNames.push(name);
+    }
+    points.push({ x, y, label });
+  }
+  return { points, classNames, skipped };
 }
