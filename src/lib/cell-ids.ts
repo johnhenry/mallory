@@ -78,6 +78,13 @@ export function cellIdsParametricSurface(cellId: string) {
     vMin: `paramSurfVMin:${cellId}`,
     vMax: `paramSurfVMax:${cellId}`,
     mesh: `paramSurfMesh:${cellId}`,
+    // Unlimited expressions (issue #251): `color`/`visible` are per-row;
+    // `list` is the panel-level ordered row-id list (called with the
+    // container id) -- see cellIdsImplicit's doc comment for the "same
+    // factory, container id vs. row id" split.
+    color: `paramSurfColor:${cellId}`,
+    visible: `paramSurfVisible:${cellId}`,
+    list: `paramSurfList:${cellId}`,
   };
 }
 
@@ -95,6 +102,13 @@ export function cellIdsVectorField3D(cellId: string) {
     zMin: `vectorField3dZMin:${cellId}`,
     zMax: `vectorField3dZMax:${cellId}`,
     points: `vectorField3dPoints:${cellId}`,
+    // Unlimited expressions (issue #251): `color`/`visible` are per-row;
+    // `list` is the panel-level ordered row-id list (called with the
+    // container id) -- see cellIdsImplicit's doc comment for the "same
+    // factory, container id vs. row id" split.
+    color: `vectorField3dColor:${cellId}`,
+    visible: `vectorField3dVisible:${cellId}`,
+    list: `vectorField3dList:${cellId}`,
   };
 }
 
@@ -108,6 +122,13 @@ export function cellIdsSpaceCurve(cellId: string) {
     tMin: `spaceCurveTMin:${cellId}`,
     tMax: `spaceCurveTMax:${cellId}`,
     points: `spaceCurvePoints:${cellId}`,
+    // Unlimited expressions (issue #251): `color`/`visible` are per-row;
+    // `list` is the panel-level ordered row-id list (called with the
+    // container id) -- see cellIdsImplicit's doc comment for the "same
+    // factory, container id vs. row id" split.
+    color: `spaceCurveColor:${cellId}`,
+    visible: `spaceCurveVisible:${cellId}`,
+    list: `spaceCurveList:${cellId}`,
   };
 }
 
@@ -243,7 +264,16 @@ export function cellIdsOde2(cellId: string) {
     // Pan/zoom (issue #53): same shape as TaylorPanel (#189) -- xMin/xMax/
     // yMin/yMax above ARE the viewport, already reactive. `liveViewport`
     // only overrides those four for a zero-resample mid-gesture redraw.
+    // Called with the panel's own container id (shared across every row),
+    // unlike a/b/c/x0/y0/yPrime0/solution/closedForm above.
     liveViewport: `ode2LiveViewport:${cellId}`,
+    // Unlimited expressions (issue #251): `color`/`visible` are per-row;
+    // `list` is the panel-level ordered row-id list (called with the
+    // container id) -- see cellIdsImplicit's doc comment for the "same
+    // factory, container id vs. row id" split.
+    color: `ode2Color:${cellId}`,
+    visible: `ode2Visible:${cellId}`,
+    list: `ode2List:${cellId}`,
   };
 }
 
@@ -269,8 +299,18 @@ export function cellIdsTaylor(cellId: string) {
     // ARE the viewport, already reactive (taylorPath's compute already
     // reads them, so committing a gesture there gets the resample for
     // free). `liveViewport` only overrides those four for a zero-resample
-    // mid-gesture redraw, same convention as every other panel.
+    // mid-gesture redraw, same convention as every other panel. Called with
+    // the panel's own container id (shared across every row), unlike
+    // expr/center/order/limitPoint/limitDirection/taylorPath/limitResult
+    // above.
     liveViewport: `taylorLiveViewport:${cellId}`,
+    // Unlimited expressions (issue #251): `color`/`visible` are per-row;
+    // `list` is the panel-level ordered row-id list (called with the
+    // container id) -- see cellIdsImplicit's doc comment for the "same
+    // factory, container id vs. row id" split.
+    color: `taylorColor:${cellId}`,
+    visible: `taylorVisible:${cellId}`,
+    list: `taylorList:${cellId}`,
   };
 }
 
@@ -291,8 +331,17 @@ export function cellIdsSeries(cellId: string) {
     // driver. The live/committed split is kept anyway for consistency
     // with every other pan/zoom panel in this app (GraphCanvas #184,
     // FourierPanel #188, ...), not because it saves any real work here.
+    // Called with the panel's own container id (shared across every row),
+    // unlike exprText/variable/fromN/toN/plotCount/result above.
     viewport: `seriesViewport:${cellId}`,
     liveViewport: `seriesLiveViewport:${cellId}`,
+    // Unlimited expressions (issue #251): `color`/`visible` are per-row;
+    // `list` is the panel-level ordered row-id list (called with the
+    // container id) -- see cellIdsImplicit's doc comment for the "same
+    // factory, container id vs. row id" split.
+    color: `seriesColor:${cellId}`,
+    visible: `seriesVisible:${cellId}`,
+    list: `seriesList:${cellId}`,
   };
 }
 
@@ -719,6 +768,15 @@ export function cellIdsImplicit(cellId: string) {
     // marching-squares curve above.
     showIntervalBoxes: `implicitShowIntervalBoxes:${cellId}`,
     intervalBoxesResult: `implicitIntervalBoxesResult:${cellId}`,
+    // Unlimited expressions (issue #251): `color`/`visible` are per-row
+    // (called with a row id, one per relation); `list` is the panel-level
+    // ordered row-id list (called with the panel's own container id, same
+    // "same factory, different id purpose" convention `list`/`viewport`-
+    // style cells use elsewhere in this file) -- see ImplicitPanel.tsx's
+    // own doc comment for the shared-viewport/per-row-relation split.
+    color: `implicitColor:${cellId}`,
+    visible: `implicitVisible:${cellId}`,
+    list: `implicitList:${cellId}`,
   };
 }
 
@@ -744,9 +802,17 @@ export function cellIdsParametric(cellId: string) {
     // over the t/theta domain above, never the x/y viewport -- so panning
     // and zooming here are pure re-renders with zero resampling, and
     // `liveViewport` exists only to skip a redundant commit write on every
-    // pointermove tick, not to avoid a resample.
+    // pointermove tick, not to avoid a resample. Shared across every row
+    // (called with the panel's own container id) -- see cellIdsImplicit's
+    // doc comment for the "same factory, container id vs. row id" split.
     viewport: `paramViewport:${cellId}`,
     liveViewport: `paramLiveViewport:${cellId}`,
+    // Unlimited expressions (issue #251): `color`/`visible` are per-row;
+    // `list` is the panel-level ordered row-id list (called with the
+    // container id).
+    color: `paramColor:${cellId}`,
+    visible: `paramVisible:${cellId}`,
+    list: `paramList:${cellId}`,
   };
 }
 

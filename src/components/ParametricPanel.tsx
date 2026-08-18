@@ -5,6 +5,7 @@ import { cellIdsParametric } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
 import { sampleParametricCurve, samplePolarCurve } from "../lib/sample-parametric.ts";
+import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";
 import { pathsToSvgDocument } from "../lib/svg-export.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { canvasEventPoint, toDataX, toDataY } from "../lib/viewport.ts";
@@ -25,69 +26,154 @@ type Mode = "parametric" | "polar";
 const DEFAULTS = { mode: "parametric" as Mode, exprX: "cos(t)", exprY: "sin(t)", exprR: "1+cos(t)", tMin: "0", tMax: "6.2832" };
 
 /**
- * Sets up the parametric/polar panel's reactive cells on its own private
- * CellGraph. A polar curve r(θ) is sampled as the parametric curve
- * x=r·cosθ, y=r·sinθ (see `samplePolarCurve`) -- one `mode` cell picks which
- * of `exprX`/`exprY` vs. `exprR` the derived `path` cell reads.
+ * Seeds one curve row's own cells (issue #251, unlimited expressions): mode
+ * plus either x(t)/y(t) or r(θ) (a polar curve is sampled internally as
+ * x=r·cosθ, y=r·sinθ, see `samplePolarCurve`) and its own t/θ domain, color
+ * and visibility -- everything each row needs to plot independently of any
+ * other row on the shared viewport.
  */
-function useParametricGraph(cellId: string): CellGraph {
-  const ref = useRef<CellGraph | null>(null);
-  if (!ref.current) {
-    const graph = new CellGraph();
-    const ids = cellIdsParametric(cellId);
-    if (!graph.has(ids.mode)) {
-      graph.set(ids.mode, DEFAULTS.mode);
-      graph.set(ids.exprX, DEFAULTS.exprX);
-      graph.set(ids.exprY, DEFAULTS.exprY);
-      graph.set(ids.exprR, DEFAULTS.exprR);
-      graph.set(ids.tMin, DEFAULTS.tMin);
-      graph.set(ids.tMax, DEFAULTS.tMax);
-      graph.set(ids.viewport, INITIAL_VIEWPORT, { auxiliary: true });
-      graph.set<Viewport | null>(ids.liveViewport, null, { auxiliary: true });
+export function seedParametricRow(graph: CellGraph, rowId: string, index: number): void {
+  const ids = cellIdsParametric(rowId);
+  graph.set(ids.mode, DEFAULTS.mode);
+  graph.set(ids.exprX, DEFAULTS.exprX);
+  graph.set(ids.exprY, DEFAULTS.exprY);
+  graph.set(ids.exprR, DEFAULTS.exprR);
+  graph.set(ids.tMin, DEFAULTS.tMin);
+  graph.set(ids.tMax, DEFAULTS.tMax);
+  graph.set(ids.color, paletteColor(index));
+  graph.set(ids.visible, true);
 
-      graph.define(ids.path, (): PathResult => {
-        try {
-          const mode = graph.get<Mode>(ids.mode);
-          const tMin = Number(graph.get<string>(ids.tMin));
-          const tMax = Number(graph.get<string>(ids.tMax));
-          if ([tMin, tMax].some(Number.isNaN)) throw new Error("t-min/t-max must be numbers.");
-          if (tMin >= tMax) throw new Error("t-min must be less than t-max.");
-          const domain = { min: tMin, max: tMax };
-          const path =
-            mode === "polar"
-              ? samplePolarCurve(graph.get<string>(ids.exprR), domain, RESOLUTION)
-              : sampleParametricCurve(graph.get<string>(ids.exprX), graph.get<string>(ids.exprY), domain, RESOLUTION);
-          return { ok: true, path };
-        } catch (e) {
-          return { ok: false, message: e instanceof Error ? e.message : String(e) };
-        }
-      });
+  graph.define(ids.path, (): PathResult => {
+    try {
+      const mode = graph.get<Mode>(ids.mode);
+      const tMin = Number(graph.get<string>(ids.tMin));
+      const tMax = Number(graph.get<string>(ids.tMax));
+      if ([tMin, tMax].some(Number.isNaN)) throw new Error("t-min/t-max must be numbers.");
+      if (tMin >= tMax) throw new Error("t-min must be less than t-max.");
+      const domain = { min: tMin, max: tMax };
+      const path =
+        mode === "polar"
+          ? samplePolarCurve(graph.get<string>(ids.exprR), domain, RESOLUTION)
+          : sampleParametricCurve(graph.get<string>(ids.exprX), graph.get<string>(ids.exprY), domain, RESOLUTION);
+      return { ok: true, path };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
     }
-    ref.current = graph;
+  });
+}
+
+/**
+ * Sets up the parametric/polar panel's reactive cells on its own private
+ * CellGraph -- one shared pannable/zoomable viewport (the container id's
+ * own `viewport`/`liveViewport` cells) plus an ordered list of curve rows
+ * (issue #251), each its own independent x(t)/y(t)-or-r(θ) curve (see
+ * `seedParametricRow`).
+ */
+function useParametricGraph(containerId: string): { graph: CellGraph; containerIds: ReturnType<typeof cellIdsParametric> } {
+  // `containerIds` is memoized on the ref itself, not recomputed every
+  // render -- see ImplicitPanel's identical `useImplicitGraph` doc comment
+  // for why (issue #236's stale-reference bug class, reintroduced by this
+  // hook's own container-id object).
+  const ref = useRef<{ graph: CellGraph; containerIds: ReturnType<typeof cellIdsParametric> } | null>(null);
+  if (!ref.current) {
+    const containerIds = cellIdsParametric(containerId);
+    const graph = new CellGraph();
+    if (!graph.hasValue(containerIds.list)) {
+      graph.set(containerIds.viewport, INITIAL_VIEWPORT, { auxiliary: true });
+      graph.set<Viewport | null>(containerIds.liveViewport, null, { auxiliary: true });
+      const rowId = crypto.randomUUID();
+      seedParametricRow(graph, rowId, 0);
+      graph.set(containerIds.list, [rowId], { auxiliary: true });
+    }
+    ref.current = { graph, containerIds };
   }
   return ref.current;
 }
 
-export interface ParametricPanelProps {
-  cellId?: string;
-}
-
-/** v1: a single parametric curve (x(t),y(t)) or polar curve r(θ), over a fixed domain and viewport. */
-export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProps = {}) {
-  const graph = useParametricGraph(cellId);
-  useCellGraphTools("graphing_parametric", graph);
-  const ids = cellIdsParametric(cellId);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
+/** One curve row's controls (issue #251): mode toggle, x(t)/y(t) or r(θ) inputs, t/θ domain, color/visibility -- the canvas draw itself lives in `ParametricPanel`, which loops over every row. */
+function ParametricRow({ graph, rowId, onRemove }: { graph: CellGraph; rowId: string; onRemove?: () => void }) {
+  const ids = cellIdsParametric(rowId);
   const mode = useCell<Mode>(graph, ids.mode);
   const exprX = useCell<string>(graph, ids.exprX);
   const exprY = useCell<string>(graph, ids.exprY);
   const exprR = useCell<string>(graph, ids.exprR);
   const tMin = useCell<string>(graph, ids.tMin);
   const tMax = useCell<string>(graph, ids.tMax);
+  const color = useCell<number>(graph, ids.color);
+  const visible = useCell<boolean>(graph, ids.visible);
   const path = useCell<PathResult>(graph, ids.path);
-  const committedViewport = useCell<Viewport>(graph, ids.viewport);
-  const liveViewport = useCell<Viewport | null>(graph, ids.liveViewport);
+
+  return (
+    <div style={{ margin: "0.35rem 0", padding: "0.35rem", border: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+        <input type="checkbox" checked={visible} onChange={(e) => graph.set(ids.visible, e.target.checked)} title="Show/hide this curve" />
+        <input
+          type="color"
+          value={`#${color.toString(16).padStart(6, "0")}`}
+          onChange={(e) => graph.set(ids.color, Number.parseInt(e.target.value.slice(1), 16))}
+        />
+        <label>
+          <input type="radio" checked={mode === "parametric"} onChange={() => graph.set(ids.mode, "parametric")} /> parametric
+        </label>
+        <label>
+          <input type="radio" checked={mode === "polar"} onChange={() => graph.set(ids.mode, "polar")} /> polar
+        </label>
+        {onRemove && (
+          <button type="button" onClick={onRemove} title="Remove this curve">
+            ✕
+          </button>
+        )}
+      </div>
+      {mode === "polar" ? (
+        <div style={{ margin: "0.25rem 0" }}>
+          <label>
+            r(θ) ={" "}
+            <input value={exprR} onChange={(e) => graph.set(ids.exprR, e.target.value)} style={{ font: "inherit", width: "16ch" }} />
+          </label>
+        </div>
+      ) : (
+        <div style={{ margin: "0.25rem 0" }}>
+          <label>
+            x(t) ={" "}
+            <input value={exprX} onChange={(e) => graph.set(ids.exprX, e.target.value)} style={{ font: "inherit", width: "12ch" }} />
+          </label>{" "}
+          <label>
+            y(t) ={" "}
+            <input value={exprY} onChange={(e) => graph.set(ids.exprY, e.target.value)} style={{ font: "inherit", width: "12ch" }} />
+          </label>
+        </div>
+      )}
+      <div style={{ margin: "0.25rem 0" }}>
+        <label>
+          {mode === "polar" ? "θ" : "t"}: [
+          <input value={tMin} onChange={(e) => graph.set(ids.tMin, e.target.value)} style={{ font: "inherit", width: "8ch" }} />,{" "}
+          <input value={tMax} onChange={(e) => graph.set(ids.tMax, e.target.value)} style={{ font: "inherit", width: "8ch" }} />]
+        </label>
+      </div>
+      {!path.ok && <p style={{ color: "var(--danger)", fontSize: "0.8rem" }}>{path.message}</p>}
+    </div>
+  );
+}
+
+export interface ParametricPanelProps {
+  cellId?: string;
+}
+
+/**
+ * Unlimited parametric (x(t),y(t)) or polar (r(θ)) curves (issue #251),
+ * overlaid on one shared pannable/zoomable viewport -- v1 was a single
+ * curve only; every curve now gets its own mode/color/visibility, the same
+ * "shared viewport, unlimited rows" shape GraphCanvasMulti established for
+ * y=f(x) curves.
+ */
+export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProps = {}) {
+  const { graph, containerIds } = useParametricGraph(cellId);
+  useCellGraphTools("graphing_parametric", graph);
+  const rowIds = useCell<string[]>(graph, containerIds.list);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const committedViewport = useCell<Viewport>(graph, containerIds.viewport);
+  const liveViewport = useCell<Viewport | null>(graph, containerIds.liveViewport);
   const viewport = liveViewport ?? committedViewport;
 
   // Pan/pinch gesture state (issue #53), mirroring GraphCanvas's own
@@ -103,13 +189,44 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
   const activePointersRef = useRef<Map<number, { sx: number; sy: number }>>(new Map());
   const zoomCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  function addCurve() {
+    const { id, index } = appendRow(graph, containerIds.list);
+    seedParametricRow(graph, id, index);
+  }
+
+  function removeCurve(rowId: string) {
+    removeRow(graph, containerIds.list, rowId, cellIdsParametric(rowId));
+  }
+
+  // Redraws whenever the row list changes, the shared viewport pans/zooms,
+  // or any individual row's own cells do -- graph.subscribeAll rather than
+  // per-row useCell hooks, same reasoning as GraphCanvasMulti/ImplicitPanel:
+  // the row *set* changes as much as any one row's path/color/visibility
+  // does, and a fixed hook-per-row list can't track a dynamic row count.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    drawAxes(ctx, viewport, WIDTH, HEIGHT);
-    if (path.ok) drawPath(ctx, path.path, viewport, WIDTH, HEIGHT);
-  }, [path, viewport]);
+    function redraw() {
+      if (!ctx) return;
+      ctx.clearRect(0, 0, WIDTH, HEIGHT);
+      const vp = graph.get<Viewport | null>(containerIds.liveViewport) ?? graph.get<Viewport>(containerIds.viewport);
+      drawAxes(ctx, vp, WIDTH, HEIGHT);
+      for (const rowId of graph.get<string[]>(containerIds.list)) {
+        const ids = cellIdsParametric(rowId);
+        try {
+          if (!graph.get<boolean>(ids.visible)) continue;
+          const path = graph.get<PathResult>(ids.path);
+          if (!path.ok) continue;
+          const color = graph.get<number>(ids.color);
+          drawPath(ctx, { ...path.path, stroke: { ...path.path.stroke, color } }, vp, WIDTH, HEIGHT);
+        } catch {
+          // A row whose cells haven't registered yet -- skip it this frame.
+        }
+      }
+    }
+    redraw();
+    return graph.subscribeAll(redraw);
+  }, [graph, containerIds]);
 
   useEffect(() => {
     return () => {
@@ -119,10 +236,10 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
 
   /** Copies a pending live-viewport override into the committed viewport -- shared by pan/pinch release and the wheel-zoom debounce below. */
   function commitLiveViewport() {
-    const live = graph.get<Viewport | null>(ids.liveViewport);
+    const live = graph.get<Viewport | null>(containerIds.liveViewport);
     if (!live) return;
-    graph.set(ids.viewport, live);
-    graph.set<Viewport | null>(ids.liveViewport, null);
+    graph.set(containerIds.viewport, live);
+    graph.set<Viewport | null>(containerIds.liveViewport, null);
   }
 
   function handlePointerDown(e: ReactPointerEvent<HTMLCanvasElement>) {
@@ -139,7 +256,7 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
       const [p1, p2] = [...activePointersRef.current.values()].slice(-2) as [{ sx: number; sy: number }, { sx: number; sy: number }];
       const midSx = (p1.sx + p2.sx) / 2;
       const midSy = (p1.sy + p2.sy) / 2;
-      const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
+      const vp = graph.get<Viewport | null>(containerIds.liveViewport) ?? graph.get<Viewport>(containerIds.viewport);
       gestureRef.current = {
         kind: "pinch",
         anchorX: toDataX(midSx, vp, WIDTH),
@@ -152,7 +269,7 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
       return;
     }
 
-    const vp = graph.get<Viewport>(ids.viewport);
+    const vp = graph.get<Viewport>(containerIds.viewport);
     const { sx, sy } = downPoint;
     gestureRef.current = {
       kind: "pan",
@@ -181,11 +298,17 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
       const spanY = gesture.spanY * factor;
       const midSx = (p1.sx + p2.sx) / 2;
       const midSy = (p1.sy + p2.sy) / 2;
-      graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, midSx, midSy, spanX, spanY, WIDTH, HEIGHT));
+      graph.set(
+        containerIds.liveViewport,
+        viewportFromAnchor(gesture.anchorX, gesture.anchorY, midSx, midSy, spanX, spanY, WIDTH, HEIGHT),
+      );
       return;
     }
     const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
-    graph.set(ids.liveViewport, viewportFromAnchor(gesture.anchorX, gesture.anchorY, sx, sy, gesture.spanX, gesture.spanY, WIDTH, HEIGHT));
+    graph.set(
+      containerIds.liveViewport,
+      viewportFromAnchor(gesture.anchorX, gesture.anchorY, sx, sy, gesture.spanX, gesture.spanY, WIDTH, HEIGHT),
+    );
   }
 
   function handlePointerUp(e: ReactPointerEvent<HTMLCanvasElement>) {
@@ -198,14 +321,14 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
   /** Wheel-to-zoom, anchored on the cursor's data point; the real commit is debounced (no pointerup to trigger it), same as GraphCanvas's handleWheel. */
   function handleWheel(e: ReactWheelEvent<HTMLCanvasElement>) {
     e.preventDefault();
-    const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
+    const vp = graph.get<Viewport | null>(containerIds.liveViewport) ?? graph.get<Viewport>(containerIds.viewport);
     const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
     const anchorX = toDataX(sx, vp, WIDTH);
     const anchorY = toDataY(sy, vp, HEIGHT);
     const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
     const spanX = (vp.xMax - vp.xMin) * factor;
     const spanY = (vp.yMax - vp.yMin) * factor;
-    graph.set(ids.liveViewport, viewportFromAnchor(anchorX, anchorY, sx, sy, spanX, spanY, WIDTH, HEIGHT));
+    graph.set(containerIds.liveViewport, viewportFromAnchor(anchorX, anchorY, sx, sy, spanX, spanY, WIDTH, HEIGHT));
     if (zoomCommitTimerRef.current) clearTimeout(zoomCommitTimerRef.current);
     zoomCommitTimerRef.current = setTimeout(() => {
       zoomCommitTimerRef.current = null;
@@ -218,47 +341,30 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
       clearTimeout(zoomCommitTimerRef.current);
       zoomCommitTimerRef.current = null;
     }
-    graph.set<Viewport | null>(ids.liveViewport, null);
-    graph.set(ids.viewport, INITIAL_VIEWPORT);
+    graph.set<Viewport | null>(containerIds.liveViewport, null);
+    graph.set(containerIds.viewport, INITIAL_VIEWPORT);
+  }
+
+  function getExportSvg(): string | null {
+    const paths: Path2D[] = [];
+    for (const rowId of rowIds) {
+      const ids = cellIdsParametric(rowId);
+      if (!graph.hasValue(ids.path) || !graph.get<boolean>(ids.visible)) continue;
+      const path = graph.get<PathResult>(ids.path);
+      if (path.ok) paths.push(path.path);
+    }
+    if (paths.length === 0) return null;
+    return pathsToSvgDocument(paths, viewport, WIDTH, HEIGHT);
   }
 
   return (
     <div>
-      <div style={{ margin: "0.25rem 0" }}>
-        <label>
-          <input type="radio" checked={mode === "parametric"} onChange={() => graph.set(ids.mode, "parametric")} /> parametric
-          (x(t), y(t))
-        </label>{" "}
-        <label>
-          <input type="radio" checked={mode === "polar"} onChange={() => graph.set(ids.mode, "polar")} /> polar (r(θ))
-        </label>
-      </div>
-      {mode === "polar" ? (
-        <div style={{ margin: "0.25rem 0" }}>
-          <label>
-            r(θ) ={" "}
-            <input value={exprR} onChange={(e) => graph.set(ids.exprR, e.target.value)} style={{ font: "inherit", width: "16ch" }} />
-          </label>
-        </div>
-      ) : (
-        <div style={{ margin: "0.25rem 0" }}>
-          <label>
-            x(t) ={" "}
-            <input value={exprX} onChange={(e) => graph.set(ids.exprX, e.target.value)} style={{ font: "inherit", width: "12ch" }} />
-          </label>{" "}
-          <label>
-            y(t) ={" "}
-            <input value={exprY} onChange={(e) => graph.set(ids.exprY, e.target.value)} style={{ font: "inherit", width: "12ch" }} />
-          </label>
-        </div>
-      )}
-      <div style={{ margin: "0.25rem 0" }}>
-        <label>
-          {mode === "polar" ? "θ" : "t"}: [
-          <input value={tMin} onChange={(e) => graph.set(ids.tMin, e.target.value)} style={{ font: "inherit", width: "8ch" }} />,{" "}
-          <input value={tMax} onChange={(e) => graph.set(ids.tMax, e.target.value)} style={{ font: "inherit", width: "8ch" }} />]
-        </label>
-      </div>
+      {rowIds.map((rowId) => (
+        <ParametricRow key={rowId} graph={graph} rowId={rowId} onRemove={rowIds.length > 1 ? () => removeCurve(rowId) : undefined} />
+      ))}
+      <button type="button" onClick={addCurve} style={{ margin: "0.35rem 0" }}>
+        + Add curve
+      </button>
       <canvas
         ref={canvasRef}
         width={WIDTH}
@@ -271,12 +377,11 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
       />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton getCanvas={() => canvasRef.current} label="parametric" />
-        <SvgExportButton getSvg={() => (path.ok ? pathsToSvgDocument([path.path], viewport, WIDTH, HEIGHT) : null)} label="parametric" />{" "}
+        <SvgExportButton getSvg={getExportSvg} label="parametric" />{" "}
         <button type="button" onClick={resetView}>
           Reset view
         </button>
       </div>
-      {!path.ok && <p style={{ color: "var(--danger)" }}>{path.message}</p>}
     </div>
   );
 }
