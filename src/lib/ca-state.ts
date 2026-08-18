@@ -2,7 +2,9 @@ export type CaDimension = "1d" | "2d" | "3d";
 export type Boundary1D = "zero" | "wrap";
 export type Boundary2D = "dead" | "wrap";
 export type Boundary3D = "dead" | "wrap";
-export type InitialCondition1D = "single-cell" | "random";
+/** "custom" (issue #260 item 1) pairs with `customGrid1d`/`customGrid2d` below -- a '0'/'1' bitstring a `CustomGridEditor` painted (see src/lib/ca/custom-grid.ts's own doc comment for the encoding). */
+export type InitialCondition1D = "single-cell" | "random" | "custom";
+export type InitialCondition2D = "random" | "custom";
 
 export interface CaStateV1 {
   v: 1;
@@ -14,14 +16,20 @@ export interface CaStateV1 {
   boundary1d: Boundary1D;
   initial1d: InitialCondition1D;
   seed1d: number;
+  /** '0'/'1' bitstring (see src/lib/ca/custom-grid.ts) painted by the 1D `CustomGridEditor` -- only meaningful when `initial1d === "custom"`, but always present (default: the empty string, which decodes to an all-dead row) so the field round-trips cleanly through encode/decode regardless of the active initial condition. */
+  customGrid1d: string;
   // 2D (life-like) params
   bsRule: string;
   width2d: number;
   height2d: number;
   generations2d: number;
   boundary2d: Boundary2D;
+  /** "random" (the only option before issue #260) or "custom" -- 2D's own `InitialCondition1D`-shaped toggle for the editor below. */
+  initial2d: InitialCondition2D;
   seed2d: number;
   density2d: number;
+  /** '0'/'1' row-major bitstring (see src/lib/ca/custom-grid.ts) painted by the 2D `CustomGridEditor` -- only meaningful when `initial2d === "custom"`, same always-present-default-empty convention as `customGrid1d`. */
+  customGrid2d: string;
   /** Whether the 3D voxel spacetime-stack view is showing (issue #229's own "2D rule's history is naturally a 3D volume" framing) -- off by default since it's the heavier render. */
   showVoxelView: boolean;
   // 3D (totalistic) params -- see src/lib/ca/totalistic-3d.ts. The grid is
@@ -49,13 +57,16 @@ export const DEFAULT_CA_STATE: CaState = {
   boundary1d: "zero",
   initial1d: "single-cell",
   seed1d: 1,
+  customGrid1d: "",
   bsRule: "B3/S23",
   width2d: 40,
   height2d: 40,
   generations2d: 30,
   boundary2d: "dead",
+  initial2d: "random",
   seed2d: 1,
   density2d: 0.3,
+  customGrid2d: "",
   showVoxelView: false,
   rule3d: "B6/S5,6,7",
   width3d: 10,
@@ -85,7 +96,8 @@ const DIMENSIONS: CaDimension[] = ["1d", "2d", "3d"];
 const BOUNDARIES_1D: Boundary1D[] = ["zero", "wrap"];
 const BOUNDARIES_2D: Boundary2D[] = ["dead", "wrap"];
 const BOUNDARIES_3D: Boundary3D[] = ["dead", "wrap"];
-const INITIAL_CONDITIONS_1D: InitialCondition1D[] = ["single-cell", "random"];
+const INITIAL_CONDITIONS_1D: InitialCondition1D[] = ["single-cell", "random", "custom"];
+const INITIAL_CONDITIONS_2D: InitialCondition2D[] = ["random", "custom"];
 
 export function isCaStateV1(value: unknown): value is CaStateV1 {
   if (typeof value !== "object" || value === null) return false;
@@ -102,14 +114,18 @@ export function isCaStateV1(value: unknown): value is CaStateV1 {
     typeof v.initial1d === "string" &&
     INITIAL_CONDITIONS_1D.includes(v.initial1d as InitialCondition1D) &&
     typeof v.seed1d === "number" &&
+    typeof v.customGrid1d === "string" &&
     typeof v.bsRule === "string" &&
     typeof v.width2d === "number" &&
     typeof v.height2d === "number" &&
     typeof v.generations2d === "number" &&
     typeof v.boundary2d === "string" &&
     BOUNDARIES_2D.includes(v.boundary2d as Boundary2D) &&
+    typeof v.initial2d === "string" &&
+    INITIAL_CONDITIONS_2D.includes(v.initial2d as InitialCondition2D) &&
     typeof v.seed2d === "number" &&
     typeof v.density2d === "number" &&
+    typeof v.customGrid2d === "string" &&
     typeof v.showVoxelView === "boolean" &&
     typeof v.rule3d === "string" &&
     typeof v.width3d === "number" &&

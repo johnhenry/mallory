@@ -10,10 +10,11 @@
  * matching every published Rule-30 truth table (Wolfram, MathWorld).
  */
 import { Rng } from "mallory-tensor-core";
+import { decodeCustomRow } from "./custom-grid.ts";
 
 export type Cell = 0 | 1;
 export type Boundary = "zero" | "wrap";
-export type InitialCondition = "single-cell" | "random";
+export type InitialCondition = "single-cell" | "random" | "custom";
 
 /** The 8-entry lookup table for `ruleNumber`, indexed by `(left << 2) | (center << 1) | right`. */
 export function ruleTable(ruleNumber: number): readonly Cell[] {
@@ -52,10 +53,26 @@ export function randomRow(width: number, rng: Rng): Cell[] {
   return Array.from({ length: width }, () => (rng.nextFloat() < 0.5 ? 1 : 0));
 }
 
-export function initialRow(width: number, initial: InitialCondition, rng?: Rng): Cell[] {
+/** `customBits` is the '0'/'1' bitstring a custom initial-state editor (issue #260 item 1) painted -- see custom-grid.ts's own doc comment for the encoding. */
+export function initialRow(width: number, initial: InitialCondition, rng?: Rng, customBits?: string): Cell[] {
   if (initial === "single-cell") return singleCellRow(width);
+  if (initial === "custom") {
+    if (customBits === undefined) throw new Error('initialRow("custom", ...) requires customBits.');
+    return decodeCustomRow(customBits, width);
+  }
   if (!rng) throw new Error('initialRow("random", ...) requires an rng.');
   return randomRow(width, rng);
+}
+
+/**
+ * Flips whether neighborhood `index` (0-7, encoding `(left << 2) | (center
+ * << 1) | right` as `ruleTable` itself does) maps to "alive" under
+ * `ruleNumber`, returning the resulting rule number -- the primitive the 1D
+ * visual rule picker (issue #260 item 2) toggles on each diagram click.
+ */
+export function toggleRuleBit(ruleNumber: number, index: number): number {
+  if (!Number.isInteger(index) || index < 0 || index > 7) throw new Error("index must be an integer in [0, 7].");
+  return ruleNumber ^ (1 << index);
 }
 
 export type Spacetime = ReadonlyArray<ReadonlyArray<Cell>>;
@@ -75,10 +92,11 @@ export function spacetimeElementary(
   initial: InitialCondition,
   boundary: Boundary = "zero",
   rng?: Rng,
+  customBits?: string,
 ): Spacetime {
   if (!Number.isInteger(width) || width < 1) throw new Error("width must be a positive integer.");
   if (!Number.isInteger(generations) || generations < 1) throw new Error("generations must be a positive integer.");
-  const rows: Cell[][] = [initialRow(width, initial, rng)];
+  const rows: Cell[][] = [initialRow(width, initial, rng, customBits)];
   for (let g = 1; g < generations; g++) rows.push(stepElementary(rows[g - 1]!, ruleNumber, boundary));
   return rows;
 }
