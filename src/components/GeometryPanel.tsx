@@ -84,6 +84,39 @@ interface PolygonRecord {
 type Tool = "point" | "line" | "circle" | "reflect" | "rotate" | "translate" | "scale" | "angle" | "polygon";
 
 /**
+ * Tool palette groups (issue #252): "objects" are one-click-per-point
+ * constructions that add a new object to `objectList` without reading or
+ * requiring any extra numeric parameter -- Point, Line, Circle, Reflect,
+ * Polygon all just chain together existing (or newly clicked) point ids.
+ * "actions" are the three transforms that additionally need a typed-in
+ * parameter (angle degrees / dx,dy / factor) via their own input box below
+ * the palette, i.e. Rotate/Translate/Scale.
+ *
+ * Angle's placement is a judgment call flagged as an open question in the
+ * issue, resolved here by how `addAngle` actually behaves rather than by
+ * analogy: it defines an `angleRecordCellId`/`angleValueCellId` pair and
+ * pushes to `objectList` exactly the way `addLine`/`addCircle`/`addPolygon`
+ * split a record cell from a dependent-value cell (see their own doc
+ * comments) -- a brand-new *object* that gets its own entry in the Objects
+ * list and its own drawn/exported representation (`drawAngle`/
+ * `angleExportLayers`). Crucially, unlike Reflect/Rotate/Translate/Scale
+ * (which all `graph.define(pointCellId(id), ...)` -- i.e. produce a new
+ * *point*, transforming/deriving from an existing one), Angle never touches
+ * `pointCellId` at all: it only *reads* three existing points and never
+ * moves or transforms anything. That makes it a construction/measurement
+ * object, not an action performed on existing geometry, so it's grouped
+ * with Objects alongside Line/Circle/Polygon (the other "read some points,
+ * construct a new dependent-value object" tools) rather than with the
+ * point-producing transforms.
+ */
+const OBJECT_TOOLS = ["point", "line", "circle", "reflect", "polygon", "angle"] as const satisfies readonly Tool[];
+const ACTION_TOOLS = ["rotate", "translate", "scale"] as const satisfies readonly Tool[];
+const TOOL_GROUPS: { label: string; tools: readonly Tool[] }[] = [
+  { label: "Objects", tools: OBJECT_TOOLS },
+  { label: "Actions", tools: ACTION_TOOLS },
+];
+
+/**
  * v1 GeoGebra-style construction tools built directly on Wave 1's free/
  * dependent object model: a point is a free `PointRecord` cell created by
  * clicking with the Point tool; a Line/Circle is a free record naming which
@@ -810,21 +843,40 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
 
   return (
     <div>
-      <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-        {(["point", "line", "circle", "reflect", "rotate", "translate", "scale", "angle", "polygon"] as const).map((t) => (
-          <label key={t}>
-            <input
-              type="radio"
-              checked={tool === t}
-              onChange={() => {
-                setTool(t);
-                setPending(null);
-                setPendingAngle([]);
-                setPendingPolygon([]);
-              }}
-            />{" "}
-            {t}
-          </label>
+      <div style={{ margin: "0.25rem 0", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+        {TOOL_GROUPS.map((group) => (
+          <div
+            key={group.label}
+            role="radiogroup"
+            aria-label={group.label}
+            style={{
+              display: "flex",
+              gap: "0.5rem",
+              flexWrap: "wrap",
+              alignItems: "center",
+              border: "1px solid var(--border)",
+              borderRadius: "4px",
+              padding: "0.25rem 0.5rem",
+            }}
+          >
+            <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{group.label}:</span>
+            {group.tools.map((t) => (
+              <label key={t}>
+                <input
+                  type="radio"
+                  name="geometry-tool"
+                  checked={tool === t}
+                  onChange={() => {
+                    setTool(t);
+                    setPending(null);
+                    setPendingAngle([]);
+                    setPendingPolygon([]);
+                  }}
+                />{" "}
+                {t}
+              </label>
+            ))}
+          </div>
         ))}
         {tool === "rotate" && (
           <label>
