@@ -47,7 +47,7 @@ export const Route = createFileRoute("/_app/gallery")({
  * `NotebookPanel` only ever read/write `window.location.hash`, never their
  * own pathname, so this is safe).
  */
-function GalleryPage() {
+export function GalleryPage() {
   const listSavedGraphsFn = useServerFn(listSavedGraphs);
   const getSavedGraphFn = useServerFn(getSavedGraph);
   const deleteSavedGraphFn = useServerFn(deleteSavedGraph);
@@ -107,8 +107,17 @@ function GalleryPage() {
         <p className="page-eyebrow">Gallery</p>
         <h1>Everything you've saved</h1>
         <p className="lede">
-          Graphs and notebooks saved from the "Save to gallery" button on Graphing or Notebook. Opening one reopens
-          it fully editable.
+          Graphs and notebooks saved from the "Save to gallery" button on Graphing, Notebook, 3D & Surfaces,
+          Geometry, Calculus, or Data & Algebra. Opening one reopens it fully editable.
+        </p>
+        <p className="lede" style={{ fontSize: "0.9rem" }}>
+          <strong>What's saved:</strong> a snapshot of that panel's state (expressions, viewport, etc.) at the
+          moment you clicked "Save to gallery" -- a copy, not a live link back to the panel, so later edits there
+          don't change what's stored here. <strong>Retrieving it:</strong> click its title in the list below to
+          reopen that snapshot on its original panel. <strong>Sharing it:</strong> "Copy short link" turns the same
+          snapshot into a compact <code>/s/:id</code> URL that redirects straight to it -- useful because a saved
+          item's own encoded URL can get very long. This gallery is one list shared by everyone who uses this app
+          (not private to your browser); entries marked "Curated" are built-in examples that can't be deleted.
         </p>
       </div>
       {error && <p style={{ color: "crimson" }}>{error}</p>}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Rng } from "mallory-tensor-core";
@@ -14,10 +14,32 @@ import {
   type CaDimension,
   type CaState,
   type InitialCondition1D,
+  type InitialCondition2D,
 } from "../lib/ca-state.ts";
-import { NAMED_ELEMENTARY_RULES, spacetimeElementary, type Spacetime as Spacetime1D } from "../lib/ca/elementary.ts";
-import { NAMED_LIFE_LIKE_RULES, parseBSRule, randomGrid, spacetimeLifeLike, type Spacetime2D } from "../lib/ca/life-like.ts";
-import { NAMED_TOTALISTIC_3D_RULES, parseTotalisticRule3D, randomGrid3D, spacetimeTotalistic3D, type Spacetime3D } from "../lib/ca/totalistic-3d.ts";
+import { blankBits, decodeBits, pixelToCellIndex, setBit, type Cell as CaCell } from "../lib/ca/custom-grid.ts";
+import { NAMED_ELEMENTARY_RULES, ruleTable, spacetimeElementary, toggleRuleBit, type Spacetime as Spacetime1D } from "../lib/ca/elementary.ts";
+import {
+  bsRuleToString,
+  initialGrid,
+  NAMED_LIFE_LIKE_RULES,
+  parseBSRule,
+  spacetimeLifeLike,
+  toggleBirth,
+  toggleSurvival,
+  type LifeLikeRule,
+  type Spacetime2D,
+} from "../lib/ca/life-like.ts";
+import {
+  NAMED_TOTALISTIC_3D_RULES,
+  parseTotalisticRule3D,
+  randomGrid3D,
+  spacetimeTotalistic3D,
+  toggleBirth3D,
+  toggleSurvival3D,
+  totalisticRule3DToString,
+  type Totalistic3DRule,
+  type Spacetime3D,
+} from "../lib/ca/totalistic-3d.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsCellularAutomata, TIME_CELL, type CellIdsCellularAutomata } from "../lib/cell-ids.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
@@ -80,13 +102,16 @@ function seedState(graph: CellGraph, ids: CellIdsCellularAutomata, state: CaStat
   graph.set(ids.boundary1d, state.boundary1d);
   graph.set(ids.initial1d, state.initial1d);
   graph.set(ids.seed1d, state.seed1d);
+  graph.set(ids.customGrid1d, state.customGrid1d);
   graph.set(ids.bsRule, state.bsRule);
   graph.set(ids.width2d, state.width2d);
   graph.set(ids.height2d, state.height2d);
   graph.set(ids.generations2d, state.generations2d);
   graph.set(ids.boundary2d, state.boundary2d);
+  graph.set(ids.initial2d, state.initial2d);
   graph.set(ids.seed2d, state.seed2d);
   graph.set(ids.density2d, state.density2d);
+  graph.set(ids.customGrid2d, state.customGrid2d);
   graph.set(ids.showVoxelView, state.showVoxelView);
   graph.set(ids.rule3d, state.rule3d);
   graph.set(ids.width3d, state.width3d);
@@ -108,13 +133,16 @@ function getCurrentState(graph: CellGraph, ids: CellIdsCellularAutomata): CaStat
     boundary1d: graph.get<Boundary1D>(ids.boundary1d),
     initial1d: graph.get<InitialCondition1D>(ids.initial1d),
     seed1d: graph.get<number>(ids.seed1d),
+    customGrid1d: graph.get<string>(ids.customGrid1d),
     bsRule: graph.get<string>(ids.bsRule),
     width2d: graph.get<number>(ids.width2d),
     height2d: graph.get<number>(ids.height2d),
     generations2d: graph.get<number>(ids.generations2d),
     boundary2d: graph.get<Boundary2D>(ids.boundary2d),
+    initial2d: graph.get<InitialCondition2D>(ids.initial2d),
     seed2d: graph.get<number>(ids.seed2d),
     density2d: graph.get<number>(ids.density2d),
+    customGrid2d: graph.get<string>(ids.customGrid2d),
     showVoxelView: graph.get<boolean>(ids.showVoxelView),
     rule3d: graph.get<string>(ids.rule3d),
     width3d: graph.get<number>(ids.width3d),
@@ -149,6 +177,7 @@ function useCaGraph(cellId: string): CellGraph {
         if (generations < 1 || generations > MAX_1D_GENERATIONS) throw new Error(`Generations must be between 1 and ${MAX_1D_GENERATIONS}.`);
         const initial = graph.get<InitialCondition1D>(ids.initial1d);
         const rng = initial === "random" ? new Rng(graph.get<number>(ids.seed1d)) : undefined;
+        const customBits = initial === "custom" ? graph.get<string>(ids.customGrid1d) : undefined;
         const value = spacetimeElementary(
           graph.get<number>(ids.ruleNumber),
           width,
@@ -156,6 +185,7 @@ function useCaGraph(cellId: string): CellGraph {
           initial,
           graph.get<Boundary1D>(ids.boundary1d),
           rng,
+          customBits,
         );
         return { ok: true, value };
       } catch (e) {
@@ -175,7 +205,10 @@ function useCaGraph(cellId: string): CellGraph {
           throw new Error(`width x height x generations (${width * height * generations}) exceeds the ${MAX_2D_SPACETIME_CELLS} cap -- shrink one of them.`);
         }
         const rule = parseBSRule(graph.get<string>(ids.bsRule));
-        const initial = randomGrid(width, height, new Rng(graph.get<number>(ids.seed2d)), graph.get<number>(ids.density2d));
+        const initialKind = graph.get<InitialCondition2D>(ids.initial2d);
+        const rng = initialKind === "random" ? new Rng(graph.get<number>(ids.seed2d)) : undefined;
+        const customBits = initialKind === "custom" ? graph.get<string>(ids.customGrid2d) : undefined;
+        const initial = initialGrid(width, height, initialKind, rng, graph.get<number>(ids.density2d), customBits);
         const value = spacetimeLifeLike(initial, rule, generations, graph.get<Boundary2D>(ids.boundary2d));
         return { ok: true, value };
       } catch (e) {
@@ -426,6 +459,190 @@ function Voxel3DFrameView({ frame }: { frame: Spacetime3D[number] | null }) {
   );
 }
 
+// The custom initial-state editor (issue #260 item 1) paints a bigger cell
+// than the spacetime renders' own CELL_SIZE_1D/CELL_SIZE_2D (3px/12px) --
+// those are sized for DISPLAYING up to MAX_1D_WIDTH/MAX_2D_WIDTH cells at
+// once, not for being clicked precisely.
+const EDITOR_CELL_SIZE = 14;
+
+/**
+ * Paintable black/white grid editor backing a custom initial condition
+ * (issue #260 item 1): a flat '0'/'1' bitstring (row-major, `width` x
+ * `height`, see custom-grid.ts) that `customGrid1d`/`customGrid2d` in
+ * CaState store directly. Reused for both the 1D editor (`height=1`, a
+ * single paintable strip) and the 2D editor (a full grid) -- rendered via
+ * canvas rather than one DOM node per cell for the same reason the
+ * spacetime views above do (up to MAX_2D_WIDTH x MAX_2D_HEIGHT = 6400 cells
+ * is a lot of buttons to click-and-drag over).
+ */
+function CustomGridEditor({ bits, width, height, onChange }: { bits: string; width: number; height: number; onChange: (bits: string) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const paintingRef = useRef(false);
+  const paintValueRef = useRef<CaCell>(1);
+  const lastIndexRef = useRef<number | null>(null);
+  const canvasWidth = Math.max(1, width) * EDITOR_CELL_SIZE;
+  const canvasHeight = Math.max(1, height) * EDITOR_CELL_SIZE;
+
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    const theme = getThemeColors();
+    const cells = decodeBits(bits, width * height);
+    ctx.fillStyle = theme.surface;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    ctx.fillStyle = theme.ink;
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        if (cells[row * width + col] === 1) ctx.fillRect(col * EDITOR_CELL_SIZE, row * EDITOR_CELL_SIZE, EDITOR_CELL_SIZE, EDITOR_CELL_SIZE);
+      }
+    }
+  }, [bits, width, height, canvasWidth, canvasHeight]);
+
+  function indexAt(clientX: number, clientY: number): number | null {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return pixelToCellIndex(clientX - rect.left, clientY - rect.top, EDITOR_CELL_SIZE, width, height);
+  }
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLCanvasElement>) {
+    const index = indexAt(e.clientX, e.clientY);
+    if (index === null) return;
+    const current = decodeBits(bits, width * height)[index] ?? 0;
+    const value: CaCell = current === 1 ? 0 : 1;
+    paintValueRef.current = value;
+    paintingRef.current = true;
+    lastIndexRef.current = index;
+    onChange(setBit(bits, width * height, index, value));
+  }
+
+  function handlePointerMove(e: ReactPointerEvent<HTMLCanvasElement>) {
+    if (!paintingRef.current) return;
+    const index = indexAt(e.clientX, e.clientY);
+    if (index === null || index === lastIndexRef.current) return;
+    lastIndexRef.current = index;
+    onChange(setBit(bits, width * height, index, paintValueRef.current));
+  }
+
+  function stopPainting() {
+    paintingRef.current = false;
+    lastIndexRef.current = null;
+  }
+
+  return (
+    <div style={{ overflowX: "auto", maxWidth: "100%" }}>
+      <canvas
+        ref={canvasRef}
+        width={canvasWidth}
+        height={canvasHeight}
+        style={{ border: "1px solid var(--border, #ccc)", cursor: "pointer", touchAction: "none", display: "block" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopPainting}
+        onPointerLeave={stopPainting}
+      />
+    </div>
+  );
+}
+
+const RULE_PICKER_CELL_SIZE = 18;
+// Standard Wolfram display order: the neighborhood read as a 3-bit number
+// from most to least significant (111 down to 000), matching every
+// published elementary-CA rule diagram (e.g. Wolfram|Alpha's own "Rule
+// 30" page).
+const NEIGHBORHOOD_DISPLAY_ORDER = [7, 6, 5, 4, 3, 2, 1, 0] as const;
+
+/**
+ * Visual rule picker for 1D elementary rules (issue #260 item 2): one
+ * diagram per possible 3-cell neighborhood -- a row of 3 squares (left,
+ * center, right) with a 4th square below showing the resulting next-state
+ * cell, exactly the "row of 3 + 1 below" diagram the issue itself
+ * describes. Clicking the bottom square flips that neighborhood's outcome
+ * via elementary.ts's own `toggleRuleBit`; this component is otherwise just
+ * an interactive rendering of `ruleTable(ruleNumber)`.
+ */
+function RulePicker1D({ ruleNumber, onChange }: { ruleNumber: number; onChange: (ruleNumber: number) => void }) {
+  const table = ruleTable(ruleNumber);
+  const theme = getThemeColors();
+  const cellStyle = (alive: boolean): CSSProperties => ({
+    width: RULE_PICKER_CELL_SIZE,
+    height: RULE_PICKER_CELL_SIZE,
+    background: alive ? theme.ink : theme.surface,
+    border: "1px solid var(--border, #999)",
+    boxSizing: "border-box" as const,
+  });
+  return (
+    <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+      {NEIGHBORHOOD_DISPLAY_ORDER.map((i) => {
+        const left = (i >> 2) & 1;
+        const center = (i >> 1) & 1;
+        const right = i & 1;
+        const outcome = table[i]!;
+        return (
+          <div key={i} style={{ textAlign: "center" }}>
+            <div style={{ display: "flex" }}>
+              <div style={cellStyle(left === 1)} />
+              <div style={cellStyle(center === 1)} />
+              <div style={cellStyle(right === 1)} />
+            </div>
+            <button
+              type="button"
+              onClick={() => onChange(toggleRuleBit(ruleNumber, i))}
+              aria-label={`Neighborhood ${left}${center}${right} maps to ${outcome === 1 ? "alive" : "dead"} -- click to toggle`}
+              title={`${left}${center}${right} -> ${outcome}`}
+              style={{ ...cellStyle(outcome === 1), width: RULE_PICKER_CELL_SIZE * 3, cursor: "pointer", padding: 0, marginTop: 2 }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Visual rule picker for totalistic B/S rules by neighbor count (issue #260
+ * item 2/3): the practical equivalent of the issue's own "3x3 plane + 10th
+ * square below" idea for 2D life-like rules -- 2^9 = 512 distinct
+ * neighborhoods makes a literal one-diagram-per-neighborhood enumeration
+ * intractable the way 1D's 8-entry `RulePicker1D` is (and 2^26 for 3D is
+ * far worse), so this shows checkboxes for each possible NEIGHBOR COUNT
+ * instead -- exactly what B/S notation itself already encodes, just made
+ * clickable. Reused as-is for 2D (`maxCount=8`) and 3D (`maxCount=26`,
+ * item 3's minimal 3D extension).
+ */
+function BirthSurvivalPicker({
+  birth,
+  survival,
+  maxCount,
+  onToggleBirth,
+  onToggleSurvival,
+}: {
+  birth: ReadonlySet<number>;
+  survival: ReadonlySet<number>;
+  maxCount: number;
+  onToggleBirth: (count: number) => void;
+  onToggleSurvival: (count: number) => void;
+}) {
+  const counts = Array.from({ length: maxCount + 1 }, (_, i) => i);
+  const row = (label: string, active: ReadonlySet<number>, onToggle: (count: number) => void) => (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.35rem", margin: "0.15rem 0" }}>
+      <span style={{ width: "4.5rem", flex: "0 0 auto" }}>{label}:</span>
+      {counts.map((count) => (
+        <label key={count} style={{ display: "flex", flexDirection: "column", alignItems: "center", fontSize: "0.7rem" }}>
+          {count}
+          <input type="checkbox" checked={active.has(count)} onChange={() => onToggle(count)} />
+        </label>
+      ))}
+    </div>
+  );
+  return (
+    <div style={{ margin: "0.5rem 0" }}>
+      {row("Birth", birth, onToggleBirth)}
+      {row("Survival", survival, onToggleSurvival)}
+    </div>
+  );
+}
+
 /** An n-D cellular automata lab (issue #229): 1D elementary rules rendered as a full space-time image, 2D life-like rules animated + rendered as a voxel spacetime stack, 3D totalistic rules animated as a scrubbable voxel scene. */
 export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } = {}) {
   const graph = useCaGraph(cellId);
@@ -439,6 +656,7 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
   const boundary1d = useCell<Boundary1D>(graph, ids.boundary1d);
   const initial1d = useCell<InitialCondition1D>(graph, ids.initial1d);
   const seed1d = useCell<number>(graph, ids.seed1d);
+  const customGrid1d = useCell<string>(graph, ids.customGrid1d);
   const spacetime1dResult = useCell<Result<Spacetime1D>>(graph, ids.spacetime1dResult);
 
   const bsRule = useCell<string>(graph, ids.bsRule);
@@ -446,8 +664,10 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
   const height2d = useCell<number>(graph, ids.height2d);
   const generations2d = useCell<number>(graph, ids.generations2d);
   const boundary2d = useCell<Boundary2D>(graph, ids.boundary2d);
+  const initial2d = useCell<InitialCondition2D>(graph, ids.initial2d);
   const seed2d = useCell<number>(graph, ids.seed2d);
   const density2d = useCell<number>(graph, ids.density2d);
+  const customGrid2d = useCell<string>(graph, ids.customGrid2d);
   const showVoxelView = useCell<boolean>(graph, ids.showVoxelView);
   const spacetime2dResult = useCell<Result<Spacetime2D>>(graph, ids.spacetime2dResult);
 
@@ -555,13 +775,16 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
         ids.boundary1d,
         ids.initial1d,
         ids.seed1d,
+        ids.customGrid1d,
         ids.bsRule,
         ids.width2d,
         ids.height2d,
         ids.generations2d,
         ids.boundary2d,
+        ids.initial2d,
         ids.seed2d,
         ids.density2d,
+        ids.customGrid2d,
         ids.showVoxelView,
       ],
       writeUrl,
@@ -624,11 +847,45 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
 
   const voxelBudget = width2d * height2d * generations2d;
 
+  // Parsed only for the visual rule pickers below -- the actual generation
+  // logic re-parses bsRule/rule3d itself inside the graph.define blocks
+  // above. Wrapped in try/catch (rather than letting parseBSRule's own
+  // Error surface here) because bsRuleInput/rule3dInput can be a
+  // mid-edit-and-momentarily-invalid string while the user is typing in the
+  // raw B/S text field right next to the picker.
+  let life2dRule: LifeLikeRule | null = null;
+  try {
+    life2dRule = parseBSRule(bsRule);
+  } catch {
+    life2dRule = null;
+  }
+  function toggleBirth2d(count: number) {
+    if (life2dRule) updateBsRule(bsRuleToString(toggleBirth(life2dRule, count)));
+  }
+  function toggleSurvival2d(count: number) {
+    if (life2dRule) updateBsRule(bsRuleToString(toggleSurvival(life2dRule, count)));
+  }
+
   const currentGeneration3d =
     spacetime3dResult.ok && spacetime3dResult.value.length > 0
       ? Math.min(spacetime3dResult.value.length - 1, Math.floor(time / STEP_SECONDS))
       : -1;
   const voxelBudget3d = width3d * height3d * depth3d;
+
+  // Same try/catch reasoning as life2dRule above, for the 3D visual rule
+  // picker (issue #260 item 3).
+  let rule3dParsed: Totalistic3DRule | null = null;
+  try {
+    rule3dParsed = parseTotalisticRule3D(rule3d);
+  } catch {
+    rule3dParsed = null;
+  }
+  function toggleBirth3d(count: number) {
+    if (rule3dParsed) updateRule3d(totalisticRule3DToString(toggleBirth3D(rule3dParsed, count)));
+  }
+  function toggleSurvival3d(count: number) {
+    if (rule3dParsed) updateRule3d(totalisticRule3DToString(toggleSurvival3D(rule3dParsed, count)));
+  }
 
   return (
     <div>
@@ -700,6 +957,7 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
               <select value={initial1d} onChange={(e) => graph.set(ids.initial1d, e.target.value as InitialCondition1D)}>
                 <option value="single-cell">Single cell</option>
                 <option value="random">Random</option>
+                <option value="custom">Custom (paint it)</option>
               </select>
             </label>
             {initial1d === "random" && (
@@ -709,6 +967,25 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
             )}
           </div>
           <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{NAMED_ELEMENTARY_RULES.find((r) => r.ruleNumber === ruleNumber)?.description ?? "Custom rule."}</p>
+
+          {initial1d === "custom" && (
+            <div style={{ margin: "0.5rem 0" }}>
+              <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>Click or drag to paint the starting row (black = alive). Width follows the "width" field above.</p>
+              <CustomGridEditor bits={customGrid1d} width={width1d} height={1} onChange={(bits) => graph.set(ids.customGrid1d, bits)} />
+              <button type="button" onClick={() => graph.set(ids.customGrid1d, blankBits(width1d))} style={{ marginTop: "0.35rem" }}>
+                Clear
+              </button>
+            </div>
+          )}
+
+          <details style={{ margin: "0.5rem 0" }}>
+            <summary style={{ cursor: "pointer" }}>Visual rule picker</summary>
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0" }}>
+              Every possible 3-cell neighborhood (left, center, right); click the square below a neighborhood to toggle what it becomes next.
+            </p>
+            <RulePicker1D ruleNumber={ruleNumber} onChange={(n) => graph.set(ids.ruleNumber, n)} />
+          </details>
+
           {!spacetime1dResult.ok && <p style={{ color: "crimson" }}>{spacetime1dResult.message}</p>}
           <canvas ref={canvas1dRef} width={canvas1dWidth} height={canvas1dHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
@@ -756,23 +1033,59 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
               </select>
             </label>
             <label>
-              seed: <input type="number" value={seed2d} onChange={(e) => graph.set(ids.seed2d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+              initial:{" "}
+              <select value={initial2d} onChange={(e) => graph.set(ids.initial2d, e.target.value as InitialCondition2D)}>
+                <option value="random">Random</option>
+                <option value="custom">Custom (paint it)</option>
+              </select>
             </label>
-            <label>
-              density: <input type="number" min={0} max={1} step={0.05} value={density2d} onChange={(e) => graph.set(ids.density2d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
-              <input
-                type="range"
-                aria-label="density slider"
-                min={0}
-                max={1}
-                step={0.05}
-                value={density2d}
-                onChange={(e) => graph.set(ids.density2d, Number(e.target.value))}
-                style={{ verticalAlign: "middle", marginLeft: "0.4rem" }}
-              />
-            </label>
+            {initial2d === "random" && (
+              <>
+                <label>
+                  seed: <input type="number" value={seed2d} onChange={(e) => graph.set(ids.seed2d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+                </label>
+                <label>
+                  density: <input type="number" min={0} max={1} step={0.05} value={density2d} onChange={(e) => graph.set(ids.density2d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+                  <input
+                    type="range"
+                    aria-label="density slider"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={density2d}
+                    onChange={(e) => graph.set(ids.density2d, Number(e.target.value))}
+                    style={{ verticalAlign: "middle", marginLeft: "0.4rem" }}
+                  />
+                </label>
+              </>
+            )}
           </div>
           <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{NAMED_LIFE_LIKE_RULES.find((r) => r.rule === bsRule)?.description ?? "Custom rule."}</p>
+
+          {initial2d === "custom" && (
+            <div style={{ margin: "0.5rem 0" }}>
+              <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>
+                Click or drag to paint the starting grid (black = alive). Size follows the "width"/"height" fields above.
+              </p>
+              <CustomGridEditor bits={customGrid2d} width={width2d} height={height2d} onChange={(bits) => graph.set(ids.customGrid2d, bits)} />
+              <button type="button" onClick={() => graph.set(ids.customGrid2d, blankBits(width2d * height2d))} style={{ marginTop: "0.35rem" }}>
+                Clear
+              </button>
+            </div>
+          )}
+
+          <details style={{ margin: "0.5rem 0" }}>
+            <summary style={{ cursor: "pointer" }}>Visual rule picker</summary>
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0" }}>
+              Birth/survival by live-neighbor count (the "3x3 plane" idea made tractable: 2^9 neighborhoods is too many to enumerate individually, so this is what B/S notation already collapses them to).
+            </p>
+            {life2dRule ? (
+              <BirthSurvivalPicker birth={life2dRule.birth} survival={life2dRule.survival} maxCount={8} onToggleBirth={toggleBirth2d} onToggleSurvival={toggleSurvival2d} />
+            ) : (
+              <p style={{ color: "crimson", fontSize: "0.8rem" }}>Fix the B/S rule text above to use the visual picker.</p>
+            )}
+          </details>
+
           {!spacetime2dResult.ok && <p style={{ color: "crimson" }}>{spacetime2dResult.message}</p>}
 
           <canvas ref={canvas2dRef} width={canvas2dWidth} height={canvas2dHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
@@ -872,6 +1185,22 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
             </label>
           </div>
           <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{NAMED_TOTALISTIC_3D_RULES.find((r) => r.rule === rule3d)?.description ?? "Custom rule."}</p>
+
+          <details style={{ margin: "0.5rem 0" }}>
+            <summary style={{ cursor: "pointer" }}>Visual rule picker</summary>
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0" }}>
+              Birth/survival by live-neighbor count, extended to 3D's 0-26 range (issue #260 item 3 -- a minimal push past 2D, reusing the same checkbox-grid idea rather than a literal 3x3x3-cube-plus-27th-cell diagram).
+            </p>
+            {rule3dParsed ? (
+              <BirthSurvivalPicker birth={rule3dParsed.birth} survival={rule3dParsed.survival} maxCount={26} onToggleBirth={toggleBirth3d} onToggleSurvival={toggleSurvival3d} />
+            ) : (
+              <p style={{ color: "crimson", fontSize: "0.8rem" }}>Fix the B/S rule text above to use the visual picker.</p>
+            )}
+          </details>
+          <p style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+            The custom initial-state editor (above, for 1D/2D) isn't available for 3D yet -- painting a 3D volume needs its own UI (e.g. per-layer slices) and is deferred as future work; the grid is always randomly seeded here.
+          </p>
+
           {voxelBudget3d > MAX_3D_GRID_CELLS && (
             <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
               width x height x depth ({voxelBudget3d}) exceeds the {MAX_3D_GRID_CELLS} cap -- shrink one of them.

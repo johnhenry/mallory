@@ -9,6 +9,7 @@ import {
   singleCellRow,
   spacetimeElementary,
   stepElementary,
+  toggleRuleBit,
   type Cell,
 } from "./elementary.ts";
 
@@ -75,6 +76,38 @@ test("initialRow: dispatches to singleCellRow/randomRow by the initial condition
   assert.deepEqual(initialRow(4, "single-cell"), [0, 0, 1, 0]);
   assert.deepEqual(initialRow(4, "random", new Rng(1)), randomRow(4, new Rng(1)));
   assert.throws(() => initialRow(4, "random"), /requires an rng/);
+});
+
+test("initialRow: 'custom' decodes the given bitstring, and requires customBits", () => {
+  assert.deepEqual(initialRow(5, "custom", undefined, "10100"), [1, 0, 1, 0, 0]);
+  assert.throws(() => initialRow(5, "custom"), /requires customBits/);
+});
+
+test("initialRow: 'custom' pads a short bitstring with 0s, same as custom-grid.ts's own decodeBits", () => {
+  assert.deepEqual(initialRow(5, "custom", undefined, "1"), [1, 0, 0, 0, 0]);
+});
+
+test("toggleRuleBit: flips exactly one bit of the rule number, matching ruleTable before/after", () => {
+  const before = ruleTable(30);
+  const after = ruleTable(toggleRuleBit(30, 0));
+  for (let i = 0; i < 8; i++) {
+    if (i === 0) assert.notEqual(after[i], before[i]);
+    else assert.equal(after[i], before[i]);
+  }
+});
+
+test("toggleRuleBit: toggling twice returns to the original rule number", () => {
+  assert.equal(toggleRuleBit(toggleRuleBit(30, 3), 3), 30);
+});
+
+test("toggleRuleBit: rejects an out-of-range index", () => {
+  assert.throws(() => toggleRuleBit(30, -1), /index/);
+  assert.throws(() => toggleRuleBit(30, 8), /index/);
+});
+
+test("spacetimeElementary: 'custom' initial condition uses the decoded bitstring as row 0", () => {
+  const st = spacetimeElementary(30, 5, 3, "custom", "zero", undefined, "10100");
+  assert.deepEqual(st[0], [1, 0, 1, 0, 0]);
 });
 
 test("spacetimeElementary: rejects non-positive width/generations", () => {
