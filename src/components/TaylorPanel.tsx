@@ -116,12 +116,21 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
     setExprInput(expr);
   }, [expr]);
 
+  // subscribeMany (not subscribeAll, issue #242 -- follow-up to #235) --
+  // getCurrentTaylorState only reads the fixed cell list below (the
+  // committed xMin/xMax/yMin/yMax cells), never ids.liveViewport, so a
+  // subscribeAll here used to re-run writeUrl on every pan/pinch/wheel-zoom
+  // gesture tick even though the URL never encodes the live mid-gesture
+  // viewport.
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeTaylorState(getCurrentTaylorState(graph, ids))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany(
+      [ids.expr, ids.center, ids.order, ids.xMin, ids.xMax, ids.yMin, ids.yMax, ids.limitPoint, ids.limitDirection],
+      writeUrl,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 

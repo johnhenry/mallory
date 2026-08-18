@@ -427,13 +427,21 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   }
 
   // Keep the URL fragment in sync with the live construction log, mirroring OdePanel's pattern.
+  // subscribeMany (not subscribeAll, issue #242 -- follow-up to #235) --
+  // getCurrentGeometryState only reads listIds.opsLog, so a subscribeAll
+  // here used to re-run writeUrl on every pointermove while dragging an
+  // existing point (which writes that point's live position cell, not
+  // opsLog) even though the URL never encodes live drag position. This
+  // panel's own `redraw` effect below is a different, correctly-scoped
+  // case -- it stays subscribeAll (its output genuinely depends on every
+  // object's live position during the same drag).
   useEffect(() => {
     if (!syncUrl) return;
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeGeometryState(getCurrentGeometryState(graph, listIds))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany([listIds.opsLog], writeUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, syncUrl]);
 

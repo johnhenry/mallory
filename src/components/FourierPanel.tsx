@@ -112,12 +112,18 @@ export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {})
     setHarmonicsInput(harmonics);
   }, [harmonics]);
 
+  // subscribeMany (not subscribeAll, issue #242 -- follow-up to #235) --
+  // getCurrentFourierState only reads waveType/harmonics -- a small, fixed
+  // cell list, same shape as ComplexPanel's own #235 fix -- so a
+  // subscribeAll here used to re-run writeUrl on every pan/pinch/wheel-zoom
+  // gesture tick (ids.liveViewport), even though the URL never encodes live
+  // viewport state at all.
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeFourierState(getCurrentFourierState(graph, ids))}`);
     }
     writeUrl();
-    return graph.subscribeAll(writeUrl);
+    return graph.subscribeMany([ids.waveType, ids.harmonics], writeUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
