@@ -8,6 +8,13 @@ export interface NavSection {
   to: string;
   label: string;
   icon: string;
+  /**
+   * Sidebar sub-group heading (issue #248's "side menu organization" item).
+   * Rendered as a `.nav-eyebrow` header above the first item of each run of
+   * consecutive same-`group` entries -- deliberately just a label, not a
+   * collapsible section, to keep this a data-only, low-risk change.
+   */
+  group: "Tools" | "Explore" | "Workspace";
 }
 
 export const NAV_SECTIONS: NavSection[] = [
@@ -15,81 +22,77 @@ export const NAV_SECTIONS: NavSection[] = [
     to: "/",
     label: "Dashboard",
     icon: '<rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>',
+    group: "Tools",
   },
   {
     to: "/calculator",
     label: "Calculator",
     icon: '<rect x="3" y="1.5" width="10" height="13" rx="1.3"/><rect x="4.7" y="3.3" width="6.6" height="2.6" rx="0.5" stroke-width="1.2"/><circle cx="5.4" cy="9" r="0.75" fill="currentColor" stroke="none"/><circle cx="8" cy="9" r="0.75" fill="currentColor" stroke="none"/><circle cx="10.6" cy="9" r="0.75" fill="currentColor" stroke="none"/><circle cx="5.4" cy="11.8" r="0.75" fill="currentColor" stroke="none"/><circle cx="8" cy="11.8" r="0.75" fill="currentColor" stroke="none"/><circle cx="10.6" cy="11.8" r="0.75" fill="currentColor" stroke="none"/>',
+    group: "Tools",
   },
   {
     to: "/graphing",
     label: "Graphing",
     icon: '<path d="M1.5 8.5C3 5 4 12 5.5 8.5S8 3 9.5 8.5s2.5 3.5 5-1" stroke-linecap="round"/>',
+    group: "Tools",
   },
   {
     to: "/3d",
     label: "3D & Surfaces",
     icon: '<path d="M8 1.5 14 4.5v7L8 14.5 2 11.5v-7L8 1.5Z" stroke-linejoin="round"/><path d="M2 4.5 8 7.5m0 0 6-3M8 7.5v7" stroke-linejoin="round"/>',
+    group: "Tools",
   },
   {
     to: "/geo",
     label: "Geometry",
     icon: '<path d="M8 2.2 3 13h10L8 2.2Z" stroke-linejoin="round"/><circle cx="8" cy="6.3" r="0.9" fill="currentColor" stroke="none"/>',
+    group: "Tools",
   },
   {
     to: "/calculus",
     label: "Calculus",
     icon: '<path d="M6.4 2.3c-1.6 0-2 1.3-2 2.6v6c0 1.3-.4 2.6-2 2.6M6.9 6.4h3.6" stroke-linecap="round"/><path d="M11 10.5c.6.8 1.2.8 1.6 0" stroke-linecap="round"/>',
+    group: "Tools",
   },
   {
     to: "/data",
     label: "Data & Algebra",
     icon: '<path d="M2.5 13.5v-4M6.5 13.5v-8M10.5 13.5v-6M14 13.5V4" stroke-linecap="round"/>',
+    group: "Tools",
   },
   {
     to: "/signal",
     label: "Signal",
     icon: '<path d="M1.5 8h2.5l1.5-4.5 2.5 9 1.8-6.5 1.4 2h2.8" stroke-linecap="round" stroke-linejoin="round"/>',
+    group: "Tools",
   },
   {
     to: "/image",
     label: "Image",
     icon: '<rect x="1.8" y="2.5" width="12.4" height="11" rx="1.2"/><circle cx="6" cy="6" r="1.3" fill="currentColor" stroke="none"/><path d="M2.5 12 6.5 8l2.5 2.5 2-2 2.5 2.5" stroke-linecap="round" stroke-linejoin="round"/>',
+    group: "Tools",
   },
   {
     to: "/ml",
     label: "ML",
     icon: '<circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="3.5" r="1.4"/><circle cx="8" cy="12.5" r="1.4"/><circle cx="13" cy="8" r="1.4"/><path d="M4.3 7.3 6.8 4.6M4.3 8.7l2.5 2.9M9.2 4.4 11.8 7M9.2 11.6l2.6-2.7" stroke-linecap="round"/>',
+    group: "Tools",
   },
-  {
-    to: "/practice",
-    label: "Practice",
-    icon: '<path d="M8 1.5 9.6 4.9l3.7.5-2.7 2.6.6 3.7L8 10.1l-3.2 1.6.6-3.7-2.7-2.6 3.7-.5L8 1.5Z" stroke-linejoin="round"/><path d="M6 13.5h4" stroke-linecap="round"/>',
-  },
-  {
-    to: "/notes",
-    label: "Notebook",
-    icon: '<rect x="2.5" y="1.8" width="11" height="12.4" rx="1.2"/><path d="M5 5.2h6M5 8h6M5 10.8h3.6" stroke-linecap="round"/>',
-  },
-  {
-    to: "/gallery",
-    label: "Gallery",
-    icon: '<path d="M8 2.2 9.6 5.6l3.7.5-2.7 2.6.6 3.7L8 10.6l-3.2 1.8.6-3.7-2.7-2.6 3.7-.5L8 2.2Z" stroke-linejoin="round"/>',
-  },
-  {
-    to: "/workspace",
-    label: "Workspace",
-    icon: '<rect x="2" y="3" width="12" height="10" rx="1.2"/><path d="M2 6.2h12" stroke-linecap="round"/><circle cx="4.3" cy="4.6" r="0.5" fill="currentColor" stroke="none"/>',
-  },
+  // Tiles, Streaming, and Cellular automata moved up here (issue #248: these
+  // "feel like they belong earlier/more prominently given how substantial
+  // they've become" relative to their old position after Practice/Notebook/
+  // Gallery/Workspace) and given their own "Explore" sidebar sub-group.
   {
     to: "/tiles",
     label: "Tiles",
     icon: '<rect x="1.8" y="1.8" width="5.4" height="5.4" rx="0.6"/><rect x="8.8" y="1.8" width="5.4" height="5.4" rx="0.6"/><rect x="1.8" y="8.8" width="5.4" height="5.4" rx="0.6"/><rect x="8.8" y="8.8" width="5.4" height="5.4" rx="0.6"/>',
+    group: "Explore",
   },
   {
     to: "/streaming-dataset",
     label: "Streaming",
     icon: '<circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="4.5" r="1.4"/><circle cx="8" cy="11.5" r="1.4"/><circle cx="13" cy="8" r="1.4"/><path d="M4.2 7.3 6.8 5.2M4.2 8.7 6.8 10.8M9.2 5.2 11.8 7.3M9.2 10.8 11.8 8.7" stroke-linecap="round"/>',
+    group: "Explore",
   },
   // "/digit-classifier" deliberately has no entry here anymore (issue #253:
   // folded into "/ml" as its own "Digit Classifier" tab, alongside the
@@ -100,6 +103,31 @@ export const NAV_SECTIONS: NavSection[] = [
     to: "/cellular-automata",
     label: "Cellular automata",
     icon: '<rect x="1.8" y="1.8" width="3.4" height="3.4"/><rect x="6.3" y="1.8" width="3.4" height="3.4"/><rect x="10.8" y="1.8" width="3.4" height="3.4"/><rect x="6.3" y="6.3" width="3.4" height="3.4"/><rect x="1.8" y="10.8" width="3.4" height="3.4"/><rect x="10.8" y="10.8" width="3.4" height="3.4"/>',
+    group: "Explore",
+  },
+  {
+    to: "/practice",
+    label: "Practice",
+    icon: '<path d="M8 1.5 9.6 4.9l3.7.5-2.7 2.6.6 3.7L8 10.1l-3.2 1.6.6-3.7-2.7-2.6 3.7-.5L8 1.5Z" stroke-linejoin="round"/><path d="M6 13.5h4" stroke-linecap="round"/>',
+    group: "Workspace",
+  },
+  {
+    to: "/notes",
+    label: "Notebook",
+    icon: '<rect x="2.5" y="1.8" width="11" height="12.4" rx="1.2"/><path d="M5 5.2h6M5 8h6M5 10.8h3.6" stroke-linecap="round"/>',
+    group: "Workspace",
+  },
+  {
+    to: "/gallery",
+    label: "Gallery",
+    icon: '<path d="M8 2.2 9.6 5.6l3.7.5-2.7 2.6.6 3.7L8 10.6l-3.2 1.8.6-3.7-2.7-2.6 3.7-.5L8 2.2Z" stroke-linejoin="round"/>',
+    group: "Workspace",
+  },
+  {
+    to: "/workspace",
+    label: "Workspace",
+    icon: '<rect x="2" y="3" width="12" height="10" rx="1.2"/><path d="M2 6.2h12" stroke-linecap="round"/><circle cx="4.3" cy="4.6" r="0.5" fill="currentColor" stroke="none"/>',
+    group: "Workspace",
   },
 ];
 

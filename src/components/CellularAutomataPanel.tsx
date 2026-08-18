@@ -929,6 +929,15 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
                 onChange={(e) => graph.set(ids.ruleNumber, Math.max(0, Math.min(255, Number(e.target.value))))}
                 style={{ font: "inherit", width: "5ch" }}
               />
+              <input
+                type="range"
+                aria-label="rule # slider"
+                min={0}
+                max={255}
+                value={ruleNumber}
+                onChange={(e) => graph.set(ids.ruleNumber, Number(e.target.value))}
+                style={{ verticalAlign: "middle", marginLeft: "0.4rem" }}
+              />
             </label>
             <label>
               width: <input type="number" min={1} max={MAX_1D_WIDTH} value={width1d} onChange={(e) => graph.set(ids.width1d, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "6ch" }} />
@@ -1037,6 +1046,16 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
                 </label>
                 <label>
                   density: <input type="number" min={0} max={1} step={0.05} value={density2d} onChange={(e) => graph.set(ids.density2d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+                  <input
+                    type="range"
+                    aria-label="density slider"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={density2d}
+                    onChange={(e) => graph.set(ids.density2d, Number(e.target.value))}
+                    style={{ verticalAlign: "middle", marginLeft: "0.4rem" }}
+                  />
                 </label>
               </>
             )}
@@ -1153,6 +1172,16 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
             </label>
             <label>
               density: <input type="number" min={0} max={1} step={0.05} value={density3d} onChange={(e) => graph.set(ids.density3d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+              <input
+                type="range"
+                aria-label="density slider"
+                min={0}
+                max={1}
+                step={0.05}
+                value={density3d}
+                onChange={(e) => graph.set(ids.density3d, Number(e.target.value))}
+                style={{ verticalAlign: "middle", marginLeft: "0.4rem" }}
+              />
             </label>
           </div>
           <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{NAMED_TOTALISTIC_3D_RULES.find((r) => r.rule === rule3d)?.description ?? "Custom rule."}</p>

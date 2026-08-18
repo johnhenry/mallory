@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { isAgentModeEnabled, setAgentModeEnabled } from "../lib/webmcp-agent-mode.ts";
 import { announceWebMcpReady, useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useSymbolicTools } from "../hooks/use-symbolic-tools.ts";
@@ -18,6 +18,33 @@ function NavIcon({ path }: { path: string }) {
 }
 
 const RELAY_SCRIPT_ID = "webmcp-relay-embed";
+
+/**
+ * Theme cycle order (issue #248): system -> dark -> light -> system. `null`
+ * means "system" (no `data-theme` override, `styles.css`'s
+ * `prefers-color-scheme` media query drives it -- see theme-colors.ts).
+ */
+export function nextTheme(theme: "light" | "dark" | null): "light" | "dark" | null {
+  if (theme === null) return "dark";
+  if (theme === "dark") return "light";
+  return null;
+}
+
+/**
+ * Icon rotation for the 3-state toggle (issue #248): system = base
+ * orientation, dark = 90deg counter-clockwise, light = a further 90deg
+ * counter-clockwise (180deg total). CSS `rotate()` is clockwise-positive, so
+ * counter-clockwise is expressed as negative degrees here.
+ */
+export function themeIconRotation(theme: "light" | "dark" | null): number {
+  if (theme === "dark") return -90;
+  if (theme === "light") return -180;
+  return 0;
+}
+
+export function themeLabel(theme: "light" | "dark" | null): string {
+  return theme ?? "system";
+}
 
 function AppShell() {
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
@@ -101,34 +128,41 @@ function AppShell() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="wordmark">
-          <span className="mono">
+          <Link to="/" className="wordmark-link mono" aria-label="mallory.graph home">
             <span className="wordmark-accent">{"›"}</span> mallory<span className="wordmark-accent">.</span>
             graph
-          </span>
+          </Link>
           <button
             type="button"
             className="theme-toggle"
-            aria-label="Toggle theme"
-            title="Toggle theme"
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            aria-label={`Theme: ${themeLabel(theme)} (click to switch)`}
+            title={`Theme: ${themeLabel(theme)} (click to switch)`}
+            onClick={() => setTheme((t) => nextTheme(t))}
           >
-            {"◐"}
+            <span
+              aria-hidden="true"
+              className="theme-toggle-icon"
+              style={{ display: "inline-block", transform: `rotate(${themeIconRotation(theme)}deg)` }}
+            >
+              {"◐"}
+            </span>
           </button>
         </div>
 
         <nav className="primary-nav">
-          <div className="nav-eyebrow">Tools</div>
-          {NAV_SECTIONS.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className="nav-item"
-              activeProps={{ className: "nav-item active" }}
-              activeOptions={{ exact: item.to === "/" }}
-            >
-              <NavIcon path={item.icon} />
-              {item.label}
-            </Link>
+          {NAV_SECTIONS.map((item, i) => (
+            <Fragment key={item.to}>
+              {item.group !== NAV_SECTIONS[i - 1]?.group && <div className="nav-eyebrow">{item.group}</div>}
+              <Link
+                to={item.to}
+                className="nav-item"
+                activeProps={{ className: "nav-item active" }}
+                activeOptions={{ exact: item.to === "/" }}
+              >
+                <NavIcon path={item.icon} />
+                {item.label}
+              </Link>
+            </Fragment>
           ))}
         </nav>
 

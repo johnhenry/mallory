@@ -373,9 +373,20 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
               angle (deg):{" "}
               <input
                 type="number"
+                min={0}
+                max={360}
                 value={wedgeAngle}
                 onChange={(e) => graph.set(ids.wedgeAngle, e.target.value)}
                 style={{ font: "inherit", width: "6ch" }}
+              />
+              <input
+                type="range"
+                aria-label="wedge angle slider"
+                min={0}
+                max={360}
+                value={Number(wedgeAngle) || 0}
+                onChange={(e) => graph.set(ids.wedgeAngle, e.target.value)}
+                style={{ verticalAlign: "middle", marginLeft: "0.4rem" }}
               />
             </label>
             <label>
@@ -387,6 +398,15 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
                 value={wedgeWidth}
                 onChange={(e) => graph.set(ids.wedgeWidth, e.target.value)}
                 style={{ font: "inherit", width: "6ch" }}
+              />
+              <input
+                type="range"
+                aria-label="wedge width slider"
+                min={0}
+                max={180}
+                value={Number(wedgeWidth) || 0}
+                onChange={(e) => graph.set(ids.wedgeWidth, e.target.value)}
+                style={{ verticalAlign: "middle", marginLeft: "0.4rem" }}
               />
             </label>
           </>

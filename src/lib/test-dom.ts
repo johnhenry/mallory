@@ -23,6 +23,13 @@ export async function setupTestDom() {
   const domWindow = new Window();
   (globalThis as Record<string, unknown>).window = domWindow;
   (globalThis as Record<string, unknown>).document = domWindow.document;
+  // getThemeColors() (and anything else reading resolved CSS custom
+  // properties) calls the bare global `getComputedStyle`, not
+  // `window.getComputedStyle` -- happy-dom only exposes it on its own
+  // `Window` instance, so components that call it during a synchronous
+  // render (not deferred into a canvas-drawing effect) throw
+  // ReferenceError without this.
+  (globalThis as Record<string, unknown>).getComputedStyle = domWindow.getComputedStyle.bind(domWindow);
   // React's act() refuses to run (warns) unless this flag is set.
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
