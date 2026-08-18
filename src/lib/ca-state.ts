@@ -1,6 +1,7 @@
-export type CaDimension = "1d" | "2d";
+export type CaDimension = "1d" | "2d" | "3d";
 export type Boundary1D = "zero" | "wrap";
 export type Boundary2D = "dead" | "wrap";
+export type Boundary3D = "dead" | "wrap";
 export type InitialCondition1D = "single-cell" | "random";
 
 export interface CaStateV1 {
@@ -23,6 +24,18 @@ export interface CaStateV1 {
   density2d: number;
   /** Whether the 3D voxel spacetime-stack view is showing (issue #229's own "2D rule's history is naturally a 3D volume" framing) -- off by default since it's the heavier render. */
   showVoxelView: boolean;
+  // 3D (totalistic) params -- see src/lib/ca/totalistic-3d.ts. The grid is
+  // always randomly seeded (there's no "single cell" analogue that's
+  // interesting in 3D the way 1D's is), so it needs its own density/seed
+  // rather than reusing 2D's initial1d-style toggle.
+  rule3d: string;
+  width3d: number;
+  height3d: number;
+  depth3d: number;
+  generations3d: number;
+  boundary3d: Boundary3D;
+  seed3d: number;
+  density3d: number;
 }
 
 export type CaState = CaStateV1;
@@ -44,6 +57,14 @@ export const DEFAULT_CA_STATE: CaState = {
   seed2d: 1,
   density2d: 0.3,
   showVoxelView: false,
+  rule3d: "B6/S5,6,7",
+  width3d: 10,
+  height3d: 10,
+  depth3d: 10,
+  generations3d: 20,
+  boundary3d: "dead",
+  seed3d: 1,
+  density3d: 0.15,
 };
 
 export function encodeCaState(state: CaState): string {
@@ -60,9 +81,10 @@ export function decodeCaState(fragment: string): CaState | null {
   }
 }
 
-const DIMENSIONS: CaDimension[] = ["1d", "2d"];
+const DIMENSIONS: CaDimension[] = ["1d", "2d", "3d"];
 const BOUNDARIES_1D: Boundary1D[] = ["zero", "wrap"];
 const BOUNDARIES_2D: Boundary2D[] = ["dead", "wrap"];
+const BOUNDARIES_3D: Boundary3D[] = ["dead", "wrap"];
 const INITIAL_CONDITIONS_1D: InitialCondition1D[] = ["single-cell", "random"];
 
 export function isCaStateV1(value: unknown): value is CaStateV1 {
@@ -88,7 +110,16 @@ export function isCaStateV1(value: unknown): value is CaStateV1 {
     BOUNDARIES_2D.includes(v.boundary2d as Boundary2D) &&
     typeof v.seed2d === "number" &&
     typeof v.density2d === "number" &&
-    typeof v.showVoxelView === "boolean"
+    typeof v.showVoxelView === "boolean" &&
+    typeof v.rule3d === "string" &&
+    typeof v.width3d === "number" &&
+    typeof v.height3d === "number" &&
+    typeof v.depth3d === "number" &&
+    typeof v.generations3d === "number" &&
+    typeof v.boundary3d === "string" &&
+    BOUNDARIES_3D.includes(v.boundary3d as Boundary3D) &&
+    typeof v.seed3d === "number" &&
+    typeof v.density3d === "number"
   );
 }
 
