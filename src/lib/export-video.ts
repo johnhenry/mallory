@@ -51,156 +51,35 @@
  * fan-out to coordinate and no need for real queue infra (Redis/BullMQ) yet.
  * Jobs are swept on a timer so a browser that never polls again doesn't leak
  * the rendered buffer forever.
+ *
+ * johnhenry/mallory-graph#210: the scene script used to be built here as an
+ * in-request closure (`buildConstruct(data, roots)`), capturing the live
+ * HTTP request's data directly. It now lives at
+ * `./scenes/expression-2d-scene.ts` as a top-level exported `construct(scene,
+ * params)` -- required so `renderExportToBuffer`'s `renderParallel` call can
+ * shard the render across worker_threads (each worker `import()`s the scene
+ * by file path + export name, so it can't be handed an in-memory closure).
+ * This file now just forwards the raw request `data` through as `params`.
  */
 import { createServerFn } from "@tanstack/react-start";
-import { Symbolic } from "mallory-math";
-import {
-  Axes,
-  alwaysRedraw,
-  Flash,
-  initMathTex,
-  MathTex,
-  rate_functions,
-  renderStill,
-  Transform,
-  ValueTracker,
-} from "ecmanim/node";
+import { renderStill } from "ecmanim/node";
 import { completeExportJob, createExportJob, failExportJob, readExportJob, type ExportVideoResult } from "./export-jobs.ts";
-import { AXIS_COLOR, CURVE_COLOR, LABEL_COLOR, renderExportToBuffer, SQUARE_HALF_SPAN } from "./export-render.ts";
-import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
-import { findRootCrossings, sampleExpr } from "./sample-function.ts";
-import { HIGHLIGHT_PRELUDE_SECONDS, interpolateKeyframes, type Keyframe } from "./timeline.ts";
+import { renderExportToBuffer } from "./export-render.ts";
+import { construct, type Expression2DSceneParams } from "./scenes/expression-2d-scene.ts";
 
 export type { ExportVideoResult } from "./export-jobs.ts";
 
-export interface ExportVideoInput {
-  source: string;
-  /** Current value of every free variable (used as-is for the ones with no track). */
-  params: Record<string, number>;
-  /** Keyframe track per free variable; absent/undefined means "held at params[name]". */
-  tracks: Record<string, Keyframe[] | undefined>;
-  viewport: { xMin: number; xMax: number; yMin: number; yMax: number };
-  duration: number;
-  format: "mp4" | "gif";
-  /** Typeset equation label (LaTeX source, client-generated via exprToLatex). Absent/invalid just omits the label. */
-  latex?: string;
-}
+export type ExportVideoInput = Expression2DSceneParams & { format: "mp4" | "gif" };
 
-let mathTexReady: Promise<unknown> | null = null;
-
-/**
- * Root crossings of the curve in its initial (t=0) state -- the points the
- * Flash prelude highlights. Computed server-side from a fresh sample: the
- * single-pane GraphCanvas that drives this export has no roots cell of its
- * own to pass along (that's a /multi feature), and re-deriving here keeps
- * the export self-contained. Sampling failure (mid-typing garbage) just
- * means no highlights.
- */
-function initialRootCrossings(data: ExportVideoInput): { x: number; y: number }[] {
-  try {
-    const env: Record<string, number> = { ...data.params };
-    for (const [name, track] of Object.entries(data.tracks)) {
-      if (track) env[name] = interpolateKeyframes(track, 0);
-    }
-    const path = sampleExpr(
-      data.source,
-      { min: data.viewport.xMin, max: data.viewport.xMax },
-      400,
-      "x",
-      env,
-      undefined,
-      { min: data.viewport.yMin, max: data.viewport.yMax },
-    );
-    return findRootCrossings(path);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * The shared scene script for both the full render and the single-frame
- * preview -- one construct so the preview can't drift out of sync with what
- * the real export produces.
- */
-function buildConstruct(data: ExportVideoInput, roots: { x: number; y: number }[]) {
-  const { source, params, tracks, viewport, duration } = data;
-  const compiled = Symbolic.compile(preprocessImplicitMultiplication(source));
-
-  return async function construct(scene: any) {
-    // Explicit lengths are load-bearing on ecmanim 0.2.0: without them, an
-    // axis is sized ~one scene unit per data unit, so this app's default
-    // asymmetric yRange (-10..100 = 110 units) ran the axes -- and the curve
-    // plotted against them -- almost entirely off-frame, rendering blank
-    // clips (caught when the 0.0.11 -> 0.2.0 upgrade was verified against
-    // the real viewport, not just a small symmetric scratch range).
-    const axes = new Axes({
-      xRange: [viewport.xMin, viewport.xMax, (viewport.xMax - viewport.xMin) / 10],
-      yRange: [viewport.yMin, viewport.yMax, (viewport.yMax - viewport.yMin) / 10],
-      xLength: 7,
-      yLength: 6.4,
-      axisConfig: { color: AXIS_COLOR },
-      // fontSize shrunk from ecmanim's 0.35 default -- at this export's
-      // SQUARE_HALF_SPAN=4 world-unit half-frame over a 640x640 render
-      // (~80px/unit), 0.35 crowds against the default 11-label-per-axis
-      // tick step above. color left unset so it inherits AXIS_COLOR from
-      // axisConfig (Axes merges axisConfig before xAxisConfig/yAxisConfig).
-      xAxisConfig: { includeNumbers: true, fontSize: 0.24 },
-      yAxisConfig: { includeNumbers: true, fontSize: 0.24 },
-    });
-    const elapsedTracker = new ValueTracker(0);
-
-    const curve = alwaysRedraw(() =>
-      axes.plot(
-        (x: number) => {
-          const elapsed = elapsedTracker.getValue();
-          const env: Record<string, number> = { ...params, x };
-          for (const [name, track] of Object.entries(tracks)) {
-            if (track) env[name] = interpolateKeyframes(track, elapsed);
-          }
-          return compiled(env);
-        },
-        { xRange: [viewport.xMin, viewport.xMax], color: CURVE_COLOR },
-      ),
-    );
-
-    // Not scene.add()'d: a ValueTracker has no visible geometry of its own
-    // (manim's convention too) -- it only needs to be handed to play() to
-    // drive its own interpolation, which alwaysRedraw's curve then reads.
-    scene.add(axes, curve);
-
-    if (data.latex) {
-      try {
-        mathTexReady ??= initMathTex();
-        await mathTexReady;
-        const label = new MathTex(`y = ${data.latex}`, { color: LABEL_COLOR });
-        // The render is square, so toCorner(UL) (which positions against the
-        // full 16:9-ish frame) would land outside the visible crop --
-        // top-center inside the square-safe zone instead, scaled to fit.
-        const maxWidth = SQUARE_HALF_SPAN * 2 - 1;
-        if (label.getWidth() > maxWidth) label.scale(maxWidth / label.getWidth());
-        label.moveTo([0, SQUARE_HALF_SPAN - 0.6, 0]);
-        scene.add(label);
-      } catch {
-        // Bad/unrenderable latex -- the label is a nicety, never fail the export for it.
-      }
-    }
-
-    if (roots.length > 0) {
-      const flashes = roots.map((r) => new Flash(axes.c2p(r.x, r.y)));
-      await scene.play(...flashes, { runTime: HIGHLIGHT_PRELUDE_SECONDS });
-    }
-
-    const target = elapsedTracker.copy();
-    target.setValue(duration);
-    const advanceTime = new Transform(elapsedTracker, target, { rateFunc: rate_functions.linear });
-    await scene.play(advanceTime, { runTime: duration });
-  };
-}
+/** Path `renderParallel`'s workers `import()` the scene from, resolved
+ *  relative to `process.cwd()` -- see export-render.ts's doc comment. */
+const SCENE_MODULE_PATH = "src/lib/scenes/expression-2d-scene.ts";
+const SCENE_EXPORT_NAME = "construct";
 
 async function runExportJob(jobId: string, data: ExportVideoInput) {
   try {
-    const construct = buildConstruct(data, initialRootCrossings(data));
-    completeExportJob(jobId, await renderExportToBuffer(construct, data.format));
+    const { format, ...params } = data;
+    completeExportJob(jobId, await renderExportToBuffer(SCENE_MODULE_PATH, SCENE_EXPORT_NAME, params, format));
   } catch (e) {
     failExportJob(jobId, e);
   }
@@ -238,7 +117,7 @@ export const getExportVideoJob = createServerFn({ method: "GET" })
 export const renderExportPreviewFrame = createServerFn({ method: "POST" })
   .validator((data: ExportVideoInput & { time: number }) => data)
   .handler(async ({ data }): Promise<ExportVideoResult> => {
-    const construct = buildConstruct(data, initialRootCrossings(data));
+    const { format: _format, time, ...params } = data;
 
     const { promises: fs } = await import("node:fs");
     const os = await import("node:os");
@@ -246,13 +125,18 @@ export const renderExportPreviewFrame = createServerFn({ method: "POST" })
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-graph-preview-"));
     const outPath = path.join(dir, "preview.png");
     try {
+      // A single frame is fast enough as a plain in-process call -- no need
+      // for renderParallel's worker sharding (or its file-path/export-name
+      // indirection) here, so this calls the shared `construct` function
+      // directly, same as before #210 just via `params` instead of a closure.
       await renderStill(construct, {
         output: outPath,
-        time: Math.max(0, data.time),
+        time: Math.max(0, time),
         pixelWidth: 320,
         pixelHeight: 320,
         background: "#ffffff",
         verbose: false,
+        params,
       });
       const buffer = await fs.readFile(outPath);
       return { data: buffer.toString("base64"), mimeType: "image/png" };
