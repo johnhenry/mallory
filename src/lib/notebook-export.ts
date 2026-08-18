@@ -16,6 +16,7 @@ const UNSUPPORTED_BLOCK_LABELS: Record<string, string> = {
   geometry: "geometry",
   tensor: "tensor",
   complex: "complex plane",
+  calculator: "calculator",
 };
 
 /**

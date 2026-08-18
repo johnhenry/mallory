@@ -134,7 +134,15 @@ export type NotebookBlockStateV1 =
   | NotebookGeometryBlockStateV1
   | NotebookComplexBlockStateV1
   | NotebookTensorBlockStateV1
-  | NotebookCurveTransformBlockStateV1;
+  | NotebookCurveTransformBlockStateV1
+  /**
+   * A calculator block (issue #255) has no fields beyond its type marker --
+   * `CalculatorPanel` owns no CellGraph cells and persists its own scratch
+   * history to `localStorage` (keyed by block id), not to this document's
+   * URL-hash state, matching that panel's own "not worth a shareable link"
+   * design choice. See `NotebookCalculatorBlock`'s doc comment.
+   */
+  | { type: "calculator" };
 
 export interface NotebookStateV1 {
   v: 1;
@@ -223,6 +231,7 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
     if (typeof b.curveName !== "string" || (b.op !== "derivative" && b.op !== "integral" && b.op !== "difference")) return false;
     return b.curveName2 === undefined || typeof b.curveName2 === "string";
   }
+  if (b.type === "calculator") return true;
   return false;
 }
 

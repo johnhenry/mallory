@@ -132,6 +132,15 @@ test("decodeNotebookState rejects a tensor block with a wrongly-typed splitEnabl
   );
 });
 
+test("round-trips a calculator block (issue #255)", () => {
+  const state = {
+    v: 1 as const,
+    blocks: [{ type: "text" as const, content: "notes" }, { type: "calculator" as const }],
+  };
+  const fragment = encodeNotebookState(state);
+  assert.deepEqual(decodeNotebookState(fragment), state);
+});
+
 test("encoded fragment is URL-fragment-safe (no +, /, or = padding)", () => {
   const fragment = encodeNotebookState(DEFAULT_NOTEBOOK_STATE);
   assert.ok(!/[+/=]/.test(fragment), `fragment contains unsafe characters: ${fragment}`);
