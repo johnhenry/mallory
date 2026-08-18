@@ -23,6 +23,10 @@ export function sampleParametricSurface(
   vDomain: ParametricDomain,
   resolution: number,
   params: Record<string, number> = {},
+  // Unlimited surfaces (issue #251): each row picks its own fill color, so
+  // several overlaid surfaces in one scene stay visually distinguishable --
+  // defaults to the panel's original single-surface blue.
+  color = 0x2563eb,
 ): Mesh[] {
   const compiledX = Symbolic.compile(preprocessImplicitMultiplication(exprX));
   const compiledY = Symbolic.compile(preprocessImplicitMultiplication(exprY));
@@ -43,7 +47,7 @@ export function sampleParametricSurface(
     vDomain.max,
     vStep,
   );
-  const meshes = Graph3DUtils.pointMatrixToMesh3D(matrix, 0x2563eb, 1, 0x93c5fd, 1);
+  const meshes = Graph3DUtils.pointMatrixToMesh3D(matrix, color, 1, 0x93c5fd, 1);
   return meshes.map((mesh) => ({
     ...mesh,
     faces: mesh.faces.filter((face) => face.every((vertex) => Number.isFinite(vertex.x) && Number.isFinite(vertex.y) && Number.isFinite(vertex.z))),

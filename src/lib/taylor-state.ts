@@ -16,20 +16,68 @@ export interface TaylorStateV1 {
   limitDirection: "left" | "right" | "both";
 }
 
-export type TaylorState = TaylorStateV1;
+/** One function row (issue #251, unlimited expressions) -- the expr/center/order/limit half of a v1 state, plus color/visibility. The x/y domain is shared across every row (v2's own `viewport`), same "shared viewport, per-row shape" split cellIdsImplicit's doc comment describes. */
+export interface TaylorRowState {
+  expr: string;
+  center: string;
+  order: string;
+  limitPoint: string;
+  limitDirection: "left" | "right" | "both";
+  color: number;
+  visible: boolean;
+}
 
-export const DEFAULT_TAYLOR_STATE: TaylorState = {
-  v: 1,
+/** v2 (issue #251): unlimited functions sharing one x/y viewport, same "flat single state -> ordered rows" upgrade graph-state.ts's own v2->v3 migration used. */
+export interface TaylorStateV2 {
+  v: 2;
+  xMin: string;
+  xMax: string;
+  yMin: string;
+  yMax: string;
+  rows: TaylorRowState[];
+}
+
+export type TaylorState = TaylorStateV2;
+
+const DEFAULT_ROW: TaylorRowState = {
   expr: "sin(x)",
   center: "0",
   order: "3",
+  limitPoint: "0",
+  limitDirection: "both",
+  color: 0x2563eb,
+  visible: true,
+};
+
+export const DEFAULT_TAYLOR_STATE: TaylorState = {
+  v: 2,
   xMin: "-6",
   xMax: "6",
   yMin: "-2",
   yMax: "2",
-  limitPoint: "0",
-  limitDirection: "both",
+  rows: [DEFAULT_ROW],
 };
+
+function upgradeV1ToV2(v1: TaylorStateV1): TaylorStateV2 {
+  return {
+    v: 2,
+    xMin: v1.xMin,
+    xMax: v1.xMax,
+    yMin: v1.yMin,
+    yMax: v1.yMax,
+    rows: [
+      {
+        expr: v1.expr,
+        center: v1.center,
+        order: v1.order,
+        limitPoint: v1.limitPoint,
+        limitDirection: v1.limitDirection,
+        color: 0x2563eb,
+        visible: true,
+      },
+    ],
+  };
+}
 
 export function encodeTaylorState(state: TaylorState): string {
   return base64UrlEncode(JSON.stringify(state));
@@ -39,7 +87,9 @@ export function encodeTaylorState(state: TaylorState): string {
 export function decodeTaylorState(fragment: string): TaylorState | null {
   try {
     const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
-    return isTaylorStateV1(parsed) ? parsed : null;
+    if (isTaylorStateV2(parsed)) return parsed;
+    if (isTaylorStateV1(parsed)) return upgradeV1ToV2(parsed);
+    return null;
   } catch {
     return null;
   }
@@ -53,6 +103,24 @@ export function isTaylorStateV1(value: unknown): value is TaylorStateV1 {
   if (v.v !== 1 || !LIMIT_DIRECTIONS.includes(v.limitDirection as string)) return false;
   const fields = ["expr", "center", "order", "xMin", "xMax", "yMin", "yMax", "limitPoint"] as const;
   return fields.every((f) => typeof v[f] === "string");
+}
+
+export function isTaylorStateV2(value: unknown): value is TaylorStateV2 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.v !== 2 || !Array.isArray(v.rows)) return false;
+  if (typeof v.xMin !== "string" || typeof v.xMax !== "string" || typeof v.yMin !== "string" || typeof v.yMax !== "string") return false;
+  const fields = ["expr", "center", "order", "limitPoint"] as const;
+  return v.rows.every((row) => {
+    if (typeof row !== "object" || row === null) return false;
+    const r = row as Record<string, unknown>;
+    return (
+      fields.every((f) => typeof r[f] === "string") &&
+      LIMIT_DIRECTIONS.includes(r.limitDirection as string) &&
+      typeof r.color === "number" &&
+      typeof r.visible === "boolean"
+    );
+  });
 }
 
 function base64UrlEncode(input: string): string {
