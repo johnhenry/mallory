@@ -46,6 +46,7 @@ import { getCurrentRegressionState } from "./RegressionPanel.tsx";
 import { getCurrentStatisticsState } from "./StatisticsPanel.tsx";
 import { getCurrentSystemState } from "./SystemSolverPanel.tsx";
 import { type TensorOpType } from "../lib/tensor-block.ts";
+import { NotebookCalculatorBlock } from "./NotebookCalculatorBlock.tsx";
 import { NotebookComplexBlock } from "./NotebookComplexBlock.tsx";
 import { NotebookCurveTransformBlock } from "./NotebookCurveTransformBlock.tsx";
 import { NotebookGeometryBlock } from "./NotebookGeometryBlock.tsx";
@@ -84,7 +85,8 @@ export type Block =
       splitSections: string;
     }
   | { id: string; type: "complex"; initialState: ComplexState }
-  | { id: string; type: "curve-transform"; initialCurveName: string; initialOp: CurveTransformOp; initialCurveName2: string };
+  | { id: string; type: "curve-transform"; initialCurveName: string; initialOp: CurveTransformOp; initialCurveName2: string }
+  | { id: string; type: "calculator" };
 
 /**
  * Seeds a "graph" block's rows/viewport into `graph` (mirrors
@@ -114,11 +116,14 @@ function seedGraphBlock(graph: CellGraph, blockId: string, block: NotebookGraphB
  * restore (issue #238). Either they own no CellGraph cells of their own at
  * all ("text": plain React state; "tensor": literal-grid/op text lives
  * entirely in `Block` fields, its one CellGraph read is by curve NAME, not
- * by block id -- see NotebookTensorBlock's own doc comment), or their
- * CellGraph state is keyed by something other than a mount-scoped block id
- * ("value": `notebookValueCellId(b.name)`), or `hydrateBlocks` itself
- * (re)writes their cells unconditionally on every call, mount or not
- * ("graph", via `seedGraphBlock`).
+ * by block id -- see NotebookTensorBlock's own doc comment; "calculator":
+ * owns no CellGraph cells at all, its scratch history lives in a
+ * blockId-keyed `localStorage` entry instead -- see
+ * NotebookCalculatorBlock's own doc comment), or their CellGraph state is
+ * keyed by something other than a mount-scoped block id ("value":
+ * `notebookValueCellId(b.name)`), or `hydrateBlocks` itself (re)writes
+ * their cells unconditionally on every call, mount or not ("graph", via
+ * `seedGraphBlock`).
  *
  * Every OTHER block type instead wraps a standalone panel (OdePanel,
  * GeometryPanel, ...) that seeds its own `cellIdsX(blockId)`-namespaced
@@ -130,7 +135,7 @@ function seedGraphBlock(graph: CellGraph, blockId: string, block: NotebookGraphB
  * look like a no-op for them. They keep minting a fresh id every hydrate,
  * same as before this fix.
  */
-export const STABLE_ID_BLOCK_TYPES: ReadonlySet<Block["type"]> = new Set(["text", "value", "graph", "tensor"]);
+export const STABLE_ID_BLOCK_TYPES: ReadonlySet<Block["type"]> = new Set(["text", "value", "graph", "tensor", "calculator"]);
 
 /**
  * Disposes of every CellGraph cell owned by a single block -- the shared
@@ -202,7 +207,11 @@ export function disposeBlockCells(graph: CellGraph, block: Block, stillActiveVal
   } else if (block.type === "curve-transform") {
     for (const cellId of Object.values(cellIdsCurveTransform(id))) graph.delete(cellId);
   }
-  // "text"/"tensor": no CellGraph cells of their own -- nothing to dispose.
+  // "text"/"tensor"/"calculator": no CellGraph cells of their own -- nothing
+  // to dispose here. A removed calculator block's own localStorage entry
+  // (keyed by its blockId, see NotebookCalculatorBlock) is left behind --
+  // a small, harmless orphan, the same accepted tradeoff this codebase
+  // already makes for a removed geometry block's per-object cells above.
 }
 
 /**
@@ -271,6 +280,7 @@ export function hydrateBlocks(graph: CellGraph, state: NotebookState, prevBlocks
     if (b.type === "curve-transform") {
       return { id, type: "curve-transform", initialCurveName: b.curveName, initialOp: b.op, initialCurveName2: b.curveName2 ?? "" };
     }
+    if (b.type === "calculator") return { id, type: "calculator" };
     return { id, type: "geometry", initialOps: b.state.ops };
   });
 
@@ -343,6 +353,7 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
         };
       }
       if (block.type === "complex") return { type: "complex", state: getCurrentComplexState(graph, cellIdsComplex(block.id)) };
+      if (block.type === "calculator") return { type: "calculator" };
       if (block.type === "curve-transform") {
         const ids = cellIdsCurveTransform(block.id);
         const curveName = graph.hasValue(ids.curveName) ? graph.get<string>(ids.curveName) : block.initialCurveName;
@@ -591,6 +602,10 @@ export function NotebookPanel() {
     ]);
   }
 
+  function addCalculatorBlock() {
+    setBlocks((prev) => [...prev, { id: crypto.randomUUID(), type: "calculator" }]);
+  }
+
   function updateTensorSource(id: string, source: string) {
     setBlocks((prev) => prev.map((b) => (b.id === id && b.type === "tensor" ? { ...b, source } : b)));
   }
@@ -835,6 +850,18 @@ export function NotebookPanel() {
   });
 
   useModelContextTool({
+    name: "notebook_add_calculator_block",
+    description:
+      'Append a calculator block (a REPL-style "just an answer" arithmetic tool -- float/exact/units/interval modes plus finite Z/nZ structures) to the end of the notebook. Its own scratch history is independent per block, not part of this document\'s saved/undo state.',
+    inputSchema: { type: "object", properties: {} },
+    handler: () => {
+      const id = crypto.randomUUID();
+      setBlocks((prev) => [...prev, { id, type: "calculator" }]);
+      return { id };
+    },
+  });
+
+  useModelContextTool({
     name: "notebook_add_value_block",
     description: 'Append a named value block, referenceable by name (e.g. "k") from any graph block\'s expressions in this notebook. Name must be a single lowercase letter other than x/y (this app\'s expression parser splits any longer name into single-letter variables multiplied together).',
     inputSchema: {
@@ -1036,6 +1063,8 @@ export function NotebookPanel() {
                 initialOp={block.initialOp}
                 initialCurveName2={block.initialCurveName2}
               />
+            ) : block.type === "calculator" ? (
+              <NotebookCalculatorBlock blockId={block.id} />
             ) : (
               <NotebookGeometryBlock graph={graph} blockId={block.id} initialOps={block.initialOps} />
             )}
@@ -1084,6 +1113,9 @@ export function NotebookPanel() {
         </button>
         <button type="button" onClick={addCurveTransformBlock} title="Numeric derivative/integral of a graph row published under a name">
           + Curve transform block
+        </button>
+        <button type="button" onClick={addCalculatorBlock} title="A REPL-style arithmetic calculator with its own independent scratch history">
+          + Calculator block
         </button>
         <button type="button" onClick={forkView} title="Open this exact document in a new tab to explore an alternate path">
           Fork this view

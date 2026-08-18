@@ -17,9 +17,9 @@ const STRUCTURE_OPTIONS: Array<{ label: string; modulus: number | null }> = [
   { label: "Z/11Z", modulus: 11 },
 ];
 
-function loadStoredState(): CalculatorState {
+function loadStoredState(storageKey: string): CalculatorState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return EMPTY_CALCULATOR_STATE;
     const parsed = JSON.parse(raw);
     return {
@@ -39,17 +39,34 @@ function loadStoredState(): CalculatorState {
  * persists to `localStorage` rather than a URL hash or the server-backed
  * Gallery, since a scratch calculation isn't the kind of thing worth a
  * shareable link (mallory-graph's SPA-shell pass).
+ *
+ * `instanceId` (issue #255's notebook calculator block) scopes both the
+ * `localStorage` key and the two WebMCP tool names below it -- omitted
+ * (the standalone `/calculator` route's own call site) preserves the
+ * original fixed key/names exactly, so existing saved history and any
+ * external tooling built against `calculator_evaluate` keep working
+ * unchanged. Passed (a notebook block's own `blockId`) gives each block its
+ * own independent scratch history and its own uniquely-named tools -- the
+ * same `${prefix}_${cellId}`-scoping convention every *other* embeddable
+ * panel already uses (see e.g. `useCellGraphTools`'s callers), which this
+ * panel had never needed before because it was never embeddable. Without
+ * this, two calculator blocks in one notebook (or a block alongside the
+ * standalone page) would silently share one history and collide on tool
+ * registration -- confirmed a real gap during the issue #255 audit, not a
+ * hypothetical.
  */
-export function CalculatorPanel() {
-  const [state, setState] = useState<CalculatorState>(loadStoredState);
+export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
+  const storageKey = instanceId ? `${STORAGE_KEY}:${instanceId}` : STORAGE_KEY;
+  const toolPrefix = instanceId ? `calculator_${instanceId}` : "calculator";
+  const [state, setState] = useState<CalculatorState>(() => loadStoredState(storageKey));
   const [mode, setMode] = useState<CalculatorMode>("float");
   const [modulus, setModulus] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const historyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    localStorage.setItem(storageKey, JSON.stringify(state));
+  }, [state, storageKey]);
 
   useEffect(() => {
     const el = historyRef.current;
@@ -68,7 +85,7 @@ export function CalculatorPanel() {
   // evaluation is indistinguishable from one typed in the UI, including
   // being appended to the same persisted history.
   useModelContextTool({
-    name: "calculator_evaluate",
+    name: `${toolPrefix}_evaluate`,
     description: 'Evaluate an expression, or "name = expr" to save a value for later expressions to reference. Uses the calculator\'s current mode (Float/Exact/GF(n)).',
     inputSchema: {
       type: "object",
@@ -98,7 +115,7 @@ export function CalculatorPanel() {
   });
 
   useModelContextTool({
-    name: "calculator_set_mode",
+    name: `${toolPrefix}_set_mode`,
     description:
       'Set the calculator\'s arithmetic mode: "float", "exact" (fractions), "units" (dimensional analysis, e.g. "5 m/s * 3 s"), "interval" (rigorous bounds, e.g. "sqrt(2)" -> "[1.414..., 1.414...]"), or a finite structure Z/nZ via modulus (2, 5, 7, or 11).',
     inputSchema: {
