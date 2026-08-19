@@ -83,6 +83,35 @@ function seedOde2RowDefault(graph: CellGraph, containerIds: ReturnType<typeof ce
   seedOde2Row(graph, containerIds, rowId, { ...(DEFAULT_ODE2_STATE.rows[0] as Ode2RowState), color: paletteColor(index) });
 }
 
+/**
+ * Pure re-render of the shared ODE2 solutions canvas, extracted from the
+ * redraw effect below so `PngExportButton`'s `renderAtScale` (issue #278)
+ * can call it against a fresh offscreen canvas at any size.
+ */
+export function drawOde2Panel(ctx: CanvasRenderingContext2D, width: number, height: number, graph: CellGraph, containerIds: ReturnType<typeof cellIdsOde2>): void {
+  ctx.clearRect(0, 0, width, height);
+  const live = graph.get<Viewport | null>(containerIds.liveViewport);
+  const vp = live ?? {
+    xMin: Number(graph.get<string>(containerIds.xMin)) || -5,
+    xMax: Number(graph.get<string>(containerIds.xMax)) || 5,
+    yMin: Number(graph.get<string>(containerIds.yMin)) || -5,
+    yMax: Number(graph.get<string>(containerIds.yMax)) || 5,
+  };
+  drawAxes(ctx, vp, width, height);
+  for (const rowId of graph.get<string[]>(containerIds.list)) {
+    const ids = cellIdsOde2(rowId);
+    try {
+      if (!graph.get<boolean>(ids.visible)) continue;
+      const solution = graph.get<SolutionResult>(ids.solution);
+      if (!solution.ok) continue;
+      const color = graph.get<number>(ids.color);
+      drawPath(ctx, { ...solution.path, stroke: { ...solution.path.stroke, color } }, vp, width, height);
+    } catch {
+      // A row whose cells haven't registered yet -- skip it this frame.
+    }
+  }
+}
+
 function useOde2Graph(containerId: string): { graph: CellGraph; containerIds: ReturnType<typeof cellIdsOde2> } {
   // `containerIds` is memoized on the ref itself, not recomputed every
   // render -- see ImplicitPanel's identical `useImplicitGraph` doc comment
@@ -274,30 +303,7 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    function redraw() {
-      if (!ctx) return;
-      ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      const live = graph.get<Viewport | null>(containerIds.liveViewport);
-      const vp = live ?? {
-        xMin: Number(graph.get<string>(containerIds.xMin)) || -5,
-        xMax: Number(graph.get<string>(containerIds.xMax)) || 5,
-        yMin: Number(graph.get<string>(containerIds.yMin)) || -5,
-        yMax: Number(graph.get<string>(containerIds.yMax)) || 5,
-      };
-      drawAxes(ctx, vp, WIDTH, HEIGHT);
-      for (const rowId of graph.get<string[]>(containerIds.list)) {
-        const ids = cellIdsOde2(rowId);
-        try {
-          if (!graph.get<boolean>(ids.visible)) continue;
-          const solution = graph.get<SolutionResult>(ids.solution);
-          if (!solution.ok) continue;
-          const color = graph.get<number>(ids.color);
-          drawPath(ctx, { ...solution.path, stroke: { ...solution.path.stroke, color } }, vp, WIDTH, HEIGHT);
-        } catch {
-          // A row whose cells haven't registered yet -- skip it this frame.
-        }
-      }
-    }
+    const redraw = () => drawOde2Panel(ctx, WIDTH, HEIGHT, graph, containerIds);
     redraw();
     return graph.subscribeAll(redraw);
   }, [graph, containerIds]);
@@ -462,7 +468,13 @@ export function Ode2Panel({ cellId = "ode2-1" }: { cellId?: string } = {}) {
         onWheel={handleWheel}
       />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="ode-2nd-order" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="ode-2nd-order"
+          renderAtScale={(ctx, width, height) => drawOde2Panel(ctx, width, height, graph, containerIds)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton getSvg={getExportSvg} label="ode-2nd-order" />{" "}
         <button type="button" onClick={resetView}>
           Reset view
