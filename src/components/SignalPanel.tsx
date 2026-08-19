@@ -410,6 +410,112 @@ const SIGNAL_TAB_LABELS: Record<SignalTab, string> = {
  * a canvas remounts (a stale ref from before the unmount would otherwise
  * leave it blank until some unrelated cell next changed).
  */
+/** Pure re-render of the waveform canvas, wrapping the already-shared `waveformPlot()` helper. Reused (with different colors) by the resample and filtered-waveform canvases below. */
+export function drawSignalWaveform(ctx: CanvasRenderingContext2D, width: number, height: number, waveformResult: Result<Waveform>, color?: string): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!waveformResult.ok) return;
+  const { points, viewport } = waveformPlot(waveformResult.value);
+  drawAxes(ctx, viewport, width, height);
+  drawPolyline(ctx, points, viewport, width, height, color);
+}
+
+/** Pure re-render of the spectrum canvas, wrapping the already-shared `spectrumPlot()` helper. */
+export function drawSignalSpectrum(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  spectrumResult: Result<AmplitudeSpectrum>,
+  showPeaks: boolean,
+  peaksResult: Result<SpectrumPeak[]>,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!spectrumResult.ok) return;
+  const { points, viewport } = spectrumPlot(spectrumResult.value);
+  drawAxes(ctx, viewport, width, height);
+  drawPolyline(ctx, points, viewport, width, height, "#dc2626");
+  if (showPeaks && peaksResult.ok) {
+    for (const peak of peaksResult.value) {
+      drawPoint(ctx, { x: peak.frequency, y: peak.amplitude }, viewport, width, height, 5, "#16a34a");
+    }
+  }
+}
+
+/** Pure re-render of the spectrogram canvas, wrapping the already-pure `drawSpectrogram()` helper. */
+export function drawSignalSpectrogram(ctx: CanvasRenderingContext2D, width: number, height: number, spectrogramResult: Result<Spectrogram>): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!spectrogramResult.ok) return;
+  drawSpectrogram(ctx, spectrogramResult.value, width, height);
+}
+
+/** Pure re-render of the autocorrelation canvas, wrapping the already-shared `correlationPlot()` helper. */
+export function drawSignalCorrelation(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  showCorrelation: boolean,
+  correlationResult: Result<CorrelationResult>,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!showCorrelation || !correlationResult.ok) return;
+  const { points, viewport } = correlationPlot(correlationResult.value);
+  drawAxes(ctx, viewport, width, height);
+  drawPolyline(ctx, points, viewport, width, height, "#7c3aed");
+  drawPoint(ctx, { x: correlationResult.value.peakLagSeconds, y: correlationResult.value.peakValue }, viewport, width, height, 5, "#16a34a");
+}
+
+/** Pure re-render of the Bode-magnitude canvas, wrapping the already-shared `bodeMagnitudePlot()` helper. */
+export function drawSignalBodeMagnitude(ctx: CanvasRenderingContext2D, width: number, height: number, showFilter: boolean, bodeResult: Result<BodePoint[]>): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!showFilter || !bodeResult.ok) return;
+  const { points, viewport } = bodeMagnitudePlot(bodeResult.value);
+  drawAxes(ctx, viewport, width, height);
+  drawPolyline(ctx, points, viewport, width, height, "#4f46e5");
+}
+
+/** Pure re-render of the Bode-phase canvas, wrapping the already-shared `bodePhasePlot()` helper. */
+export function drawSignalBodePhase(ctx: CanvasRenderingContext2D, width: number, height: number, showFilter: boolean, bodeResult: Result<BodePoint[]>): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!showFilter || !bodeResult.ok) return;
+  const { points, viewport } = bodePhasePlot(bodeResult.value);
+  drawAxes(ctx, viewport, width, height);
+  drawPolyline(ctx, points, viewport, width, height, "#c026d3");
+}
+
+/** Pure re-render of the before/after power-spectral-density canvas -- two overlaid curves, so it doesn't use the single-series `psdPlot()` helper. */
+export function drawSignalPsd(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  showFilter: boolean,
+  psdBeforeResult: Result<PsdPoint[]>,
+  psdAfterResult: Result<PsdPoint[]>,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!showFilter || !psdBeforeResult.ok || !psdAfterResult.ok) return;
+  const before = psdBeforeResult.value;
+  const after = psdAfterResult.value;
+  const maxPower = Math.max(1e-9, ...before.map((p) => p.power), ...after.map((p) => p.power));
+  const maxFreq = Math.max(before[before.length - 1]?.frequencyHz ?? 0, after[after.length - 1]?.frequencyHz ?? 0);
+  const viewport: Viewport = { xMin: 0, xMax: maxFreq, yMin: 0, yMax: maxPower * 1.1 };
+  drawAxes(ctx, viewport, width, height);
+  drawPolyline(
+    ctx,
+    before.map((p) => ({ x: p.frequencyHz, y: p.power })),
+    viewport,
+    width,
+    height,
+    "#94a3b8",
+  );
+  drawPolyline(
+    ctx,
+    after.map((p) => ({ x: p.frequencyHz, y: p.power })),
+    viewport,
+    width,
+    height,
+    "#0d9488",
+  );
+}
+
 export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   const graph = useSignalGraph(cellId);
   useCellGraphTools(`signal_${cellId}`, graph);
@@ -569,142 +675,57 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
   }, [graph]);
 
   useEffect(() => {
-    const canvas = waveformCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = waveformCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
-    if (!waveformResult.ok) return;
-    const { points, viewport } = waveformPlot(waveformResult.value);
-    drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
-    drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
+    drawSignalWaveform(ctx, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, waveformResult);
   }, [waveformResult, activeTab]);
 
   useEffect(() => {
-    const canvas = spectrumCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = spectrumCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, SPECTRUM_WIDTH, SPECTRUM_HEIGHT);
-    if (!spectrumResult.ok) return;
-    const { points, viewport } = spectrumPlot(spectrumResult.value);
-    drawAxes(ctx, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT);
-    drawPolyline(ctx, points, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, "#dc2626");
-    if (showPeaks && peaksResult.ok) {
-      for (const peak of peaksResult.value) {
-        drawPoint(ctx, { x: peak.frequency, y: peak.amplitude }, viewport, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, 5, "#16a34a");
-      }
-    }
+    drawSignalSpectrum(ctx, SPECTRUM_WIDTH, SPECTRUM_HEIGHT, spectrumResult, showPeaks, peaksResult);
   }, [spectrumResult, showPeaks, peaksResult, activeTab]);
 
   useEffect(() => {
-    const canvas = spectrogramCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = spectrogramCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, SPECTROGRAM_WIDTH, SPECTROGRAM_HEIGHT);
-    if (!spectrogramResult.ok) return;
-    drawSpectrogram(ctx, spectrogramResult.value, SPECTROGRAM_WIDTH, SPECTROGRAM_HEIGHT);
+    drawSignalSpectrogram(ctx, SPECTROGRAM_WIDTH, SPECTROGRAM_HEIGHT, spectrogramResult);
   }, [spectrogramResult, activeTab]);
 
   useEffect(() => {
-    const canvas = correlationCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = correlationCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, CORRELATION_WIDTH, CORRELATION_HEIGHT);
-    if (!showCorrelation || !correlationResult.ok) return;
-    const { points, viewport } = correlationPlot(correlationResult.value);
-    drawAxes(ctx, viewport, CORRELATION_WIDTH, CORRELATION_HEIGHT);
-    drawPolyline(ctx, points, viewport, CORRELATION_WIDTH, CORRELATION_HEIGHT, "#7c3aed");
-    drawPoint(
-      ctx,
-      { x: correlationResult.value.peakLagSeconds, y: correlationResult.value.peakValue },
-      viewport,
-      CORRELATION_WIDTH,
-      CORRELATION_HEIGHT,
-      5,
-      "#16a34a",
-    );
+    drawSignalCorrelation(ctx, CORRELATION_WIDTH, CORRELATION_HEIGHT, showCorrelation, correlationResult);
   }, [showCorrelation, correlationResult, activeTab]);
 
   useEffect(() => {
-    const canvas = resampleCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = resampleCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
-    if (!showResample || !resampleResult.ok) return;
-    const { points, viewport } = waveformPlot(resampleResult.value);
-    drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
-    drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0891b2");
+    drawSignalWaveform(ctx, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, showResample ? resampleResult : { ok: false, message: "" }, "#0891b2");
   }, [showResample, resampleResult, activeTab]);
 
   useEffect(() => {
-    const canvas = filteredWaveformCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = filteredWaveformCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
-    if (!showFilter || !filteredWaveformResult.ok) return;
-    const { points, viewport } = waveformPlot(filteredWaveformResult.value);
-    drawAxes(ctx, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
-    drawPolyline(ctx, points, viewport, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, "#0d9488");
+    drawSignalWaveform(ctx, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, showFilter ? filteredWaveformResult : { ok: false, message: "" }, "#0d9488");
   }, [showFilter, filteredWaveformResult, activeTab]);
 
   useEffect(() => {
-    const canvas = bodeMagnitudeCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = bodeMagnitudeCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, BODE_WIDTH, BODE_HEIGHT);
-    if (!showFilter || !bodeResult.ok) return;
-    const { points, viewport } = bodeMagnitudePlot(bodeResult.value);
-    drawAxes(ctx, viewport, BODE_WIDTH, BODE_HEIGHT);
-    drawPolyline(ctx, points, viewport, BODE_WIDTH, BODE_HEIGHT, "#4f46e5");
+    drawSignalBodeMagnitude(ctx, BODE_WIDTH, BODE_HEIGHT, showFilter, bodeResult);
   }, [showFilter, bodeResult, activeTab]);
 
   useEffect(() => {
-    const canvas = bodePhaseCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = bodePhaseCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, BODE_WIDTH, BODE_HEIGHT);
-    if (!showFilter || !bodeResult.ok) return;
-    const { points, viewport } = bodePhasePlot(bodeResult.value);
-    drawAxes(ctx, viewport, BODE_WIDTH, BODE_HEIGHT);
-    drawPolyline(ctx, points, viewport, BODE_WIDTH, BODE_HEIGHT, "#c026d3");
+    drawSignalBodePhase(ctx, BODE_WIDTH, BODE_HEIGHT, showFilter, bodeResult);
   }, [showFilter, bodeResult, activeTab]);
 
   useEffect(() => {
-    const canvas = psdCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = psdCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, PSD_WIDTH, PSD_HEIGHT);
-    if (!showFilter || !psdBeforeResult.ok || !psdAfterResult.ok) return;
-    const before = psdBeforeResult.value;
-    const after = psdAfterResult.value;
-    const maxPower = Math.max(1e-9, ...before.map((p) => p.power), ...after.map((p) => p.power));
-    const maxFreq = Math.max(before[before.length - 1]?.frequencyHz ?? 0, after[after.length - 1]?.frequencyHz ?? 0);
-    const viewport: Viewport = { xMin: 0, xMax: maxFreq, yMin: 0, yMax: maxPower * 1.1 };
-    drawAxes(ctx, viewport, PSD_WIDTH, PSD_HEIGHT);
-    drawPolyline(
-      ctx,
-      before.map((p) => ({ x: p.frequencyHz, y: p.power })),
-      viewport,
-      PSD_WIDTH,
-      PSD_HEIGHT,
-      "#94a3b8",
-    );
-    drawPolyline(
-      ctx,
-      after.map((p) => ({ x: p.frequencyHz, y: p.power })),
-      viewport,
-      PSD_WIDTH,
-      PSD_HEIGHT,
-      "#0d9488",
-    );
+    drawSignalPsd(ctx, PSD_WIDTH, PSD_HEIGHT, showFilter, psdBeforeResult, psdAfterResult);
   }, [showFilter, psdBeforeResult, psdAfterResult, activeTab]);
 
   return (
@@ -843,7 +864,13 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
           <h3>Waveform</h3>
           <canvas ref={waveformCanvasRef} width={WAVEFORM_WIDTH} height={WAVEFORM_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => waveformCanvasRef.current} label="signal-waveform" />{" "}
+            <PngExportButton
+              getCanvas={() => waveformCanvasRef.current}
+              label="signal-waveform"
+              renderAtScale={(ctx, width, height) => drawSignalWaveform(ctx, width, height, waveformResult)}
+              baseWidth={WAVEFORM_WIDTH}
+              baseHeight={WAVEFORM_HEIGHT}
+            />{" "}
             <SvgExportButton
               getSvg={() => {
                 if (!waveformResult.ok) return null;
@@ -867,7 +894,13 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
             style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
           />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="signal-spectrum" />{" "}
+            <PngExportButton
+              getCanvas={() => spectrumCanvasRef.current}
+              label="signal-spectrum"
+              renderAtScale={(ctx, width, height) => drawSignalSpectrum(ctx, width, height, spectrumResult, showPeaks, peaksResult)}
+              baseWidth={SPECTRUM_WIDTH}
+              baseHeight={SPECTRUM_HEIGHT}
+            />{" "}
             <SvgExportButton
               getSvg={() => {
                 if (!spectrumResult.ok) return null;
@@ -966,7 +999,13 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
             style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
           />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => spectrogramCanvasRef.current} label="signal-spectrogram" />
+            <PngExportButton
+              getCanvas={() => spectrogramCanvasRef.current}
+              label="signal-spectrogram"
+              renderAtScale={(ctx, width, height) => drawSignalSpectrogram(ctx, width, height, spectrogramResult)}
+              baseWidth={SPECTROGRAM_WIDTH}
+              baseHeight={SPECTROGRAM_HEIGHT}
+            />
           </div>
         </>
       )}
@@ -1002,7 +1041,13 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
                 style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
               />
               <div style={{ margin: "0.25rem 0" }}>
-                <PngExportButton getCanvas={() => correlationCanvasRef.current} label="signal-correlation" />{" "}
+                <PngExportButton
+                  getCanvas={() => correlationCanvasRef.current}
+                  label="signal-correlation"
+                  renderAtScale={(ctx, width, height) => drawSignalCorrelation(ctx, width, height, showCorrelation, correlationResult)}
+                  baseWidth={CORRELATION_WIDTH}
+                  baseHeight={CORRELATION_HEIGHT}
+                />{" "}
                 <SvgExportButton
                   getSvg={() => {
                     if (!correlationResult.ok) return null;
@@ -1063,7 +1108,15 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
                 style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
               />
               <div style={{ margin: "0.25rem 0" }}>
-                <PngExportButton getCanvas={() => resampleCanvasRef.current} label="signal-resample" />{" "}
+                <PngExportButton
+                  getCanvas={() => resampleCanvasRef.current}
+                  label="signal-resample"
+                  renderAtScale={(ctx, width, height) =>
+                    drawSignalWaveform(ctx, width, height, showResample ? resampleResult : { ok: false, message: "" }, "#0891b2")
+                  }
+                  baseWidth={WAVEFORM_WIDTH}
+                  baseHeight={WAVEFORM_HEIGHT}
+                />{" "}
                 <SvgExportButton
                   getSvg={() => {
                     if (!resampleResult.ok) return null;
@@ -1146,7 +1199,13 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
                 style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
               />
               <div style={{ margin: "0.25rem 0" }}>
-                <PngExportButton getCanvas={() => bodeMagnitudeCanvasRef.current} label="signal-bode-magnitude" />{" "}
+                <PngExportButton
+                  getCanvas={() => bodeMagnitudeCanvasRef.current}
+                  label="signal-bode-magnitude"
+                  renderAtScale={(ctx, width, height) => drawSignalBodeMagnitude(ctx, width, height, showFilter, bodeResult)}
+                  baseWidth={BODE_WIDTH}
+                  baseHeight={BODE_HEIGHT}
+                />{" "}
                 <SvgExportButton
                   getSvg={() => {
                     if (!bodeResult.ok) return null;
@@ -1160,7 +1219,13 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
               <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>Bode plot -- phase (deg)</p>
               <canvas ref={bodePhaseCanvasRef} width={BODE_WIDTH} height={BODE_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
               <div style={{ margin: "0.25rem 0" }}>
-                <PngExportButton getCanvas={() => bodePhaseCanvasRef.current} label="signal-bode-phase" />{" "}
+                <PngExportButton
+                  getCanvas={() => bodePhaseCanvasRef.current}
+                  label="signal-bode-phase"
+                  renderAtScale={(ctx, width, height) => drawSignalBodePhase(ctx, width, height, showFilter, bodeResult)}
+                  baseWidth={BODE_WIDTH}
+                  baseHeight={BODE_HEIGHT}
+                />{" "}
                 <SvgExportButton
                   getSvg={() => {
                     if (!bodeResult.ok) return null;
@@ -1180,7 +1245,15 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
                 style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
               />
               <div style={{ margin: "0.25rem 0" }}>
-                <PngExportButton getCanvas={() => filteredWaveformCanvasRef.current} label="signal-filtered" />{" "}
+                <PngExportButton
+                  getCanvas={() => filteredWaveformCanvasRef.current}
+                  label="signal-filtered"
+                  renderAtScale={(ctx, width, height) =>
+                    drawSignalWaveform(ctx, width, height, showFilter ? filteredWaveformResult : { ok: false, message: "" }, "#0d9488")
+                  }
+                  baseWidth={WAVEFORM_WIDTH}
+                  baseHeight={WAVEFORM_HEIGHT}
+                />{" "}
                 <SvgExportButton
                   getSvg={() => {
                     if (!filteredWaveformResult.ok) return null;
@@ -1199,7 +1272,13 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
               {!psdAfterResult.ok && <p style={{ color: "var(--danger)" }}>{psdAfterResult.message}</p>}
               <canvas ref={psdCanvasRef} width={PSD_WIDTH} height={PSD_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
               <div style={{ margin: "0.25rem 0" }}>
-                <PngExportButton getCanvas={() => psdCanvasRef.current} label="signal-psd" />
+                <PngExportButton
+                  getCanvas={() => psdCanvasRef.current}
+                  label="signal-psd"
+                  renderAtScale={(ctx, width, height) => drawSignalPsd(ctx, width, height, showFilter, psdBeforeResult, psdAfterResult)}
+                  baseWidth={PSD_WIDTH}
+                  baseHeight={PSD_HEIGHT}
+                />
               </div>
             </>
           )}
