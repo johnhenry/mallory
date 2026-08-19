@@ -93,6 +93,20 @@ export function regressionPlot(
   return { viewport, scatterPoints: fit.points, curvePath, outlierPoints };
 }
 
+/**
+ * Pure re-render of the scatter/fit-curve/outliers canvas, extracted from
+ * the draw effect below so `PngExportButton`'s `renderAtScale` (issue
+ * #278) can call it against a fresh offscreen canvas at any size.
+ */
+export function drawRegressionPanel(ctx: CanvasRenderingContext2D, width: number, height: number, viewport: Viewport, plot: RegressionPlot | null): void {
+  ctx.clearRect(0, 0, width, height);
+  drawAxes(ctx, viewport, width, height);
+  if (!plot) return;
+  drawScatter(ctx, plot.scatterPoints, viewport, width, height);
+  if (plot.curvePath) drawPath(ctx, plot.curvePath, viewport, width, height);
+  for (const p of plot.outlierPoints) drawPoint(ctx, p, viewport, width, height, 7, "#f59e0b");
+}
+
 /** Free variables of `modelText` besides `x` -- the nonlinear model's fit parameters. Empty (not thrown) on a mid-typing parse error. */
 function modelParams(modelText: string): string[] {
   try {
@@ -345,12 +359,7 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    drawAxes(ctx, viewport, WIDTH, HEIGHT);
-    if (!plot) return;
-    drawScatter(ctx, plot.scatterPoints, viewport, WIDTH, HEIGHT);
-    if (plot.curvePath) drawPath(ctx, plot.curvePath, viewport, WIDTH, HEIGHT);
-    for (const p of plot.outlierPoints) drawPoint(ctx, p, viewport, WIDTH, HEIGHT, 7, "#f59e0b");
+    drawRegressionPanel(ctx, WIDTH, HEIGHT, viewport, plot);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fit, modelExpr, linearLossMode, huberFitResult, showOutliers]);
 
@@ -518,7 +527,13 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
       </button>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="regression" />{" "}
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="regression"
+          renderAtScale={(ctx, width, height) => drawRegressionPanel(ctx, width, height, viewport, plot)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />{" "}
         <SvgExportButton
           getSvg={() => {
             if (!plot) return null;
