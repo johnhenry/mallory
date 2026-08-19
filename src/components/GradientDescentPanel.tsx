@@ -206,6 +206,45 @@ function useGradientDescentGraph(cellId: string): CellGraph {
  * same TransportControls/useTimelinePlayback machinery GraphCanvas/
  * Graph3DCanvas already use, rather than rendering the whole path at once.
  */
+/**
+ * Pure re-render of the 2D contour canvas, extracted from the draw effect
+ * below so `PngExportButton`'s `renderAtScale` (issue #278) can call it
+ * against a fresh offscreen canvas at any size. Time-varying (the descent
+ * paths animate on `TIME_CELL`), so this captures a single frame's state,
+ * same as every other animated panel's PNG export.
+ */
+export function drawGradientDescentContour(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  contoursResult: Result<ContourLevel[]>,
+  descentResults: Result<OptimizerRun[]>,
+  startX: string,
+  startY: string,
+  time: number,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  drawAxes(ctx, VIEWPORT, width, height);
+  if (contoursResult.ok) {
+    for (const level of contoursResult.value) {
+      drawImplicitCurve(ctx, level.segments, VIEWPORT, width, height, "rgba(148, 163, 184, 0.6)");
+    }
+  }
+  if (descentResults.ok) {
+    for (const run of descentResults.value) {
+      const lastIndex = visiblePathIndex(time, run.result.path.length);
+      drawPolyline(ctx, run.result.path.slice(0, lastIndex + 1), VIEWPORT, width, height, OPTIMIZER_COLORS[run.optimizer]);
+      const current = run.result.path[lastIndex];
+      if (current) drawPoint(ctx, current, VIEWPORT, width, height, 4, OPTIMIZER_COLORS[run.optimizer]);
+    }
+  }
+  const sx = Number(startX);
+  const sy = Number(startY);
+  if (Number.isFinite(sx) && Number.isFinite(sy)) {
+    drawPoint(ctx, { x: sx, y: sy }, VIEWPORT, width, height, 6, "#111827");
+  }
+}
+
 export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = {}) {
   const graph = useGradientDescentGraph(cellId);
   useCellGraphTools(`gradient_descent_${cellId}`, graph);
@@ -216,6 +255,11 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   const surfaceGroupRef = useRef<THREE.Group | null>(null);
   const pathGroupRef = useRef<THREE.Group | null>(null);
   const rendererCanvasRef3D = useRef<HTMLCanvasElement | null>(null);
+  // Populated by the mount-once 3D effect below -- lets `renderThreeAtScale`
+  // (issue #278) build a temporary offscreen renderer around this panel's
+  // existing scene/camera without touching the live on-screen renderer.
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
   const exprText = useCell<string>(graph, ids.exprText);
   const startX = useCell<string>(graph, ids.startX);
@@ -290,26 +334,7 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    drawAxes(ctx, VIEWPORT, WIDTH, HEIGHT);
-    if (contoursResult.ok) {
-      for (const level of contoursResult.value) {
-        drawImplicitCurve(ctx, level.segments, VIEWPORT, WIDTH, HEIGHT, "rgba(148, 163, 184, 0.6)");
-      }
-    }
-    if (descentResults.ok) {
-      for (const run of descentResults.value) {
-        const lastIndex = visiblePathIndex(time, run.result.path.length);
-        drawPolyline(ctx, run.result.path.slice(0, lastIndex + 1), VIEWPORT, WIDTH, HEIGHT, OPTIMIZER_COLORS[run.optimizer]);
-        const current = run.result.path[lastIndex];
-        if (current) drawPoint(ctx, current, VIEWPORT, WIDTH, HEIGHT, 4, OPTIMIZER_COLORS[run.optimizer]);
-      }
-    }
-    const sx = Number(startX);
-    const sy = Number(startY);
-    if (Number.isFinite(sx) && Number.isFinite(sy)) {
-      drawPoint(ctx, { x: sx, y: sy }, VIEWPORT, WIDTH, HEIGHT, 6, "#111827");
-    }
+    drawGradientDescentContour(ctx, WIDTH, HEIGHT, contoursResult, descentResults, startX, startY, time);
   }, [contoursResult, descentResults, startX, startY, time]);
 
   // Mount-once 3D scene setup (issue #33's remaining scope: the racing
@@ -328,6 +353,8 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
 
     const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.1, 1000);
     camera.position.set(8, 8, 8);
+    sceneRef.current = scene;
+    cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(WIDTH, HEIGHT, false);
@@ -372,6 +399,8 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
       surfaceGroupRef.current = null;
       pathGroupRef.current = null;
       rendererCanvasRef3D.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
     };
   }, []);
 
@@ -557,8 +586,26 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
         <div ref={containerRef3D} style={{ position: "relative", width: WIDTH, height: HEIGHT, maxWidth: "100%", border: "1px solid var(--border)" }} />
       </div>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="gradient-descent" />
-        <PngExportButton getCanvas={() => rendererCanvasRef3D.current} label="gradient-descent-3d" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="gradient-descent"
+          renderAtScale={(ctx, width, height) => drawGradientDescentContour(ctx, width, height, contoursResult, descentResults, startX, startY, time)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
+        <PngExportButton
+          getCanvas={() => rendererCanvasRef3D.current}
+          label="gradient-descent-3d"
+          renderThreeAtScale={(canvas, width, height) => {
+            if (!sceneRef.current || !cameraRef.current) return;
+            const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(width, height, false);
+            renderer.render(sceneRef.current, cameraRef.current);
+            renderer.dispose();
+          }}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
         3D view: drag to orbit, scroll to zoom -- the racing paths animate on the surface with the same transport clock as the contour view.
