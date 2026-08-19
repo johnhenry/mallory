@@ -1037,7 +1037,7 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
           </details>
 
           {!spacetime1dResult.ok && <p style={{ color: "crimson" }}>{spacetime1dResult.message}</p>}
-          <canvas ref={canvas1dRef} width={canvas1dWidth} height={canvas1dHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <canvas ref={canvas1dRef} width={canvas1dWidth} height={canvas1dHeight} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton getCanvas={() => canvas1dRef.current} label="ca-elementary" />
           </div>
@@ -1138,7 +1138,7 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
 
           {!spacetime2dResult.ok && <p style={{ color: "crimson" }}>{spacetime2dResult.message}</p>}
 
-          <canvas ref={canvas2dRef} width={canvas2dWidth} height={canvas2dHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <canvas ref={canvas2dRef} width={canvas2dWidth} height={canvas2dHeight} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton getCanvas={() => canvas2dRef.current} label="ca-life-like" />
           </div>

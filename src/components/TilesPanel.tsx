@@ -568,7 +568,7 @@ function SquareTilePaletteEntry({ tile }: { tile: Tile }) {
     ctx.textBaseline = "middle";
     ctx.fillText(tile.id, PALETTE_SQUARE_SIZE / 2, PALETTE_SQUARE_SIZE / 2);
   }, [tile]);
-  return <canvas ref={canvasRef} width={PALETTE_SQUARE_SIZE} height={PALETTE_SQUARE_SIZE} style={{ border: "1px solid #ccc" }} />;
+  return <canvas ref={canvasRef} width={PALETTE_SQUARE_SIZE} height={PALETTE_SQUARE_SIZE} style={{ border: "1px solid var(--border)" }} />;
 }
 
 const PALETTE_HEX_SIZE = 26;
@@ -596,7 +596,7 @@ function HexTilePaletteEntry({ tile }: { tile: HexTile }) {
     ctx.textBaseline = "middle";
     ctx.fillText(tile.id, cx, cy);
   }, [tile]);
-  return <canvas ref={canvasRef} width={PALETTE_HEX_CANVAS_SIZE} height={PALETTE_HEX_CANVAS_SIZE} style={{ border: "1px solid #ccc" }} />;
+  return <canvas ref={canvasRef} width={PALETTE_HEX_CANVAS_SIZE} height={PALETTE_HEX_CANVAS_SIZE} style={{ border: "1px solid var(--border)" }} />;
 }
 
 const PALETTE_TRI_WIDTH = 44;
@@ -639,8 +639,8 @@ function TriTilePaletteEntry({ tile }: { tile: TriTile }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" }}>
       <div style={{ display: "flex", gap: "0.15rem" }}>
-        <canvas ref={upRef} width={PALETTE_TRI_WIDTH} height={PALETTE_TRI_HEIGHT} style={{ border: "1px solid #ccc" }} />
-        <canvas ref={downRef} width={PALETTE_TRI_WIDTH} height={PALETTE_TRI_HEIGHT} style={{ border: "1px solid #ccc" }} />
+        <canvas ref={upRef} width={PALETTE_TRI_WIDTH} height={PALETTE_TRI_HEIGHT} style={{ border: "1px solid var(--border)" }} />
+        <canvas ref={downRef} width={PALETTE_TRI_WIDTH} height={PALETTE_TRI_HEIGHT} style={{ border: "1px solid var(--border)" }} />
       </div>
       <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>as up / as down</span>
     </div>
@@ -1391,7 +1391,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
           )}
           {solveStatus === "error" && <p style={{ color: "crimson" }}>{solveError}</p>}
 
-          <canvas ref={canvasRef} width={canvasWidth} height={canvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <canvas ref={canvasRef} width={canvasWidth} height={canvasHeight} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton getCanvas={() => canvasRef.current} label="tiles" />
           </div>
@@ -1476,7 +1476,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                   ref={diffractionCanvasRef}
                   width={DIFFRACTION_CANVAS_SIZE}
                   height={DIFFRACTION_CANVAS_SIZE}
-                  style={{ border: "1px solid #ccc", maxWidth: "100%" }}
+                  style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
                 />
               </div>
               <div>
@@ -1487,7 +1487,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                   ref={autocorrelationCanvasRef}
                   width={DIFFRACTION_CANVAS_SIZE}
                   height={DIFFRACTION_CANVAS_SIZE}
-                  style={{ border: "1px solid #ccc", maxWidth: "100%" }}
+                  style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
                 />
               </div>
             </div>
@@ -1535,7 +1535,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                 </p>
                 <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
                   <div>
-                    <canvas ref={relaxCanvasRef} width={relaxCanvasWidth} height={relaxCanvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+                    <canvas ref={relaxCanvasRef} width={relaxCanvasWidth} height={relaxCanvasHeight} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
                     <div style={{ margin: "0.25rem 0" }}>
                       <PngExportButton getCanvas={() => relaxCanvasRef.current} label="tiles-relax" />
                     </div>
@@ -1546,7 +1546,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                       ref={relaxEnergyCanvasRef}
                       width={RELAX_ENERGY_WIDTH}
                       height={RELAX_ENERGY_HEIGHT}
-                      style={{ border: "1px solid #ccc", maxWidth: "100%" }}
+                      style={{ border: "1px solid var(--border)", maxWidth: "100%" }}
                     />
                     <div style={{ margin: "0.25rem 0" }}>
                       <PngExportButton getCanvas={() => relaxEnergyCanvasRef.current} label="tiles-relax-energy" />
@@ -1597,7 +1597,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
           </div>
           {!hexTileSetResult.ok && <p style={{ color: "crimson" }}>{hexTileSetResult.message}</p>}
           {hexSolveStatus === "error" && <p style={{ color: "crimson" }}>{hexSolveError}</p>}
-          <canvas ref={hexCanvasRef} width={hexCanvasWidth} height={hexCanvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <canvas ref={hexCanvasRef} width={hexCanvasWidth} height={hexCanvasHeight} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton getCanvas={() => hexCanvasRef.current} label="tiles-hex" />
           </div>
@@ -1644,7 +1644,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
           </div>
           {!triTileSetResult.ok && <p style={{ color: "crimson" }}>{triTileSetResult.message}</p>}
           {triSolveStatus === "error" && <p style={{ color: "crimson" }}>{triSolveError}</p>}
-          <canvas ref={triCanvasRef} width={triCanvasWidth} height={triCanvasHeight} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <canvas ref={triCanvasRef} width={triCanvasWidth} height={triCanvasHeight} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton getCanvas={() => triCanvasRef.current} label="tiles-tri" />
           </div>
