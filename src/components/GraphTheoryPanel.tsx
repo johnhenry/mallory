@@ -33,7 +33,8 @@ import {
 } from "../lib/graph-theory-state.ts";
 import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
-import { drawHeatmap } from "../lib/heatmap.ts";
+import { frobeniusNormalForm, type FrobeniusResult } from "../lib/frobenius.ts";
+import { drawFrobeniusOverlay, drawHeatmap } from "../lib/heatmap.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -315,6 +316,23 @@ function CondensationView({ condensedGraph, members }: { condensedGraph: Graph<s
 }
 
 /**
+ * Pure re-render of the Frobenius normal form heatmap (issue #297 item 4):
+ * the SAME `drawHeatmap` the plain adjacency-matrix view uses, called on
+ * `frobenius.permuted` with vertex labels reordered by `frobenius.order`
+ * instead of the original order, plus `drawFrobeniusOverlay` on top --
+ * block outlines and a shaded below-diagonal zero region, so the "upper
+ * block-triangular" claim is something you can SEE, not just read in the
+ * verdict text next to it.
+ */
+export function drawFrobeniusHeatmap(ctx: CanvasRenderingContext2D, width: number, height: number, frobenius: FrobeniusResult | null, originalOrder: readonly string[]): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!frobenius) return;
+  const permutedLabels = frobenius.order.map((i) => originalOrder[i] ?? String(i));
+  drawHeatmap(ctx, frobenius.permuted, permutedLabels, width, height);
+  drawFrobeniusOverlay(ctx, frobenius.permuted.length, width, height, frobenius.blocks);
+}
+
+/**
  * Pure re-render of the main graph canvas, extracted from the draw effect
  * below so `PngExportButton`'s `renderAtScale` (issue #278) can call it
  * against a fresh offscreen canvas at any size.
@@ -451,6 +469,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   });
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const heatmapCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frobeniusCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const edgeListText = useCell<string>(graph, ids.edgeListText);
   const directed = useCell<boolean>(graph, ids.directed);
@@ -469,6 +488,23 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
     directed && analysis.ok && graphResult.ok && analysis.value.stronglyConnectedComponents.length > 1
       ? buildCondensationGraph(graphResult.value, analysis.value.stronglyConnectedComponents)
       : null;
+  // Frobenius normal form (issue #297 item 4). frobeniusNormalForm's own
+  // convention is "0 = no edge" (any nonnegative matrix), but
+  // toAdjacencyMatrix()'s is "Infinity = no edge, 0 reserved for the
+  // diagonal's own no-self-loop default" (mallory-math's shortest-path-
+  // distance convention, a different one) -- remapped here rather than
+  // changed at the source, since toAdjacencyMatrix's Infinity convention is
+  // exactly right for the heatmap's own OTHER use (a real 0-weight edge
+  // must render as a distinct cell from "no edge", per heatmap.ts's own
+  // doc comment) and this remap is local to the Frobenius view alone. A
+  // negative edge weight (this panel allows arbitrary weights) still
+  // counts as "an edge exists" under frobeniusNormalForm's `!== 0` check,
+  // which is the only thing that matters for connectivity/reducibility --
+  // the actual weight value only affects the heatmap's own color scale,
+  // not the block structure.
+  const frobenius: FrobeniusResult | null = analysis.ok
+    ? frobeniusNormalForm(analysis.value.adjacencyMatrix.matrix.map((row) => row.map((v) => (Number.isFinite(v) ? v : 0))))
+    : null;
   const startVertex = useCell<string>(graph, ids.startVertex);
   const endVertex = useCell<string>(graph, ids.endVertex);
   const algorithm = useCell<Algorithm>(graph, ids.algorithm);
@@ -533,6 +569,12 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
     const { matrix, order } = analysis.value.adjacencyMatrix;
     drawHeatmap(ctx, matrix, order, HEATMAP_SIZE, HEATMAP_SIZE);
   }, [analysis]);
+
+  useEffect(() => {
+    const ctx = frobeniusCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    drawFrobeniusHeatmap(ctx, HEATMAP_SIZE, HEATMAP_SIZE, frobenius, analysis.ok ? analysis.value.adjacencyMatrix.order : []);
+  }, [frobenius, analysis]);
 
   // Interactive editor (issue #24's remaining scope, item 1): click empty
   // canvas space to add a vertex; drag from one vertex to another to add a
@@ -732,6 +774,32 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
         </>
       ) : (
         <p style={{ color: "crimson" }}>{analysis.message}</p>
+      )}
+
+      <h3>Frobenius normal form</h3>
+      {analysis.ok && frobenius ? (
+        <>
+          <p>
+            {frobenius.irreducible
+              ? "Irreducible -- the whole graph is one strongly connected component, so there's no nontrivial block-triangular structure to show beyond the single block below."
+              : `Reducible into ${frobenius.blocks.length} diagonal blocks (source-to-sink order). The shaded region below the diagonal blocks is guaranteed all-zero -- no edges run from a later component back to an earlier one.`}
+          </p>
+          <canvas ref={frobeniusCanvasRef} width={HEATMAP_SIZE} height={HEATMAP_SIZE} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton
+              getCanvas={() => frobeniusCanvasRef.current}
+              label="graph-theory-frobenius"
+              renderAtScale={(ctx, width, height) => drawFrobeniusHeatmap(ctx, width, height, frobenius, analysis.value.adjacencyMatrix.order)}
+              baseWidth={HEATMAP_SIZE}
+              baseHeight={HEATMAP_SIZE}
+            />
+          </div>
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+            Relabeling (the permutation P as "vertex → new position"): {frobenius.order.map((origIdx, i) => `${analysis.value.adjacencyMatrix.order[origIdx]} → ${i}`).join(", ")}
+          </p>
+        </>
+      ) : (
+        <p style={{ color: "crimson" }}>{analysis.ok ? "" : analysis.message}</p>
       )}
     </div>
   );
