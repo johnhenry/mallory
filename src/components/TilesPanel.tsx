@@ -433,6 +433,103 @@ function CubeGridView({ grid }: { grid: CubeGrid | null }) {
   );
 }
 
+const PALETTE_SQUARE_SIZE = 56;
+
+/** A single square tile's own edge-colored shape, apart from the solved grid -- so a tile's matching constraints can be read off its definition directly. */
+function SquareTilePaletteEntry({ tile }: { tile: Tile }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, PALETTE_SQUARE_SIZE, PALETTE_SQUARE_SIZE);
+    ctx.fillStyle = tileColor(tile.id);
+    ctx.fillRect(0, 0, PALETTE_SQUARE_SIZE, PALETTE_SQUARE_SIZE);
+    drawSquareTileEdges(ctx, 0, 0, PALETTE_SQUARE_SIZE, tile);
+    ctx.fillStyle = "#fff";
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(tile.id, PALETTE_SQUARE_SIZE / 2, PALETTE_SQUARE_SIZE / 2);
+  }, [tile]);
+  return <canvas ref={canvasRef} width={PALETTE_SQUARE_SIZE} height={PALETTE_SQUARE_SIZE} style={{ border: "1px solid #ccc" }} />;
+}
+
+const PALETTE_HEX_SIZE = 26;
+const PALETTE_HEX_CANVAS_SIZE = PALETTE_HEX_SIZE * 2 + 10;
+
+/** A single hex tile's own edge-colored shape, apart from the solved grid. */
+function HexTilePaletteEntry({ tile }: { tile: HexTile }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, PALETTE_HEX_CANVAS_SIZE, PALETTE_HEX_CANVAS_SIZE);
+    const cx = PALETTE_HEX_CANVAS_SIZE / 2;
+    const cy = PALETTE_HEX_CANVAS_SIZE / 2;
+    const corners = hexCorners(cx, cy, PALETTE_HEX_SIZE);
+    ctx.beginPath();
+    corners.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.fillStyle = tileColor(tile.id);
+    ctx.fill();
+    drawHexTileEdges(ctx, corners, tile);
+    ctx.fillStyle = "#fff";
+    ctx.font = "11px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(tile.id, cx, cy);
+  }, [tile]);
+  return <canvas ref={canvasRef} width={PALETTE_HEX_CANVAS_SIZE} height={PALETTE_HEX_CANVAS_SIZE} style={{ border: "1px solid #ccc" }} />;
+}
+
+const PALETTE_TRI_WIDTH = 44;
+const PALETTE_TRI_HEIGHT = 44;
+
+/**
+ * A single tri tile's own edge-colored shape, apart from the solved grid --
+ * rendered BOTH as "up" and as "down" (two small triangles, not one),
+ * since a `TriTile` always carries all 4 possible edges (`left`/`right`/
+ * `top`/`bottom`) but only 3 apply at any one placement (`top` when the
+ * grid cell it lands on is "up", `bottom` when "down" -- see
+ * tri-tile-model.ts's own doc comment). Showing only one orientation would
+ * hide whichever of `top`/`bottom` doesn't apply there.
+ */
+function TriTilePaletteEntry({ tile }: { tile: TriTile }) {
+  const upRef = useRef<HTMLCanvasElement | null>(null);
+  const downRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    for (const [ref, orientation] of [
+      [upRef, "up"],
+      [downRef, "down"],
+    ] as const) {
+      const ctx = ref.current?.getContext("2d");
+      if (!ctx) continue;
+      ctx.clearRect(0, 0, PALETTE_TRI_WIDTH, PALETTE_TRI_HEIGHT);
+      const corners = triCorners(0, 0, PALETTE_TRI_WIDTH, PALETTE_TRI_HEIGHT, orientation);
+      ctx.beginPath();
+      corners.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.closePath();
+      ctx.fillStyle = tileColor(tile.id);
+      ctx.fill();
+      drawTriTileEdges(ctx, corners, orientation, tile);
+      ctx.fillStyle = "#fff";
+      ctx.font = "9px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(tile.id, PALETTE_TRI_WIDTH / 2, orientation === "up" ? PALETTE_TRI_HEIGHT * 0.65 : PALETTE_TRI_HEIGHT * 0.35);
+    }
+  }, [tile]);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" }}>
+      <div style={{ display: "flex", gap: "0.15rem" }}>
+        <canvas ref={upRef} width={PALETTE_TRI_WIDTH} height={PALETTE_TRI_HEIGHT} style={{ border: "1px solid #ccc" }} />
+        <canvas ref={downRef} width={PALETTE_TRI_WIDTH} height={PALETTE_TRI_HEIGHT} style={{ border: "1px solid #ccc" }} />
+      </div>
+      <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>as up / as down</span>
+    </div>
+  );
+}
+
 /** A Wang tile laboratory: edit a tile set as text, pick a solver variant, and watch the backtracking search play back step by step (issue #92 M1). */
 export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const graph = useTilesGraph(cellId);
@@ -1128,6 +1225,16 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
               </button>
             </div>
           </div>
+          {tileSetResult.ok && (
+            <div style={{ margin: "0.5rem 0" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>Tile palette (each tile on its own, apart from the grid)</label>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                {tileSetResult.value.tiles.map((t) => (
+                  <SquareTilePaletteEntry key={t.id} tile={t} />
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
             <label>
               width: <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
@@ -1353,6 +1460,16 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
               </button>
             </div>
           </div>
+          {hexTileSetResult.ok && (
+            <div style={{ margin: "0.5rem 0" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>Tile palette (each tile on its own, apart from the grid)</label>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                {hexTileSetResult.value.tiles.map((t) => (
+                  <HexTilePaletteEntry key={t.id} tile={t} />
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
             <label>
               width (q): <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
@@ -1390,6 +1507,16 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
               </button>
             </div>
           </div>
+          {triTileSetResult.ok && (
+            <div style={{ margin: "0.5rem 0" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>Tile palette (each tile on its own, apart from the grid)</label>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                {triTileSetResult.value.tiles.map((t) => (
+                  <TriTilePaletteEntry key={t.id} tile={t} />
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
             <label>
               width: <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
