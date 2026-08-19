@@ -33,3 +33,24 @@ export function hexCorners(cx: number, cy: number, size: number): Point[] {
   }
   return corners;
 }
+
+/**
+ * `HexDirection` `d`'s corresponding edge, as an index into `hexCorners`'s
+ * own return value: the segment from `corners[hexEdgeIndex(d)]` to
+ * `corners[(hexEdgeIndex(d) + 1) % 6]`. Derived (not guessed) by comparing
+ * each direction's pixel-offset angle (from `HEX_AXIAL_DIRECTIONS` via
+ * `hexCenter`) against each edge's outward-normal angle (the average of its
+ * two corner angles, `60*i` degrees for edge `i` in this same canvas-y-down
+ * convention): direction `d`'s edge index is `(6 - d) % 6` for `d` in 1..5,
+ * and `0` for `d = 0` -- verified against a live neighbor pair in this
+ * module's own test file, not just angle arithmetic.
+ */
+export function hexEdgeIndex(direction: number): number {
+  return (6 - direction) % 6;
+}
+
+/** The 2 endpoint pixels of `HexDirection` `d`'s edge on a hexagon whose corners are `corners` (as returned by `hexCorners`). */
+export function hexEdgeSegment(corners: readonly Point[], direction: number): [Point, Point] {
+  const i = hexEdgeIndex(direction);
+  return [corners[i]!, corners[(i + 1) % 6]!];
+}
