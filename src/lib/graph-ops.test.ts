@@ -135,3 +135,19 @@ test("analyzeGraph: adjacency matrix has 0 on the diagonal and Infinity for non-
   const aIdx = order.indexOf("A");
   assert.equal(matrix[aIdx]?.[aIdx], 0);
 });
+
+test("analyzeGraph: stronglyConnectedComponents separates a directed graph that isn't strongly connected", () => {
+  // A->B->A (mutually reachable) and a separate C with an edge FROM the
+  // cycle but no way back -- 2 SCCs: {A,B} and {C}.
+  const g = parseEdgeListText("A B\nB A\nB C", true);
+  const analysis = analyzeGraph(g);
+  assert.equal(analysis.stronglyConnectedComponents.length, 2);
+  const sizes = analysis.stronglyConnectedComponents.map((c) => c.length).sort();
+  assert.deepEqual(sizes, [1, 2]);
+});
+
+test("analyzeGraph: stronglyConnectedComponents collapses to a single component for a directed cycle (fully strongly connected)", () => {
+  const g = parseEdgeListText("A B\nB C\nC A", true);
+  const analysis = analyzeGraph(g);
+  assert.equal(analysis.stronglyConnectedComponents.length, 1);
+});

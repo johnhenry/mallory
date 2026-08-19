@@ -179,6 +179,29 @@ function useGraphTheoryGraph(cellId: string): CellGraph {
 }
 
 /**
+ * Deterministic strongly-connected-component index -> fill color, same
+ * hash-based approach as `TilesPanel.tsx`'s own `tileColor` (a different
+ * hash constant so component-index hues don't visually alias tile-id
+ * hues in any shared context). A distinct hue per component is the whole
+ * point (issue #297) -- being able to see at a glance which vertices are
+ * mutually reachable and which aren't, before reading the "Strongly
+ * connected components" summary text at all.
+ */
+export function sccColor(componentIndex: number): string {
+  const hue = (componentIndex * 137.5) % 360; // golden-angle spacing -- consecutive indices land far apart in hue, unlike componentIndex*some-small-step which clusters
+  return `hsl(${hue}, 60%, 45%)`;
+}
+
+/** Builds a vertex -> strongly-connected-component-index lookup from `analyzeGraph`'s own `stronglyConnectedComponents` list, for `drawGraphTheoryPanel`'s SCC coloring. */
+export function sccIndexByVertex(components: readonly string[][]): Map<string, number> {
+  const index = new Map<string, number>();
+  components.forEach((component, i) => {
+    for (const v of component) index.set(v, i);
+  });
+  return index;
+}
+
+/**
  * Pure re-render of the main graph canvas, extracted from the draw effect
  * below so `PngExportButton`'s `renderAtScale` (issue #278) can call it
  * against a fresh offscreen canvas at any size.
@@ -194,6 +217,7 @@ export function drawGraphTheoryPanel(
   showEditor: boolean,
   showAnimation: boolean,
   currentStep: AlgorithmStep | undefined,
+  sccIndex: Map<string, number> | null,
 ): void {
   ctx.clearRect(0, 0, width, height);
   if (!graphResult.ok) return;
@@ -240,7 +264,8 @@ export function drawGraphTheoryPanel(
     if (!p) continue;
     const sx = toScreenX(p.x, VIEWPORT, width);
     const sy = toScreenY(p.y, VIEWPORT, height);
-    ctx.fillStyle = v === startVertex ? "#16a34a" : highlightedVertices.has(v) ? "#2563eb" : "#1f2937";
+    const sccBase = sccIndex ? sccColor(sccIndex.get(v) ?? 0) : "#1f2937";
+    ctx.fillStyle = v === startVertex ? "#16a34a" : highlightedVertices.has(v) ? "#2563eb" : sccBase;
     ctx.beginPath();
     ctx.arc(sx, sy, 14, 0, Math.PI * 2);
     ctx.fill();
@@ -318,6 +343,11 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   const directed = useCell<boolean>(graph, ids.directed);
   const graphResult = useCell<Result<Graph<string>>>(graph, ids.graphResult);
   const analysis = useCell<Result<GraphAnalysis>>(graph, ids.analysis);
+  // Coloring by strongly connected component (issue #297) only makes sense
+  // in directed mode -- on an undirected graph, SCCs always coincide with
+  // connectedComponents (per mallory-math's own doc comment), so "SCC
+  // color" there would just be a confusing synonym for "connected piece."
+  const sccIndex = directed && analysis.ok ? sccIndexByVertex(analysis.value.stronglyConnectedComponents) : null;
   const startVertex = useCell<string>(graph, ids.startVertex);
   const endVertex = useCell<string>(graph, ids.endVertex);
   const algorithm = useCell<Algorithm>(graph, ids.algorithm);
@@ -371,8 +401,8 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    drawGraphTheoryPanel(ctx, WIDTH, HEIGHT, graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep);
-  }, [graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep]);
+    drawGraphTheoryPanel(ctx, WIDTH, HEIGHT, graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep, sccIndex);
+  }, [graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep, sccIndex]);
 
   useEffect(() => {
     const ctx = heatmapCanvasRef.current?.getContext("2d");
@@ -483,7 +513,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
           getCanvas={() => canvasRef.current}
           label="graph-theory"
           renderAtScale={(ctx, width, height) =>
-            drawGraphTheoryPanel(ctx, width, height, graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep)
+            drawGraphTheoryPanel(ctx, width, height, graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep, sccIndex)
           }
           baseWidth={WIDTH}
           baseHeight={HEIGHT}
@@ -546,6 +576,14 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
           <li>{analysis.value.hasCycle ? "Has a cycle" : "Acyclic"}</li>
           <li>Connected components: {analysis.value.connectedComponents.length}</li>
           <li>Topological order: {analysis.value.topologicalOrder ? analysis.value.topologicalOrder.join(" → ") : "none (has a cycle)"}</li>
+          {directed && (
+            <li>
+              Strongly connected components: {analysis.value.stronglyConnectedComponents.length}
+              {analysis.value.stronglyConnectedComponents.length === 1
+                ? " (irreducible -- every vertex can reach every other)"
+                : ` (${analysis.value.stronglyConnectedComponents.map((c) => `{${c.join(", ")}}`).join(", ")})`}
+            </li>
+          )}
         </ul>
       ) : (
         <p style={{ color: "crimson" }}>{analysis.message}</p>

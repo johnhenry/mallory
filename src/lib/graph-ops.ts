@@ -62,6 +62,19 @@ export interface GraphAnalysis {
   connectedComponents: string[][];
   topologicalOrder: string[] | null;
   adjacencyMatrix: { matrix: number[][]; order: string[] };
+  /**
+   * Strongly connected components (issue #297, the matrix<->graph duality
+   * feature): maximal vertex sets where every vertex can reach every other
+   * via DIRECTED edges. On an undirected graph this is identical to
+   * `connectedComponents` (mallory-math's own `stronglyConnectedComponents`
+   * doc comment: "On an undirected graph this always reduces to
+   * connectedComponents") -- computed unconditionally here rather than
+   * branching on `graph.directed`, since calling it costs nothing extra
+   * and callers that only care about the directed case can compare
+   * `stronglyConnectedComponents.length` against 1 (irreducible, per
+   * `frobenius.ts`'s own convention) regardless.
+   */
+  stronglyConnectedComponents: string[][];
 }
 
 /** Runs every structural algorithm that needs no start vertex, in one pass -- the panel's "always visible" summary. */
@@ -73,6 +86,7 @@ export function analyzeGraph(graph: Graph<string>): GraphAnalysis {
     connectedComponents: graph.connectedComponents(),
     topologicalOrder: graph.topologicalSort(),
     adjacencyMatrix: graph.toAdjacencyMatrix(),
+    stronglyConnectedComponents: graph.stronglyConnectedComponents(),
   };
 }
 
