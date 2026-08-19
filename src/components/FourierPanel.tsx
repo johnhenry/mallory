@@ -83,6 +83,36 @@ function useFourierGraph(cellId: string): CellGraph {
  * not shrink -- it just narrows toward the discontinuity, converging to a
  * fixed ~9% overshoot rather than vanishing.
  */
+/**
+ * Pure re-render of the target-wave/partial-sum canvas, extracted from the
+ * draw effect below so `PngExportButton`'s `renderAtScale` (issue #278)
+ * can call it against a fresh offscreen canvas at any size.
+ */
+export function drawFourierPanel(ctx: CanvasRenderingContext2D, width: number, height: number, viewport: Viewport, samples: SamplesResult): void {
+  ctx.clearRect(0, 0, width, height);
+  drawAxes(ctx, viewport, width, height);
+  if (!samples.ok) return;
+  ctx.save();
+  ctx.strokeStyle = "var(--muted)";
+  ctx.setLineDash([5, 4]);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  samples.value.target.forEach((p, i) => {
+    // The target wave jumps discontinuously -- a straight connecting line
+    // across a jump would draw a fake vertical edge that isn't part of
+    // the actual step function, so a large y-gap between adjacent samples
+    // starts a new subpath instead of a lineTo.
+    const prev = samples.value.target[i - 1];
+    const sx = ((p.x - viewport.xMin) / (viewport.xMax - viewport.xMin)) * width;
+    const sy = height - ((p.y - viewport.yMin) / (viewport.yMax - viewport.yMin)) * height;
+    if (i === 0 || (prev && Math.abs(p.y - prev.y) > 0.5)) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+  });
+  ctx.stroke();
+  ctx.restore();
+  drawPolyline(ctx, samples.value.partial, viewport, width, height, "#2563eb");
+}
+
 export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {}) {
   const graph = useFourierGraph(cellId);
   useCellGraphTools(`calculus_fourier_${cellId}`, graph);
@@ -136,28 +166,7 @@ export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {})
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    drawAxes(ctx, viewport, WIDTH, HEIGHT);
-    if (!samples.ok) return;
-    ctx.save();
-    ctx.strokeStyle = "var(--muted)";
-    ctx.setLineDash([5, 4]);
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    samples.value.target.forEach((p, i) => {
-      // The target wave jumps discontinuously -- a straight connecting line
-      // across a jump would draw a fake vertical edge that isn't part of
-      // the actual step function, so a large y-gap between adjacent samples
-      // starts a new subpath instead of a lineTo.
-      const prev = samples.value.target[i - 1];
-      const sx = ((p.x - viewport.xMin) / (viewport.xMax - viewport.xMin)) * WIDTH;
-      const sy = HEIGHT - ((p.y - viewport.yMin) / (viewport.yMax - viewport.yMin)) * HEIGHT;
-      if (i === 0 || (prev && Math.abs(p.y - prev.y) > 0.5)) ctx.moveTo(sx, sy);
-      else ctx.lineTo(sx, sy);
-    });
-    ctx.stroke();
-    ctx.restore();
-    drawPolyline(ctx, samples.value.partial, viewport, WIDTH, HEIGHT, "#2563eb");
+    drawFourierPanel(ctx, WIDTH, HEIGHT, viewport, samples);
   }, [samples, viewport]);
 
   /** Copies a pending live-viewport override into the committed viewport (the gesture-end resample) -- shared by pan/pinch release and the wheel-zoom debounce below. */
@@ -305,7 +314,13 @@ export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {})
         onWheel={handleWheel}
       />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="fourier" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="fourier"
+          renderAtScale={(ctx, width, height) => drawFourierPanel(ctx, width, height, viewport, samples)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton getSvg={() => (samples.ok ? polylineToSvgDocument(samples.value.partial, viewport, WIDTH, HEIGHT, "#2563eb") : null)} label="fourier" />{" "}
         <button type="button" onClick={resetView}>
           Reset view

@@ -160,6 +160,59 @@ export function seedImplicitRow(graph: CellGraph, containerIds: ReturnType<typeo
  * ordered row list" shape GraphCanvasMulti itself established, just with a
  * panel-specific row shape.
  */
+/**
+ * Pure re-render of the shared implicit-relations canvas, extracted from
+ * the redraw effect below so `PngExportButton`'s `renderAtScale` (issue
+ * #278) can call it against a fresh offscreen canvas at any size -- reads
+ * straight from `graph`/`containerIds` rather than closed-over React
+ * state, so no other params are needed.
+ */
+export function drawImplicitPanel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  graph: CellGraph,
+  containerIds: { list: string; xMin: string; xMax: string; yMin: string; yMax: string },
+): void {
+  ctx.clearRect(0, 0, width, height);
+  const viewport: Viewport = {
+    xMin: boundOrDefault(graph.get<string>(containerIds.xMin), -5),
+    xMax: boundOrDefault(graph.get<string>(containerIds.xMax), 5),
+    yMin: boundOrDefault(graph.get<string>(containerIds.yMin), -5),
+    yMax: boundOrDefault(graph.get<string>(containerIds.yMax), 5),
+  };
+  drawAxes(ctx, viewport, width, height);
+  for (const rowId of graph.get<string[]>(containerIds.list)) {
+    const ids = cellIdsImplicit(rowId);
+    try {
+      const visible = graph.get<boolean>(ids.visible);
+      if (!visible) continue;
+      const color = graph.get<number>(ids.color);
+      const colorHex = `#${color.toString(16).padStart(6, "0")}`;
+      if (graph.get<boolean>(ids.showIntervalBoxes)) {
+        const intervalBoxesResult = graph.get<IntervalBoxesResult>(ids.intervalBoxesResult);
+        if (intervalBoxesResult.ok) drawImplicitBoxes(ctx, intervalBoxesResult.boxes, viewport, width, height, hexToRgba(color, 0.5));
+      }
+      const segments = graph.get<SegmentsResult>(ids.segments);
+      if (segments.ok) drawImplicitCurve(ctx, segments.segments, viewport, width, height, colorHex);
+      if (graph.get<boolean>(ids.showContours)) {
+        const contourResult = graph.get<ContourResult>(ids.contourResult);
+        if (contourResult.ok) {
+          contourResult.levels.forEach((level, i) => {
+            drawImplicitCurve(ctx, level.segments, viewport, width, height, levelColor(i, contourResult.levels.length));
+          });
+        }
+      }
+      if (graph.get<boolean>(ids.showGradient)) {
+        const gradientResult = graph.get<GradientResult>(ids.gradientResult);
+        if (gradientResult.ok) drawVectorField(ctx, gradientResult.points, viewport, width, height);
+      }
+    } catch {
+      // A row whose cells haven't registered yet -- skip it this frame.
+    }
+  }
+}
+
 function useImplicitGraph(containerId: string): { graph: CellGraph; containerIds: ReturnType<typeof cellIdsImplicit> } {
   // `containerIds` is memoized on the ref itself, not recomputed every
   // render -- `cellIdsImplicit(containerId)` returns a structurally-equal
@@ -292,46 +345,7 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    function redraw() {
-      if (!ctx) return;
-      ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      const viewport: Viewport = {
-        xMin: boundOrDefault(graph.get<string>(containerIds.xMin), -5),
-        xMax: boundOrDefault(graph.get<string>(containerIds.xMax), 5),
-        yMin: boundOrDefault(graph.get<string>(containerIds.yMin), -5),
-        yMax: boundOrDefault(graph.get<string>(containerIds.yMax), 5),
-      };
-      drawAxes(ctx, viewport, WIDTH, HEIGHT);
-      for (const rowId of graph.get<string[]>(containerIds.list)) {
-        const ids = cellIdsImplicit(rowId);
-        try {
-          const visible = graph.get<boolean>(ids.visible);
-          if (!visible) continue;
-          const color = graph.get<number>(ids.color);
-          const colorHex = `#${color.toString(16).padStart(6, "0")}`;
-          if (graph.get<boolean>(ids.showIntervalBoxes)) {
-            const intervalBoxesResult = graph.get<IntervalBoxesResult>(ids.intervalBoxesResult);
-            if (intervalBoxesResult.ok) drawImplicitBoxes(ctx, intervalBoxesResult.boxes, viewport, WIDTH, HEIGHT, hexToRgba(color, 0.5));
-          }
-          const segments = graph.get<SegmentsResult>(ids.segments);
-          if (segments.ok) drawImplicitCurve(ctx, segments.segments, viewport, WIDTH, HEIGHT, colorHex);
-          if (graph.get<boolean>(ids.showContours)) {
-            const contourResult = graph.get<ContourResult>(ids.contourResult);
-            if (contourResult.ok) {
-              contourResult.levels.forEach((level, i) => {
-                drawImplicitCurve(ctx, level.segments, viewport, WIDTH, HEIGHT, levelColor(i, contourResult.levels.length));
-              });
-            }
-          }
-          if (graph.get<boolean>(ids.showGradient)) {
-            const gradientResult = graph.get<GradientResult>(ids.gradientResult);
-            if (gradientResult.ok) drawVectorField(ctx, gradientResult.points, viewport, WIDTH, HEIGHT);
-          }
-        } catch {
-          // A row whose cells haven't registered yet -- skip it this frame.
-        }
-      }
-    }
+    const redraw = () => drawImplicitPanel(ctx, WIDTH, HEIGHT, graph, containerIds);
     redraw();
     return graph.subscribeAll(redraw);
   }, [graph, containerIds]);
@@ -360,7 +374,13 @@ export function ImplicitPanel({ cellId = "implicit-1" }: ImplicitPanelProps = {}
         <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       </div>
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="implicit" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="implicit"
+          renderAtScale={(ctx, width, height) => drawImplicitPanel(ctx, width, height, graph, containerIds)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
       </div>
     </div>
   );
