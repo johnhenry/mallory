@@ -16,7 +16,7 @@ import {
   type TilesSolverKind,
   type TilesState,
 } from "../lib/tiles-state.ts";
-import { solveCube, type CubeGrid, type CubeTileSet } from "../lib/tiles/cube-tile-model.ts";
+import { solveCube, type CubeDirection, type CubeGrid, type CubeTile, type CubeTileSet } from "../lib/tiles/cube-tile-model.ts";
 import { relaxWangTiling, type RelaxResult } from "../lib/tiles/differentiable-relax.ts";
 import { autocorrelationSurface, diffractionSpectrum, tileIdsPresent } from "../lib/tiles/diffraction.ts";
 import { stripEntropy, type StripEntropyResult } from "../lib/tiles/entropy.ts";
@@ -332,6 +332,30 @@ const CUBE_CELL_SPACING = 1.1;
 const CUBE_CELL_GEOMETRY = new THREE.BoxGeometry(0.9, 0.9, 0.9);
 
 /**
+ * `CubeDirection` -> `THREE.BoxGeometry` material-group index (issue #296).
+ * BoxGeometry's 6 material groups are ordered [+X, -X, +Y, -Y, +Z, -Z]
+ * (three.js's own documented convention), and `CubeGridView` places grid
+ * cell (x, y, z) directly at Three.js (+x, +y, +z) (see its own
+ * `mesh.position.set` -- no axis swap or flip), so `cubeNeighborCoords`'s
+ * own model (E = x+1, W = x-1, S = y+1, N = y-1, U = z+1, D = z-1) gives
+ * the mapping directly: the face TOWARD direction d's neighbor is the one
+ * d's own coordinate offset points at.
+ */
+const CUBE_FACE_MATERIAL_ORDER: readonly CubeDirection[] = ["E", "W", "S", "N", "U", "D"];
+
+/** The 6 per-face materials for one cube tile, each face colored by its own label (the 3D equivalent of drawSquareTileEdges's per-edge coloring), in BoxGeometry's material-group order. */
+function cubeFaceMaterials(tile: CubeTile): THREE.MeshStandardMaterial[] {
+  return CUBE_FACE_MATERIAL_ORDER.map((d) => new THREE.MeshStandardMaterial({ color: new THREE.Color(edgeLabelColor(tile.faces[d])) }));
+}
+
+/** Disposes a mesh's material whether it's a single material (the no-tile fallback) or the per-face array `cubeFaceMaterials` builds. */
+function disposeMeshMaterials(mesh: THREE.Mesh): void {
+  const m = mesh.material;
+  if (Array.isArray(m)) for (const mat of m) mat.dispose();
+  else m.dispose();
+}
+
+/**
  * Renders a solved `CubeGrid` as a grid of colored boxes in an orbit-
  * controllable 3D scene (issue #92 M4) -- same Scene/Camera/Renderer/
  * OrbitControls/lighting/Group setup as VectorField3DPanel, with one
@@ -339,7 +363,7 @@ const CUBE_CELL_GEOMETRY = new THREE.BoxGeometry(0.9, 0.9, 0.9);
  * arrow per sampled vector. A standalone, props-only component (no own
  * CellGraph) since it just visualizes whatever grid `TilesPanel` passes in.
  */
-function CubeGridView({ grid }: { grid: CubeGrid | null }) {
+function CubeGridView({ grid, tileSet }: { grid: CubeGrid | null; tileSet: CubeTileSet | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const groupRef = useRef<THREE.Group | null>(null);
   const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -398,9 +422,10 @@ function CubeGridView({ grid }: { grid: CubeGrid | null }) {
     if (!group) return;
     for (const child of [...group.children]) {
       group.remove(child);
-      if (child instanceof THREE.Mesh) (child.material as THREE.Material).dispose();
+      if (child instanceof THREE.Mesh) disposeMeshMaterials(child);
     }
     if (!grid) return;
+    const tileMap = new Map((tileSet?.tiles ?? []).map((t) => [t.id, t]));
     const depth = grid.length;
     const height = grid[0]?.length ?? 0;
     const width = grid[0]?.[0]?.length ?? 0;
@@ -409,7 +434,11 @@ function CubeGridView({ grid }: { grid: CubeGrid | null }) {
         for (let x = 0; x < width; x++) {
           const id = grid[z]![y]![x];
           if (!id) continue;
-          const material = new THREE.MeshStandardMaterial({ color: new THREE.Color(tileColor(id)) });
+          // Per-face label coloring when the tile is known (issue #296, the
+          // 3D counterpart of the 2D lattices' per-edge coloring); flat
+          // tile-id color as the fallback for an id the set doesn't define.
+          const tile = tileMap.get(id);
+          const material = tile ? cubeFaceMaterials(tile) : new THREE.MeshStandardMaterial({ color: new THREE.Color(tileColor(id)) });
           const mesh = new THREE.Mesh(CUBE_CELL_GEOMETRY, material);
           mesh.position.set(
             (x - (width - 1) / 2) * CUBE_CELL_SPACING,
@@ -420,7 +449,7 @@ function CubeGridView({ grid }: { grid: CubeGrid | null }) {
         }
       }
     }
-  }, [grid]);
+  }, [grid, tileSet]);
 
   return (
     <div>
@@ -429,6 +458,94 @@ function CubeGridView({ grid }: { grid: CubeGrid | null }) {
         <PngExportButton getCanvas={() => rendererCanvasRef.current} label="tiles-cube" />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom.</p>
+    </div>
+  );
+}
+
+const CUBE_PALETTE_HEIGHT = 140;
+// Spacing between palette entries -- wider than CUBE_CELL_SPACING so
+// separate tiles read as separate objects, not one solved grid.
+const CUBE_PALETTE_SPACING = 1.8;
+
+/**
+ * Every cube tile in the set rendered on its own, face-colored by label
+ * (issue #296's palette half) -- ONE shared Three.js scene with the tiles
+ * in a row, not one canvas per tile, since browsers cap live WebGL
+ * contexts (~8-16) and a per-tile renderer would break on larger sets.
+ * The id order caption below the canvas stands in for in-scene text
+ * labels (3D text needs a font/sprite pipeline nothing else in this app
+ * has needed yet).
+ */
+function CubeTilePaletteView({ tiles }: { tiles: readonly CubeTile[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const groupRef = useRef<THREE.Group | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(getThemeColors().surface);
+    const unsubscribeTheme = subscribeToThemeChange(() => {
+      scene.background = new THREE.Color(getThemeColors().surface);
+    });
+
+    const camera = new THREE.PerspectiveCamera(50, CUBE_VIEW_SIZE / CUBE_PALETTE_HEIGHT, 0.1, 1000);
+    camera.position.set(0, 2.2, 4.5);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(CUBE_VIEW_SIZE, CUBE_PALETTE_HEIGHT, false);
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
+    directional.position.set(5, 10, 7);
+    scene.add(directional);
+
+    const group = new THREE.Group();
+    groupRef.current = group;
+    scene.add(group);
+
+    let raf = 0;
+    function tick() {
+      controls.update();
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      unsubscribeTheme();
+      controls.dispose();
+      renderer.dispose();
+      container.removeChild(renderer.domElement);
+      groupRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    for (const child of [...group.children]) {
+      group.remove(child);
+      if (child instanceof THREE.Mesh) disposeMeshMaterials(child);
+    }
+    tiles.forEach((tile, i) => {
+      const mesh = new THREE.Mesh(CUBE_CELL_GEOMETRY, cubeFaceMaterials(tile));
+      mesh.position.set((i - (tiles.length - 1) / 2) * CUBE_PALETTE_SPACING, 0, 0);
+      group.add(mesh);
+    });
+  }, [tiles]);
+
+  return (
+    <div style={{ margin: "0.5rem 0" }}>
+      <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>Tile palette (each tile on its own, faces colored by label -- drag to orbit)</label>
+      <div ref={containerRef} style={{ position: "relative", maxWidth: CUBE_VIEW_SIZE, border: "1px solid var(--border)" }} />
+      <p style={{ fontSize: "0.75rem", color: "var(--muted)", margin: "0.15rem 0" }}>Left to right: {tiles.map((t) => t.id).join(", ")}</p>
     </div>
   );
 }
@@ -1566,8 +1683,9 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             </label>
           </div>
           {!cubeTileSetResult.ok && <p style={{ color: "crimson" }}>{cubeTileSetResult.message}</p>}
+          {cubeTileSetResult.ok && <CubeTilePaletteView tiles={cubeTileSetResult.value.tiles} />}
           {cubeSolveStatus === "error" && <p style={{ color: "crimson" }}>{cubeSolveError}</p>}
-          <CubeGridView grid={cubeSolveGrid} />
+          <CubeGridView grid={cubeSolveGrid} tileSet={cubeTileSetResult.ok ? cubeTileSetResult.value : null} />
           {cubeSolveStatus === "solving" && <p>Solving…</p>}
           {cubeSolveStatus === "done" && (
             <p>{cubeSolveGrid ? "Tiling found." : `No tiling exists for this tile set at ${width}x${height}x${depth} cells.`}</p>
