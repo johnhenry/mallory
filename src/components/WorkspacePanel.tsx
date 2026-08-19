@@ -1,42 +1,13 @@
 import { useEffect, useState } from "react";
 import type { CellGraph } from "../lib/cell-graph.ts";
 import { workspaceValueCellId } from "../lib/cell-ids.ts";
-import { getWorkspaceGraph } from "../lib/workspace-graph.ts";
+import { getWorkspaceGraph, listWorkspaceVariables, type WorkspaceVariable } from "../lib/workspace-graph.ts";
 import { decodeWorkspaceState, encodeWorkspaceState, type WorkspaceState } from "../lib/workspace-state.ts";
 
-interface WorkspaceVariable {
-  name: string;
-  value: number;
-}
-
-/**
- * Every genuinely user-set workspace variable, filtered from the singleton
- * graph's full cell list. Filtering matters: `GraphCanvas.tsx`'s
- * `computeParams` checks `workspace.hasValue(workspaceValueCellId(name))`
- * for every one of ITS OWN free variables on every recompute -- `hasValue`
- * is a pure, side-effect-free read (unlike `get()`, it never calls
- * `ensure()` and so never creates a phantom entry), which is exactly why
- * it's checked FIRST here rather than the notebook's own
- * `get()`-before-`hasValue()` ordering (see `notebookCurveCellId`'s doc
- * comment): that ordering only matters when the reader and the cell share
- * ONE `CellGraph` instance, so the read can register a same-graph
- * dependency edge for future reactivity. The workspace is a SEPARATE
- * instance from every panel's own graph, so no such edge is possible here
- * regardless of read order (see `GraphCanvas.tsx`'s subscription-bridge
- * `useEffect` for how reactivity is restored instead). Still: only
- * `role === "free"` cells (created via `set()`) are real workspace
- * variables a human or agent explicitly named -- a cell that only exists
- * because some `get()` elsewhere created it stays `role === "unknown"`
- * and is correctly excluded.
- */
-function listWorkspaceVariables(graph: CellGraph): WorkspaceVariable[] {
-  const prefix = "workspace:";
-  return graph
-    .list()
-    .filter((c) => c.id.startsWith(prefix) && c.role === "free")
-    .map((c) => ({ name: c.id.slice(prefix.length), value: graph.get<number>(c.id) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
+// listWorkspaceVariables moved to workspace-graph.ts (issue #310) -- the
+// localStorage persistence there needs the same free-cells-only filter this
+// page's table uses, so there's one shared definition. See its doc comment
+// for the hasValue-vs-get phantom-entry reasoning.
 
 function useWorkspaceVariables(graph: CellGraph): WorkspaceVariable[] {
   const [, forceRender] = useState(0);
