@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { frobeniusNormalForm } from "./frobenius.ts";
+import { frobeniusNormalForm, matrixToGraph } from "./frobenius.ts";
 import type { Mat } from "./matrix-ops.ts";
 
 /** Plain matrix multiply, local to this test file only (MatrixMath doesn't expose one publicly) -- used to cross-check that `P` really satisfies `P^T @ matrix @ P === permuted`, not just trust the hand-derived construction. */
@@ -99,4 +99,26 @@ test("frobeniusNormalForm: two components with a one-way edge produce upper bloc
 
 test("frobeniusNormalForm: throws on a non-square matrix", () => {
   assert.throws(() => frobeniusNormalForm([[1, 2, 3], [4, 5, 6]] as Mat), /square/);
+});
+
+test("matrixToGraph: reads the video's own convention -- row i is node i's outgoing edges, a diagonal entry is a self-loop, zero entries are omitted (never a real zero-weight edge)", () => {
+  const matrix: Mat = [
+    [0.5, 1, 0],
+    [0, 0, 0],
+    [0.2, 0, 1.8],
+  ];
+  const graph = matrixToGraph(matrix)!;
+  assert.ok(graph);
+  assert.deepEqual(graph.vertices().sort(), ["0", "1", "2"]);
+  const edges = graph.edges();
+  assert.equal(edges.length, 4); // 0->0, 0->1, 2->0, 2->2 -- NOT 1->anything (row 1 is all zero) or the (1,0)/(2,1) zero entries
+  const has = (from: string, to: string, weight: number) => edges.some((e) => e.from === from && e.to === to && e.weight === weight);
+  assert.ok(has("0", "0", 0.5), "diagonal entry (0,0) must become a self-loop, not be skipped");
+  assert.ok(has("0", "1", 1));
+  assert.ok(has("2", "0", 0.2));
+  assert.ok(has("2", "2", 1.8));
+});
+
+test("matrixToGraph: returns null for a non-square matrix (no valid one-row-one-column-per-node reading)", () => {
+  assert.equal(matrixToGraph([[1, 2, 3], [4, 5, 6]] as Mat), null);
 });

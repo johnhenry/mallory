@@ -1,7 +1,9 @@
-import type { ComplexNumber } from "mallory-math";
+import type { ComplexNumber, Graph } from "mallory-math";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMatrix, type CellIdsMatrix } from "../lib/cell-ids.ts";
+import { circularLayout } from "../lib/graph-ops.ts";
+import { matrixToGraph } from "../lib/frobenius.ts";
 import { resolveMatrixChatCommand } from "../lib/matrix-chat-commands.ts";
 import {
   computeDecompositions,
@@ -19,6 +21,7 @@ import { drawAxes, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { scatterPointsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
+import { toScreenX, toScreenY } from "../lib/viewport.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 
@@ -39,6 +42,135 @@ function MatrixTable({ m }: { m: Mat }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+const MATRIX_GRAPH_VIEWPORT: Viewport = { xMin: -1.3, xMax: 1.3, yMin: -1.3, yMax: 1.3 };
+const MATRIX_GRAPH_SIZE = 320;
+
+/**
+ * Pure re-render of the "matrix as directed graph" view (issue #297 item
+ * 5 -- the other half of the duality GraphTheoryPanel's adjacency heatmap
+ * already covers). Circular layout (matching GraphTheoryPanel's own
+ * `computeLayout` fallback shape, but this view has no drag/edit
+ * interaction, so the simpler non-editor `circularLayout` is all it
+ * needs). Self-loop edges (a diagonal matrix entry) are drawn as a small
+ * circle offset radially outward from the node -- a straight line from a
+ * node to itself would be a zero-length, invisible segment.
+ */
+export function drawMatrixGraph(ctx: CanvasRenderingContext2D, width: number, height: number, matrixGraph: Graph<string> | null): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!matrixGraph) return;
+  const vertices = matrixGraph.vertices();
+  const layout = circularLayout(vertices);
+
+  ctx.save();
+  ctx.font = "10px sans-serif";
+  for (const e of matrixGraph.edges()) {
+    const from = layout.get(e.from);
+    const to = layout.get(e.to);
+    if (!from || !to) continue;
+    const fromX = toScreenX(from.x, MATRIX_GRAPH_VIEWPORT, width);
+    const fromY = toScreenY(from.y, MATRIX_GRAPH_VIEWPORT, height);
+
+    if (e.from === e.to) {
+      // Self-loop: a small circle offset radially outward from the node
+      // (away from the layout's own origin), so it reads as "attached to
+      // this node" without overlapping any other edge.
+      const len = Math.hypot(from.x, from.y) || 1;
+      const dirX = from.x / len;
+      const dirY = from.y / len;
+      const loopCx = fromX + dirX * 22;
+      const loopCy = fromY + dirY * 22;
+      ctx.strokeStyle = "#9ca3af";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(loopCx, loopCy, 10, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#374151";
+      ctx.textAlign = "center";
+      ctx.fillText(String(e.weight), loopCx, loopCy - 15);
+      continue;
+    }
+
+    const toX = toScreenX(to.x, MATRIX_GRAPH_VIEWPORT, width);
+    const toY = toScreenY(to.y, MATRIX_GRAPH_VIEWPORT, height);
+    ctx.strokeStyle = "#9ca3af";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+    // A short arrowhead partway along the line -- rows are OUTGOING
+    // edges, so which way each edge points is exactly the fact this view
+    // exists to show.
+    const t = 0.55;
+    const midX = fromX + (toX - fromX) * t;
+    const midY = fromY + (toY - fromY) * t;
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    const arrowSize = 6;
+    ctx.beginPath();
+    ctx.moveTo(midX, midY);
+    ctx.lineTo(midX - arrowSize * Math.cos(angle - Math.PI / 6), midY - arrowSize * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(midX - arrowSize * Math.cos(angle + Math.PI / 6), midY - arrowSize * Math.sin(angle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fillStyle = "#9ca3af";
+    ctx.fill();
+    ctx.fillStyle = "#374151";
+    ctx.textAlign = "center";
+    ctx.fillText(String(e.weight), (fromX + toX) / 2, (fromY + toY) / 2 - 6);
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = "13px sans-serif";
+  for (const v of vertices) {
+    const p = layout.get(v);
+    if (!p) continue;
+    const sx = toScreenX(p.x, MATRIX_GRAPH_VIEWPORT, width);
+    const sy = toScreenY(p.y, MATRIX_GRAPH_VIEWPORT, height);
+    ctx.fillStyle = "#1f2937";
+    ctx.beginPath();
+    ctx.arc(sx, sy, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(v, sx, sy);
+  }
+  ctx.restore();
+}
+
+/**
+ * The matrix's own directed-graph reading (issue #297 item 5): a plain
+ * `<canvas>` view, standalone/props-only like `GraphTheoryPanel`'s
+ * `CondensationView`. `null` when the entered matrix isn't square (no
+ * such reading exists there).
+ */
+function MatrixGraphView({ matrixGraph }: { matrixGraph: Graph<string> | null }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    drawMatrixGraph(ctx, MATRIX_GRAPH_SIZE, MATRIX_GRAPH_SIZE, matrixGraph);
+  }, [matrixGraph]);
+  if (!matrixGraph) return <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>Directed-graph view needs a square matrix.</p>;
+  return (
+    <div>
+      <canvas ref={canvasRef} width={MATRIX_GRAPH_SIZE} height={MATRIX_GRAPH_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="matrix-graph"
+          renderAtScale={(ctx, width, height) => drawMatrixGraph(ctx, width, height, matrixGraph)}
+          baseWidth={MATRIX_GRAPH_SIZE}
+          baseHeight={MATRIX_GRAPH_SIZE}
+        />
+      </div>
+      <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+        Node i = row/column i. A loop is a diagonal entry; an edge i → j is row i's entry in column j. Zero entries are omitted (never drawn as a real 0-weight edge).
+      </p>
+    </div>
   );
 }
 
@@ -149,6 +281,19 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
   const rootCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const matrixText = useCell<string>(graph, ids.matrixText);
+  // The matrix's own directed-graph reading (issue #297 item 5) -- a
+  // presentational derived value, not a graph.define()'d cell, since
+  // nothing else reads it and MatrixGraphView already re-renders whenever
+  // matrixText itself changes (matrixGraph is a new value every render,
+  // same as any other plain computed-from-props value).
+  let matrixGraph: ReturnType<typeof matrixToGraph> = null;
+  try {
+    matrixGraph = matrixToGraph(parseMatrixText(matrixText));
+  } catch {
+    // Mid-edit invalid text (e.g. a ragged row) -- MatrixGraphView's own
+    // `null` handling already covers this the same way it covers a
+    // non-square matrix.
+  }
   const polyCoeffs = useCell<string>(graph, ids.polyCoeffs);
   const determinant = useCell<Result<number>>(graph, ids.determinant);
   const inverse = useCell<Result<Mat>>(graph, ids.inverse);
@@ -219,6 +364,10 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
           style={{ font: "inherit", fontFamily: "monospace", width: "30ch" }}
         />
       </div>
+
+      <h3>As a directed graph</h3>
+      <MatrixGraphView matrixGraph={matrixGraph} />
+
       <form onSubmit={handleChatSubmit} style={{ margin: "0.5rem 0" }}>
         <label>
           Chat:{" "}

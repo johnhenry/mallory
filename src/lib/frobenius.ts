@@ -117,3 +117,32 @@ export function frobeniusNormalForm(matrix: Mat): FrobeniusResult {
 
   return { order, P, permuted, blocks, irreducible: sccs.length === 1 };
 }
+
+/**
+ * The other half of the duality (issue #297 item 5, `GraphTheoryPanel`'s
+ * adjacency heatmap already does graph -> matrix): renders a square matrix
+ * as its own directed graph, matching the video's exact convention --
+ * row i's nonzero entries are node i's outgoing edges (a diagonal entry is
+ * a LOOP edge back to the same node, not a special case to skip), and a
+ * zero entry means no edge at all (never a real zero-weight edge -- the
+ * video is explicit about this: "edges of zero weight are omitted").
+ * Nodes are labeled by matrix index ("0", "1", ...) since a plain matrix
+ * has no vertex names of its own. Returns `null` for a non-square matrix
+ * (a directed-graph reading needs one row and one column per node --
+ * there's no such reading for a rectangular matrix).
+ */
+export function matrixToGraph(matrix: Mat): Graph<string> | null {
+  const n = matrix.length;
+  for (const row of matrix) {
+    if (row.length !== n) return null;
+  }
+  const graph = new Graph<string>(true);
+  for (let i = 0; i < n; i++) graph.addVertex(String(i));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const weight = matrix[i]![j]!;
+      if (weight !== 0) graph.addEdge(String(i), String(j), weight);
+    }
+  }
+  return graph;
+}
