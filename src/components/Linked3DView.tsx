@@ -134,7 +134,17 @@ export function Linked3DView() {
             would otherwise floor each pane at its (fixed-pixel canvas)
             content size and defeat the canvas's own responsive shrinking. */}
         <div style={{ minWidth: 0 }}>
-          <GraphCanvas cellId="pane-2d" defaultSource="sin(x)" durationCellId={COMBINED_DURATION_CELL} graph={graph} syncUrl={false} />
+          {/* initialViewport: same #306 fix as the Compare tab (issue #308) --
+              the global default viewport (y -10..100, sized for x^2)
+              squashes this pane's amplitude-1 sin(x) default flat. */}
+          <GraphCanvas
+            cellId="pane-2d"
+            defaultSource="sin(x)"
+            durationCellId={COMBINED_DURATION_CELL}
+            graph={graph}
+            initialViewport={{ xMin: -10, xMax: 10, yMin: -2, yMax: 2 }}
+            syncUrl={false}
+          />
         </div>
         <div style={{ minWidth: 0 }}>
           <Graph3DCanvas

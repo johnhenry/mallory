@@ -9,6 +9,7 @@ import {
 } from "../lib/fourier-state.ts";
 import { sampleFourierPartialSum, type FourierWaveType } from "../lib/fourier-series.ts";
 import { drawAxes, drawPolyline, type Viewport } from "../lib/render-path.ts";
+import { getThemeColors } from "../lib/theme-colors.ts";
 import { polylineToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -92,8 +93,18 @@ export function drawFourierPanel(ctx: CanvasRenderingContext2D, width: number, h
   ctx.clearRect(0, 0, width, height);
   drawAxes(ctx, viewport, width, height);
   if (!samples.ok) return;
+  // Partial sum FIRST, dashed true-wave reference LAST (issue #315): the
+  // dashed layer used to draw underneath the solid blue partial sum, so
+  // wherever the series approximates well -- the flat segments, exactly
+  // where a reader looks for the reference -- it was completely hidden and
+  // the caption's "true wave (dashed)" appeared to be a lie.
+  drawPolyline(ctx, samples.value.partial, viewport, width, height, "#2563eb");
   ctx.save();
-  ctx.strokeStyle = "var(--muted)";
+  // getThemeColors(), not "var(--muted)" -- canvas strokeStyle does NOT
+  // resolve CSS custom properties (theme-colors.ts's own doc comment); the
+  // invalid assignment was silently ignored, leaving the dash in whatever
+  // color the context last used. Second half of issue #315's invisibility.
+  ctx.strokeStyle = getThemeColors().muted;
   ctx.setLineDash([5, 4]);
   ctx.lineWidth = 1.5;
   ctx.beginPath();
@@ -110,7 +121,6 @@ export function drawFourierPanel(ctx: CanvasRenderingContext2D, width: number, h
   });
   ctx.stroke();
   ctx.restore();
-  drawPolyline(ctx, samples.value.partial, viewport, width, height, "#2563eb");
 }
 
 export function FourierPanel({ cellId = "fourier-1" }: { cellId?: string } = {}) {
