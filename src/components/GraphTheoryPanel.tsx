@@ -278,8 +278,11 @@ export function drawCondensationView(ctx: CanvasRenderingContext2D, width: numbe
 /**
  * The condensation ("skeleton") view (issue #297 item 3): each strongly
  * connected component as one black-box node, rendered beside the main
- * graph. Standalone/props-only, mirroring `CubeGridView`'s own shape --
- * this is a derived read-only picture, not an editable graph of its own.
+ * graph. Standalone/props-only, mirroring `CubeGridView`'s/`MatrixGraphView`'s
+ * own shape -- this is a derived read-only picture, not an editable graph
+ * of its own. No internal heading -- the caller supplies its own `<h3>`,
+ * matching every other section in this panel and `MatrixGraphView`'s own
+ * convention.
  */
 function CondensationView({ condensedGraph, members }: { condensedGraph: Graph<string> | null; members: Map<string, string[]> }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -290,9 +293,8 @@ function CondensationView({ condensedGraph, members }: { condensedGraph: Graph<s
   }, [condensedGraph]);
   if (!condensedGraph) return null;
   return (
-    <div style={{ margin: "0.5rem 0" }}>
-      <h3>Condensation (each strongly connected component as one node)</h3>
-      <canvas ref={canvasRef} width={CONDENSATION_SIZE} height={CONDENSATION_SIZE} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+    <div>
+      <canvas ref={canvasRef} width={CONDENSATION_SIZE} height={CONDENSATION_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton
           getCanvas={() => canvasRef.current}
@@ -669,7 +671,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
         height={HEIGHT}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        style={{ border: "1px solid #ccc", cursor: showEditor ? "crosshair" : "default", touchAction: showEditor ? "none" : "auto" }}
+        style={{ border: "1px solid var(--border)", cursor: showEditor ? "crosshair" : "default", touchAction: showEditor ? "none" : "auto" }}
       />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton
@@ -752,12 +754,17 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
         <p style={{ color: "crimson" }}>{analysis.message}</p>
       )}
 
-      {condensation && <CondensationView condensedGraph={condensation.graph} members={condensation.members} />}
+      {condensation && (
+        <>
+          <h3>Condensation (each strongly connected component as one node)</h3>
+          <CondensationView condensedGraph={condensation.graph} members={condensation.members} />
+        </>
+      )}
 
       <h3>Adjacency matrix</h3>
       {analysis.ok ? (
         <>
-          <canvas ref={heatmapCanvasRef} width={HEATMAP_SIZE} height={HEATMAP_SIZE} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <canvas ref={heatmapCanvasRef} width={HEATMAP_SIZE} height={HEATMAP_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton
               getCanvas={() => heatmapCanvasRef.current}
@@ -784,7 +791,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
               ? "Irreducible -- the whole graph is one strongly connected component, so there's no nontrivial block-triangular structure to show beyond the single block below."
               : `Reducible into ${frobenius.blocks.length} diagonal blocks (source-to-sink order). The shaded region below the diagonal blocks is guaranteed all-zero -- no edges run from a later component back to an earlier one.`}
           </p>
-          <canvas ref={frobeniusCanvasRef} width={HEATMAP_SIZE} height={HEATMAP_SIZE} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+          <canvas ref={frobeniusCanvasRef} width={HEATMAP_SIZE} height={HEATMAP_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton
               getCanvas={() => frobeniusCanvasRef.current}
