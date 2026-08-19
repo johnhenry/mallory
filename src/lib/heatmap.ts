@@ -103,3 +103,45 @@ export function drawHeatmap(
   });
   ctx.restore();
 }
+
+export interface HeatmapBlock {
+  /** Inclusive start / exclusive end row-and-column range of this diagonal block, in the SAME permuted index space as the matrix passed to `drawHeatmap`. */
+  start: number;
+  end: number;
+}
+
+/**
+ * Overlays a Frobenius normal form's diagonal-block structure (issue #297
+ * item 4) on top of an already-drawn `drawHeatmap` -- same `ctx`/`width`/
+ * `height`/`labelGutter` so the grid geometry lines up exactly. Two layers:
+ * a translucent shade over every cell strictly below-and-left of the
+ * diagonal blocks (the region `frobeniusNormalForm` guarantees is all
+ * zero -- shaded so that claim is visually verifiable, not just asserted
+ * in text), and a bold outline around each diagonal block itself.
+ */
+export function drawFrobeniusOverlay(ctx: CanvasRenderingContext2D, n: number, width: number, height: number, blocks: readonly HeatmapBlock[], labelGutter = 24): void {
+  if (n === 0) return;
+  const gridWidth = width - labelGutter;
+  const gridHeight = height - labelGutter;
+  const cellW = gridWidth / n;
+  const cellH = gridHeight / n;
+
+  ctx.save();
+  ctx.translate(labelGutter, labelGutter);
+
+  ctx.fillStyle = "rgba(22, 163, 74, 0.14)";
+  for (let bi = 0; bi < blocks.length; bi++) {
+    for (let bj = 0; bj < bi; bj++) {
+      const row = blocks[bi]!;
+      const col = blocks[bj]!;
+      ctx.fillRect(col.start * cellW, row.start * cellH, (col.end - col.start) * cellW, (row.end - row.start) * cellH);
+    }
+  }
+
+  ctx.strokeStyle = "#dc2626";
+  ctx.lineWidth = 2;
+  for (const b of blocks) {
+    ctx.strokeRect(b.start * cellW, b.start * cellH, (b.end - b.start) * cellW, (b.end - b.start) * cellH);
+  }
+  ctx.restore();
+}
