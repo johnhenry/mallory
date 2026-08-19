@@ -124,6 +124,25 @@ export interface OdePanelProps {
 }
 
 /** v1: a single first-order IVP dy/dx = f(x,y), y(x0) = y0, plotted against its slope field. No animation/dragging. */
+/**
+ * Pure re-render of the slope-field + solution-path canvas, extracted from
+ * the draw effect below so `PngExportButton`'s `renderAtScale` (issue
+ * #278) can call it against a fresh offscreen canvas at any size.
+ */
+export function drawOdePanel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  viewport: Viewport,
+  slopeField: SlopeFieldResult,
+  solution: SolutionResult,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  drawAxes(ctx, viewport, width, height);
+  if (slopeField.ok) drawSlopeField(ctx, slopeField.points, viewport, width, height);
+  if (solution.ok) drawPath(ctx, solution.path, viewport, width, height);
+}
+
 export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = true }: OdePanelProps = {}) {
   const graph = useOdeGraph(cellId, externalGraph);
   // Namespaced by cellId so two OdePanel instances sharing one CellGraph
@@ -208,10 +227,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    drawAxes(ctx, viewport, WIDTH, HEIGHT);
-    if (slopeField.ok) drawSlopeField(ctx, slopeField.points, viewport, WIDTH, HEIGHT);
-    if (solution.ok) drawPath(ctx, solution.path, viewport, WIDTH, HEIGHT);
+    drawOdePanel(ctx, WIDTH, HEIGHT, viewport, slopeField, solution);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [solution, slopeField, xMin, xMax, yMin, yMax]);
 
@@ -250,7 +266,13 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
       )}
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="ode" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="ode"
+          renderAtScale={(ctx, width, height) => drawOdePanel(ctx, width, height, viewport, slopeField, solution)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton
           getSvg={() => {
             const layers: SvgLayer[] = [];

@@ -67,6 +67,36 @@ function seedTaylorRowDefault(graph: CellGraph, containerIds: ReturnType<typeof 
   seedTaylorRow(graph, containerIds, rowId, { ...(DEFAULT_TAYLOR_STATE.rows[0] as TaylorRowState), color: paletteColor(index) });
 }
 
+/**
+ * Pure re-render of the shared f(x)/Taylor-polynomial canvas, extracted
+ * from the redraw effect below so `PngExportButton`'s `renderAtScale`
+ * (issue #278) can call it against a fresh offscreen canvas at any size.
+ */
+export function drawTaylorPanel(ctx: CanvasRenderingContext2D, width: number, height: number, graph: CellGraph, containerIds: ReturnType<typeof cellIdsTaylor>): void {
+  ctx.clearRect(0, 0, width, height);
+  const live = graph.get<Viewport | null>(containerIds.liveViewport);
+  const vp = live ?? {
+    xMin: Number(graph.get<string>(containerIds.xMin)) || -5,
+    xMax: Number(graph.get<string>(containerIds.xMax)) || 5,
+    yMin: Number(graph.get<string>(containerIds.yMin)) || -5,
+    yMax: Number(graph.get<string>(containerIds.yMax)) || 5,
+  };
+  drawAxes(ctx, vp, width, height);
+  for (const rowId of graph.get<string[]>(containerIds.list)) {
+    const ids = cellIdsTaylor(rowId);
+    try {
+      if (!graph.get<boolean>(ids.visible)) continue;
+      const approx = graph.get<ApproxResult>(ids.taylorPath);
+      if (!approx.ok) continue;
+      const color = graph.get<number>(ids.color);
+      drawPath(ctx, { ...approx.fPath, stroke: { ...approx.fPath.stroke, color } }, vp, width, height);
+      drawPath(ctx, { ...approx.taylorPath, stroke: { ...approx.taylorPath.stroke, color } }, vp, width, height, true);
+    } catch {
+      // A row whose cells haven't registered yet -- skip it this frame.
+    }
+  }
+}
+
 function useTaylorGraph(containerId: string): { graph: CellGraph; containerIds: ReturnType<typeof cellIdsTaylor> } {
   // `containerIds` is memoized on the ref itself (not just `useMemo`d on
   // `containerId`) so it's the exact SAME object reference across every
@@ -304,31 +334,7 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    function redraw() {
-      if (!ctx) return;
-      ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      const live = graph.get<Viewport | null>(containerIds.liveViewport);
-      const vp = live ?? {
-        xMin: Number(graph.get<string>(containerIds.xMin)) || -5,
-        xMax: Number(graph.get<string>(containerIds.xMax)) || 5,
-        yMin: Number(graph.get<string>(containerIds.yMin)) || -5,
-        yMax: Number(graph.get<string>(containerIds.yMax)) || 5,
-      };
-      drawAxes(ctx, vp, WIDTH, HEIGHT);
-      for (const rowId of graph.get<string[]>(containerIds.list)) {
-        const ids = cellIdsTaylor(rowId);
-        try {
-          if (!graph.get<boolean>(ids.visible)) continue;
-          const approx = graph.get<ApproxResult>(ids.taylorPath);
-          if (!approx.ok) continue;
-          const color = graph.get<number>(ids.color);
-          drawPath(ctx, { ...approx.fPath, stroke: { ...approx.fPath.stroke, color } }, vp, WIDTH, HEIGHT);
-          drawPath(ctx, { ...approx.taylorPath, stroke: { ...approx.taylorPath.stroke, color } }, vp, WIDTH, HEIGHT, true);
-        } catch {
-          // A row whose cells haven't registered yet -- skip it this frame.
-        }
-      }
-    }
+    const redraw = () => drawTaylorPanel(ctx, WIDTH, HEIGHT, graph, containerIds);
     redraw();
     return graph.subscribeAll(redraw);
   }, [graph, containerIds]);
@@ -500,7 +506,13 @@ export function TaylorPanel({ cellId = "taylor-1" }: { cellId?: string } = {}) {
         onWheel={handleWheel}
       />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="taylor" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="taylor"
+          renderAtScale={(ctx, width, height) => drawTaylorPanel(ctx, width, height, graph, containerIds)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton getSvg={getExportSvg} label="taylor" />{" "}
         <button type="button" onClick={resetView}>
           Reset view
