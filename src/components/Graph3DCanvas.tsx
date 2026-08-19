@@ -179,12 +179,22 @@ export function Graph3DCanvas({
 
   // Seeds a slider cell for each newly-discovered free variable, deferred
   // to an effect for the same reason as GraphCanvas -- see the comment on
-  // `ids.freeVars`'s compute above.
+  // `ids.freeVars`'s compute above. Also deletes param/track cells for
+  // names that left the set (issue #309, same mid-typing leak GraphCanvas
+  // had -- see its own seeding effect for the full story).
+  const prevFreeVarsRef = useRef<string[]>([]);
   useEffect(() => {
     for (const name of freeVars) {
       const id = ids.param(name);
       if (!graph.hasValue(id)) graph.set(id, defaultSliderRange(name).default);
     }
+    for (const name of prevFreeVarsRef.current) {
+      if (!freeVars.includes(name)) {
+        graph.delete(ids.param(name));
+        graph.delete(ids.track(name));
+      }
+    }
+    prevFreeVarsRef.current = freeVars;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, freeVars]);
 

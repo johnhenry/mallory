@@ -507,11 +507,27 @@ export function GraphCanvas({
   // gets dropped and `params`'s dependency edges never get established, so
   // later slider drags silently fail to redraw the curve. Doing it in an
   // effect defers the write until after render, where it's safe.
+  const prevFreeVarsRef = useRef<string[]>([]);
   useEffect(() => {
     for (const name of freeVars) {
       const id = ids.param(name);
       if (!graph.hasValue(id)) graph.set(id, defaultSliderRange(name).default);
     }
+    // Delete param/track cells for names that LEFT the free-variable set
+    // (issue #309): every mid-typing keystroke parses live, so typing
+    // "sin(k*x)" transiently yields free vars `s`, then `s`+`i` (implicit
+    // multiplication), then `sin` -- each seeding a param cell above --
+    // and nothing ever removed them, leaving `param:pane-a:i/s/sin`
+    // cluttering the cell graph and the Objects panel forever. Losing a
+    // mistyped-then-retyped slider value is the accepted tradeoff; the
+    // sliders UI only ever renders CURRENT free vars anyway.
+    for (const name of prevFreeVarsRef.current) {
+      if (!freeVars.includes(name)) {
+        graph.delete(ids.param(name));
+        graph.delete(ids.track(name));
+      }
+    }
+    prevFreeVarsRef.current = freeVars;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, freeVars]);
 
