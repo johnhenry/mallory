@@ -20,12 +20,13 @@ import { solveCube, type CubeGrid, type CubeTileSet } from "../lib/tiles/cube-ti
 import { relaxWangTiling, type RelaxResult } from "../lib/tiles/differentiable-relax.ts";
 import { autocorrelationSurface, diffractionSpectrum, tileIdsPresent } from "../lib/tiles/diffraction.ts";
 import { stripEntropy, type StripEntropyResult } from "../lib/tiles/entropy.ts";
-import { hexCenter, hexCorners } from "../lib/tiles/hex-geometry.ts";
-import { solveHex, type HexGrid, type HexTileSet } from "../lib/tiles/hex-tile-model.ts";
+import { edgeLabelColor } from "../lib/tiles/edge-colors.ts";
+import { hexCenter, hexCorners, hexEdgeSegment } from "../lib/tiles/hex-geometry.ts";
+import { solveHex, type HexGrid, type HexTile, type HexTileSet } from "../lib/tiles/hex-tile-model.ts";
 import { expandTileSetSymmetry, type SymmetryGroup } from "../lib/tiles/symmetry.ts";
-import { solveTorus, solveWang, solveWangViaSat, type SolveStep, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
-import { triCorners } from "../lib/tiles/tri-geometry.ts";
-import { solveTri, type TriGrid, type TriTileSet } from "../lib/tiles/tri-tile-model.ts";
+import { solveTorus, solveWang, solveWangViaSat, type Direction, type SolveStep, type Tile, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
+import { triCenterX, triCorners, triEdgeSegment } from "../lib/tiles/tri-geometry.ts";
+import { solveTri, type TriGrid, type TriTile, type TriTileSet } from "../lib/tiles/tri-tile-model.ts";
 import { DEFAULT_TRI_TILES_TEXT, parseTriTileSetText } from "../lib/tri-tile-set-text.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
@@ -35,7 +36,7 @@ import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
 import type { Viewport } from "../lib/viewport.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
-import { triOrientation } from "mallory-math";
+import { triOrientation, type TriDirection, type TriOrientation } from "mallory-math";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 type SolveStatus = "idle" | "solving" | "done" | "error";
@@ -225,6 +226,66 @@ export function tileColor(id: string): string {
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   const hue = hash % 360;
   return `hsl(${hue}, 55%, 55%)`;
+}
+
+const EDGE_STROKE_WIDTH = 2.5;
+
+/** Strokes one edge segment in its matching-constraint color (see `edge-colors.ts`'s own doc comment) -- the shared draw primitive every lattice's edge-coloring uses. */
+function strokeEdgeSegment(ctx: CanvasRenderingContext2D, a: { x: number; y: number }, b: { x: number; y: number }, color: string): void {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = EDGE_STROKE_WIDTH;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Draws a square tile's 4 edges (N/E/S/W), each colored by its own edge label -- falls back to a flat faint border when `tile` is `undefined` (an id the tile set doesn't define, e.g. mid-edit). */
+function drawSquareTileEdges(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, tile: Tile | undefined): void {
+  if (!tile) {
+    ctx.strokeStyle = "#00000022";
+    ctx.strokeRect(x, y, size, size);
+    return;
+  }
+  strokeEdgeSegment(ctx, { x, y }, { x: x + size, y }, edgeLabelColor(tile.edges.N));
+  strokeEdgeSegment(ctx, { x: x + size, y }, { x: x + size, y: y + size }, edgeLabelColor(tile.edges.E));
+  strokeEdgeSegment(ctx, { x, y: y + size }, { x: x + size, y: y + size }, edgeLabelColor(tile.edges.S));
+  strokeEdgeSegment(ctx, { x, y }, { x, y: y + size }, edgeLabelColor(tile.edges.W));
+}
+
+/** Draws a hex tile's 6 edges, each colored by its own edge label -- falls back to a flat faint outline when `tile` is `undefined`. */
+function drawHexTileEdges(ctx: CanvasRenderingContext2D, corners: readonly { x: number; y: number }[], tile: HexTile | undefined): void {
+  if (!tile) {
+    ctx.strokeStyle = "#00000022";
+    ctx.beginPath();
+    corners.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.stroke();
+    return;
+  }
+  for (let d = 0; d < 6; d++) {
+    const [a, b] = hexEdgeSegment(corners, d);
+    strokeEdgeSegment(ctx, a, b, edgeLabelColor(tile.edges[d as 0 | 1 | 2 | 3 | 4 | 5]));
+  }
+}
+
+/** Draws a tri tile's 3 real edges (left/right + top-or-bottom per orientation), each colored by its own edge label -- falls back to a flat faint outline when `tile` is `undefined`. */
+function drawTriTileEdges(ctx: CanvasRenderingContext2D, corners: readonly { x: number; y: number }[], orientation: TriOrientation, tile: TriTile | undefined): void {
+  if (!tile) {
+    ctx.strokeStyle = "#00000022";
+    ctx.beginPath();
+    corners.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.stroke();
+    return;
+  }
+  const directions: TriDirection[] = ["left", "right", orientation === "up" ? "top" : "bottom"];
+  for (const d of directions) {
+    const [a, b] = triEdgeSegment(corners, d);
+    strokeEdgeSegment(ctx, a, b, edgeLabelColor(tile.edges[d]));
+  }
 }
 
 /** One-line caption for a solve step, used both under the transport controls and as the aria-live status. */
@@ -769,15 +830,15 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       showAnimation && currentStep ? currentStep.grid : solveGrid;
     if (!displayGrid) return;
 
+    const tileMap = new Map(expandedTileSetResult.ok ? expandedTileSetResult.value.tiles.map((t) => [t.id, t]) : []);
     for (let row = 0; row < displayGrid.length; row++) {
       for (let col = 0; col < displayGrid[row]!.length; col++) {
         const id = displayGrid[row]![col];
         const x = col * CELL_SIZE;
         const y = row * CELL_SIZE;
         ctx.fillStyle = id ? tileColor(id) : EMPTY_CELL_FILL;
-        ctx.strokeStyle = "#00000022";
         ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
-        ctx.strokeRect(x, y, CELL_SIZE, CELL_SIZE);
+        drawSquareTileEdges(ctx, x, y, CELL_SIZE, id ? tileMap.get(id) : undefined);
         if (id) {
           ctx.fillStyle = "#fff";
           ctx.font = "13px sans-serif";
@@ -795,7 +856,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       ctx.lineWidth = 3;
       ctx.strokeRect(x + 1.5, y + 1.5, CELL_SIZE - 3, CELL_SIZE - 3);
     }
-  }, [canvasWidth, canvasHeight, showAnimation, currentStep, solveGrid]);
+  }, [canvasWidth, canvasHeight, showAnimation, currentStep, solveGrid, expandedTileSetResult]);
 
   // Hex canvas: the axial-to-pixel map is affine in (q, r), so the pixel
   // bounding box of the width x height parallelogram is exactly the
@@ -817,6 +878,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     if (!ctx) return;
     ctx.clearRect(0, 0, hexCanvasWidth, hexCanvasHeight);
     if (!hexSolveGrid) return;
+    const tileMap = new Map(hexTileSetResult.ok ? hexTileSetResult.value.tiles.map((t) => [t.id, t]) : []);
     for (let r = 0; r < hexSolveGrid.length; r++) {
       for (let q = 0; q < hexSolveGrid[r]!.length; q++) {
         const id = hexSolveGrid[r]![q]!;
@@ -829,8 +891,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
         ctx.closePath();
         ctx.fillStyle = tileColor(id);
         ctx.fill();
-        ctx.strokeStyle = "#00000022";
-        ctx.stroke();
+        drawHexTileEdges(ctx, corners, tileMap.get(id));
         ctx.fillStyle = "#fff";
         ctx.font = "11px sans-serif";
         ctx.textAlign = "center";
@@ -839,15 +900,16 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hexCanvasWidth, hexCanvasHeight, hexSolveGrid]);
+  }, [hexCanvasWidth, hexCanvasHeight, hexSolveGrid, hexTileSetResult]);
 
-  // Tri canvas: the simplified bounding-box layout (see tri-geometry.ts's
-  // own doc comment) means the canvas is just a plain width*cellWidth by
-  // height*cellHeight rectangle, same sizing shape as the square lattice.
+  // Tri canvas: a true edge-to-edge mesh (see tri-geometry.ts's own doc
+  // comment) -- each row is cellHeight tall, and column x's triangle is
+  // centered at triCenterX(x, cellWidth), so the canvas is (width+1) half-
+  // widths wide, not width*cellWidth like the old bounding-box layout.
   const TRI_CELL_WIDTH = 48;
   const TRI_CELL_HEIGHT = 48;
   const triCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const triCanvasWidth = Math.max(1, width) * TRI_CELL_WIDTH;
+  const triCanvasWidth = (Math.max(1, width) + 1) * (TRI_CELL_WIDTH / 2);
   const triCanvasHeight = Math.max(1, height) * TRI_CELL_HEIGHT;
 
   useEffect(() => {
@@ -855,6 +917,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     if (!ctx) return;
     ctx.clearRect(0, 0, triCanvasWidth, triCanvasHeight);
     if (!triSolveGrid) return;
+    const tileMap = new Map(triTileSetResult.ok ? triTileSetResult.value.tiles.map((t) => [t.id, t]) : []);
     for (let y = 0; y < triSolveGrid.length; y++) {
       for (let x = 0; x < triSolveGrid[y]!.length; x++) {
         const id = triSolveGrid[y]![x]!;
@@ -865,9 +928,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
         ctx.closePath();
         ctx.fillStyle = tileColor(id);
         ctx.fill();
-        ctx.strokeStyle = "#00000022";
-        ctx.stroke();
-        const midX = (x + 0.5) * TRI_CELL_WIDTH;
+        drawTriTileEdges(ctx, corners, orientation, tileMap.get(id));
+        const midX = triCenterX(x, TRI_CELL_WIDTH);
         const midY = orientation === "up" ? (y + 0.65) * TRI_CELL_HEIGHT : (y + 0.35) * TRI_CELL_HEIGHT;
         ctx.fillStyle = "#fff";
         ctx.font = "10px sans-serif";
@@ -877,7 +939,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [triCanvasWidth, triCanvasHeight, triSolveGrid]);
+  }, [triCanvasWidth, triCanvasHeight, triSolveGrid, triTileSetResult]);
 
   const diffractionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autocorrelationCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -914,15 +976,15 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     if (!ctx) return;
     ctx.clearRect(0, 0, relaxCanvasWidth, relaxCanvasHeight);
     if (!relaxResult) return;
+    const tileMap = new Map(expandedTileSetResult.ok ? expandedTileSetResult.value.tiles.map((t) => [t.id, t]) : []);
     for (let row = 0; row < relaxResult.grid.length; row++) {
       for (let col = 0; col < relaxResult.grid[row]!.length; col++) {
         const id = relaxResult.grid[row]![col]!;
         const x = col * CELL_SIZE;
         const y = row * CELL_SIZE;
         ctx.fillStyle = tileColor(id);
-        ctx.strokeStyle = "#00000022";
         ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
-        ctx.strokeRect(x, y, CELL_SIZE, CELL_SIZE);
+        drawSquareTileEdges(ctx, x, y, CELL_SIZE, tileMap.get(id));
         ctx.fillStyle = "#fff";
         ctx.font = "13px sans-serif";
         ctx.textAlign = "center";
@@ -930,7 +992,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
         ctx.fillText(id, x + CELL_SIZE / 2, y + CELL_SIZE / 2);
       }
     }
-  }, [relaxCanvasWidth, relaxCanvasHeight, relaxResult]);
+  }, [relaxCanvasWidth, relaxCanvasHeight, relaxResult, expandedTileSetResult]);
 
   const relaxEnergyCanvasRef = useRef<HTMLCanvasElement | null>(null);
 

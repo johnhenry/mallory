@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hexCenter, hexCorners } from "./hex-geometry.ts";
+import { HEX_AXIAL_DIRECTIONS, hexNeighbor } from "mallory-math";
+import { hexCenter, hexCorners, hexEdgeSegment } from "./hex-geometry.ts";
 
 test("hexCenter: direction 0 (E) neighbor offset is pure +x, hand-computed", () => {
   const origin = hexCenter(0, 0, 10);
@@ -51,6 +52,22 @@ test("hexCorners: consecutive corners are spaced exactly 60 degrees apart", () =
     let delta = angleB - angleA;
     if (delta < 0) delta += 2 * Math.PI;
     assert.ok(Math.abs(delta - Math.PI / 3) < 1e-9, `expected 60deg (pi/3), got ${(delta * 180) / Math.PI}deg`);
+  }
+});
+
+test("hexEdgeSegment: direction d's edge from a hex coincides pixel-exactly with direction (d+3)%6's edge from its direction-d neighbor", () => {
+  const size = 12;
+  for (let d = 0; d < HEX_AXIAL_DIRECTIONS.length; d++) {
+    const origin = hexCenter(0, 0, size);
+    const [nq, nr] = hexNeighbor(0, 0, d as 0 | 1 | 2 | 3 | 4 | 5);
+    const neighborCenter = hexCenter(nq, nr, size);
+    const originCorners = hexCorners(origin.x, origin.y, size);
+    const neighborCorners = hexCorners(neighborCenter.x, neighborCenter.y, size);
+    const [a1, a2] = hexEdgeSegment(originCorners, d);
+    const [b1, b2] = hexEdgeSegment(neighborCorners, (d + 3) % 6);
+    const close = (p: { x: number; y: number }, q: { x: number; y: number }) => Math.abs(p.x - q.x) < 1e-9 && Math.abs(p.y - q.y) < 1e-9;
+    const matches = (close(a1, b1) && close(a2, b2)) || (close(a1, b2) && close(a2, b1));
+    assert.ok(matches, `direction ${d}'s edge doesn't coincide with its neighbor's (d+3)%6=${(d + 3) % 6} edge`);
   }
 });
 
