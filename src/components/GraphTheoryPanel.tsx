@@ -14,6 +14,8 @@ import {
 } from "../lib/graph-algorithm-steps.ts";
 import {
   analyzeGraph,
+  buildCondensationGraph,
+  circularLayout,
   parseEdgeListText,
   runBfs,
   runDfs,
@@ -201,6 +203,117 @@ export function sccIndexByVertex(components: readonly string[][]): Map<string, n
   return index;
 }
 
+const CONDENSATION_VIEWPORT: Viewport = VIEWPORT;
+const CONDENSATION_SIZE = 320;
+
+/**
+ * Pure re-render of the condensation ("skeleton") view (issue #297 item 3):
+ * each strongly connected component collapsed to one node, matching the
+ * video's own "consider each component as a black box" framing. Simple
+ * circular layout (not the interactive `computeLayout` the main canvas
+ * uses) since this view has no editor/drag interaction of its own -- it's
+ * a derived, read-only picture of `condensedGraph`.
+ */
+export function drawCondensationView(ctx: CanvasRenderingContext2D, width: number, height: number, condensedGraph: Graph<string> | null): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!condensedGraph) return;
+  const vertices = condensedGraph.vertices();
+  const layout = circularLayout(vertices);
+
+  ctx.save();
+  ctx.strokeStyle = "#9ca3af";
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = "#374151";
+  ctx.font = "11px sans-serif";
+  for (const e of condensedGraph.edges()) {
+    const from = layout.get(e.from);
+    const to = layout.get(e.to);
+    if (!from || !to) continue;
+    const fromX = toScreenX(from.x, CONDENSATION_VIEWPORT, width);
+    const fromY = toScreenY(from.y, CONDENSATION_VIEWPORT, height);
+    const toX = toScreenX(to.x, CONDENSATION_VIEWPORT, width);
+    const toY = toScreenY(to.y, CONDENSATION_VIEWPORT, height);
+    // A short arrowhead partway along the line -- the condensation is a
+    // DAG with a real source-to-sink direction (unlike the main canvas's
+    // possibly-undirected graph), so which way each edge points matters.
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+    const t = 0.6;
+    const midX = fromX + (toX - fromX) * t;
+    const midY = fromY + (toY - fromY) * t;
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    const arrowSize = 7;
+    ctx.beginPath();
+    ctx.moveTo(midX, midY);
+    ctx.lineTo(midX - arrowSize * Math.cos(angle - Math.PI / 6), midY - arrowSize * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(midX - arrowSize * Math.cos(angle + Math.PI / 6), midY - arrowSize * Math.sin(angle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fillStyle = "#9ca3af";
+    ctx.fill();
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = "12px sans-serif";
+  vertices.forEach((v, i) => {
+    const p = layout.get(v);
+    if (!p) return;
+    const sx = toScreenX(p.x, CONDENSATION_VIEWPORT, width);
+    const sy = toScreenY(p.y, CONDENSATION_VIEWPORT, height);
+    ctx.fillStyle = sccColor(i);
+    ctx.beginPath();
+    ctx.arc(sx, sy, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(v, sx, sy);
+  });
+  ctx.restore();
+}
+
+/**
+ * The condensation ("skeleton") view (issue #297 item 3): each strongly
+ * connected component as one black-box node, rendered beside the main
+ * graph. Standalone/props-only, mirroring `CubeGridView`'s own shape --
+ * this is a derived read-only picture, not an editable graph of its own.
+ */
+function CondensationView({ condensedGraph, members }: { condensedGraph: Graph<string> | null; members: Map<string, string[]> }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    drawCondensationView(ctx, CONDENSATION_SIZE, CONDENSATION_SIZE, condensedGraph);
+  }, [condensedGraph]);
+  if (!condensedGraph) return null;
+  return (
+    <div style={{ margin: "0.5rem 0" }}>
+      <h3>Condensation (each strongly connected component as one node)</h3>
+      <canvas ref={canvasRef} width={CONDENSATION_SIZE} height={CONDENSATION_SIZE} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
+      <div style={{ margin: "0.25rem 0" }}>
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="graph-theory-condensation"
+          renderAtScale={(ctx, width, height) => drawCondensationView(ctx, width, height, condensedGraph)}
+          baseWidth={CONDENSATION_SIZE}
+          baseHeight={CONDENSATION_SIZE}
+        />
+      </div>
+      <ul style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+        {condensedGraph.vertices().map((v) => (
+          <li key={v}>
+            <span style={{ color: sccColor(condensedGraph.vertices().indexOf(v)) }}>■</span> {v} = {"{"}
+            {(members.get(v) ?? []).join(", ")}
+            {"}"}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /**
  * Pure re-render of the main graph canvas, extracted from the draw effect
  * below so `PngExportButton`'s `renderAtScale` (issue #278) can call it
@@ -348,6 +461,14 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   // connectedComponents (per mallory-math's own doc comment), so "SCC
   // color" there would just be a confusing synonym for "connected piece."
   const sccIndex = directed && analysis.ok ? sccIndexByVertex(analysis.value.stronglyConnectedComponents) : null;
+  // Condensation view (issue #297 item 3): only meaningful with >1
+  // component -- a single-SCC (irreducible) graph condenses to one node,
+  // which the summary's own "irreducible" callout already communicates
+  // without needing a whole extra canvas for a 1-node non-graph.
+  const condensation =
+    directed && analysis.ok && graphResult.ok && analysis.value.stronglyConnectedComponents.length > 1
+      ? buildCondensationGraph(graphResult.value, analysis.value.stronglyConnectedComponents)
+      : null;
   const startVertex = useCell<string>(graph, ids.startVertex);
   const endVertex = useCell<string>(graph, ids.endVertex);
   const algorithm = useCell<Algorithm>(graph, ids.algorithm);
@@ -588,6 +709,8 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
       ) : (
         <p style={{ color: "crimson" }}>{analysis.message}</p>
       )}
+
+      {condensation && <CondensationView condensedGraph={condensation.graph} members={condensation.members} />}
 
       <h3>Adjacency matrix</h3>
       {analysis.ok ? (
