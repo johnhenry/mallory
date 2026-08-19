@@ -53,6 +53,37 @@ export function visiblePaths(graph: CellGraph, blockIds: ReturnType<typeof cellI
 }
 
 /**
+ * Pure re-render of the block's shared curves canvas, extracted from the
+ * redraw effect below so `PngExportButton`'s `renderAtScale` (issue #278)
+ * can call it against a fresh offscreen canvas at any size.
+ */
+export function drawNotebookGraphBlock(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  graph: CellGraph,
+  blockIds: ReturnType<typeof cellIdsNotebookBlock>,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  const viewport = graph.get<Viewport>(blockIds.viewport);
+  drawAxes(ctx, viewport, width, height);
+  for (const id of graph.get<string[]>(blockIds.expressionList)) {
+    const ids = cellIdsMultiRow(id);
+    try {
+      const path = graph.get<Path2D>(ids.path);
+      const visible = graph.get<boolean>(ids.visible);
+      drawExpressionLayer(ctx, path, visible, viewport, width, height);
+      if (visible) {
+        const derivativePath = graph.get<Path2D | null>(ids.derivativePath);
+        if (derivativePath) drawPath(ctx, derivativePath, viewport, width, height, true);
+      }
+    } catch {
+      // A row whose cells haven't registered yet -- skip this frame.
+    }
+  }
+}
+
+/**
  * A graph cell for the notebook surface (NotebookPanel.tsx): its own
  * namespaced viewport/expression-list cells (see `cellIdsNotebookBlock`),
  * but on the ONE `CellGraph` shared across every block in the document --
@@ -139,26 +170,7 @@ export function NotebookGraphBlock({
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    function redraw() {
-      if (!ctx) return;
-      ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      const viewport = graph.get<Viewport>(blockIds.viewport);
-      drawAxes(ctx, viewport, WIDTH, HEIGHT);
-      for (const id of graph.get<string[]>(blockIds.expressionList)) {
-        const ids = cellIdsMultiRow(id);
-        try {
-          const path = graph.get<Path2D>(ids.path);
-          const visible = graph.get<boolean>(ids.visible);
-          drawExpressionLayer(ctx, path, visible, viewport, WIDTH, HEIGHT);
-          if (visible) {
-            const derivativePath = graph.get<Path2D | null>(ids.derivativePath);
-            if (derivativePath) drawPath(ctx, derivativePath, viewport, WIDTH, HEIGHT, true);
-          }
-        } catch {
-          // A row whose cells haven't registered yet -- skip this frame.
-        }
-      }
-    }
+    const redraw = () => drawNotebookGraphBlock(ctx, WIDTH, HEIGHT, graph, blockIds);
     redraw();
     const watchedIds = [blockIds.viewport, ...rowIds.flatMap((id) => [cellIdsMultiRow(id).path, cellIdsMultiRow(id).visible, cellIdsMultiRow(id).derivativePath])];
     return graph.subscribeMany(watchedIds, redraw);
@@ -179,7 +191,13 @@ export function NotebookGraphBlock({
       <div>
         <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
         <div style={{ margin: "0.25rem 0" }}>
-          <PngExportButton getCanvas={() => canvasRef.current} label="notebook-graph" />{" "}
+          <PngExportButton
+            getCanvas={() => canvasRef.current}
+            label="notebook-graph"
+            renderAtScale={(ctx, width, height) => drawNotebookGraphBlock(ctx, width, height, graph, blockIds)}
+            baseWidth={WIDTH}
+            baseHeight={HEIGHT}
+          />{" "}
           <SvgExportButton
             getSvg={() => {
               const paths = visiblePaths(graph, blockIds);

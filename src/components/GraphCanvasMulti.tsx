@@ -283,6 +283,87 @@ function getPrimaryRow(graph: CellGraph): { rowId: string; ids: ReturnType<typeo
   return null;
 }
 
+/**
+ * Pure re-render of the shared multi-expression canvas, extracted from the
+ * redraw effect below so `PngExportButton`'s `renderAtScale` (issue #278)
+ * can call it against a fresh offscreen canvas at any size. Deliberately
+ * does NOT compute/set the accessible-name description -- that's a React
+ * state update (`setDescription`), not a canvas draw, so it stays only in
+ * the on-screen effect below and isn't re-run for an offscreen export.
+ */
+export function drawGraphCanvasMulti(ctx: CanvasRenderingContext2D, width: number, height: number, graph: CellGraph, selectedAnnotationId: string | null): void {
+  ctx.clearRect(0, 0, width, height);
+  const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
+  drawAxes(ctx, viewport, width, height);
+  const theme = getThemeColors();
+
+  for (const id of graph.get<string[]>(EXPRESSION_LIST_CELL)) {
+    const ids = cellIdsMultiRow(id);
+    try {
+      const visible = graph.get<boolean>(ids.visible);
+      const scatter = graph.get<{ x: number; y: number }[] | null>(ids.scatter);
+      if (visible && scatter) {
+        const color = graph.get<number>(ids.color);
+        drawScatter(ctx, scatter, viewport, width, height, 5, hexToRgba(color, 1));
+      } else {
+        const path = graph.get<Path2D>(ids.path);
+        if (visible) {
+          const regionMask = graph.get<boolean[] | null>(ids.regionMask);
+          if (regionMask) {
+            const color = graph.get<number>(ids.color);
+            drawRegionMask(ctx, regionMask, viewport, width, height, hexToRgba(color, 0.15));
+          }
+          const areaResult = graph.get<{ value: number; path: Path2D } | null>(ids.area);
+          if (areaResult) {
+            const color = graph.get<number>(ids.color);
+            drawFilledArea(ctx, areaResult.path, viewport, width, height, hexToRgba(color, 0.25));
+          }
+        }
+        drawExpressionLayer(ctx, path, visible, viewport, width, height);
+        if (visible) {
+          const roots = graph.get<{ x: number; y: number }[]>(ids.roots);
+          if (roots.length > 0) drawScatter(ctx, roots, viewport, width, height, 4, theme.ink);
+          const discontinuities = graph.get<{ before: { x: number; y: number }; after: { x: number; y: number } }[]>(ids.discontinuities);
+          if (discontinuities.length > 0) {
+            drawOpenCircles(ctx, discontinuities.flatMap((g) => [g.before, g.after]), viewport, width, height, 4);
+          }
+          const derivativePath = graph.get<Path2D | null>(ids.derivativePath);
+          if (derivativePath) drawPath(ctx, derivativePath, viewport, width, height, true);
+        }
+      }
+    } catch {
+      // A row whose cells haven't been registered yet -- skip it this frame.
+    }
+  }
+  const intersections = graph.get<{ x: number; y: number }[]>(INTERSECTIONS_CELL);
+  if (intersections.length > 0) drawScatter(ctx, intersections, viewport, width, height, 5, "#9333ea");
+  for (const a of graph.get<MultiGraphAnnotation[]>(ANNOTATIONS_CELL)) {
+    const selected = a.id === selectedAnnotationId;
+    const sx = toScreenX(a.x, viewport, width);
+    const sy = toScreenY(a.y, viewport, height);
+    ctx.save();
+    ctx.fillStyle = selected ? "#dc2626" : "#b8752e";
+    ctx.beginPath();
+    ctx.arc(sx, sy, selected ? 6 : 4, 0, Math.PI * 2);
+    ctx.fill();
+    if (selected) {
+      ctx.strokeStyle = "#dc2626";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.font = selected ? "bold 12px sans-serif" : "12px sans-serif";
+    ctx.fillStyle = selected ? "#dc2626" : theme.ink;
+    ctx.fillText(a.label, sx + 8, sy - 8);
+    ctx.restore();
+  }
+  const readout = graph.get<PointReadout | null>(POINT_READOUT_CELL);
+  if (readout) {
+    drawPoint(ctx, readout, viewport, width, height, 6, `#${readout.color.toString(16).padStart(6, "0")}`);
+  }
+}
+
 export function GraphCanvasMulti() {
   const graph = useMultiGraph();
   const rowIds = useCell<string[]>(graph, EXPRESSION_LIST_CELL);
@@ -751,15 +832,14 @@ export function GraphCanvasMulti() {
     if (!ctx) return;
     function redraw() {
       if (!ctx) return;
-      ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
-      drawAxes(ctx, viewport, WIDTH, HEIGHT);
-      const theme = getThemeColors();
-
       // Issue #50: regenerate the accessible-name description alongside
       // every redraw, from the primary row's already-computed roots/
       // extrema/discontinuities -- cheap (string formatting over data
-      // that's already sampled) compared to the redraw itself.
+      // that's already sampled) compared to the redraw itself. A React
+      // state update, not a canvas draw, so it's kept out of
+      // drawGraphCanvasMulti (issue #278) -- an offscreen renderAtScale
+      // export shouldn't trigger a setState.
+      const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
       const primary = getPrimaryRow(graph);
       if (!primary) {
         setDescription("No curves plotted yet.");
@@ -775,87 +855,7 @@ export function GraphCanvasMulti() {
         }
       }
 
-      for (const id of graph.get<string[]>(EXPRESSION_LIST_CELL)) {
-        const ids = cellIdsMultiRow(id);
-        try {
-          const visible = graph.get<boolean>(ids.visible);
-          const scatter = graph.get<{ x: number; y: number }[] | null>(ids.scatter);
-          if (visible && scatter) {
-            // Finite-structure mode (issue #51): a set modulus REPLACES the
-            // continuous curve entirely, same "scatter or everything else,
-            // never both" branching GraphCanvas's own single-pane draw
-            // effect uses -- none of the path/region/area overlays below
-            // have meaning over a finite structure.
-            const color = graph.get<number>(ids.color);
-            drawScatter(ctx, scatter, viewport, WIDTH, HEIGHT, 5, hexToRgba(color, 1));
-          } else {
-            const path = graph.get<Path2D>(ids.path);
-            if (visible) {
-              // Region/area shading (issue #51) draw BEFORE the curve stroke
-              // below, same layering GraphCanvas's own single-pane version
-              // uses, so the line renders on top of its own fill instead of
-              // being covered by it. Region mask is null for the vast
-              // majority of rows (only populated when the row's expression is
-              // itself a `cmp` inequality), so this is a no-op for a plain
-              // function row.
-              const regionMask = graph.get<boolean[] | null>(ids.regionMask);
-              if (regionMask) {
-                const color = graph.get<number>(ids.color);
-                drawRegionMask(ctx, regionMask, viewport, WIDTH, HEIGHT, hexToRgba(color, 0.15));
-              }
-              const areaResult = graph.get<{ value: number; path: Path2D } | null>(ids.area);
-              if (areaResult) {
-                const color = graph.get<number>(ids.color);
-                drawFilledArea(ctx, areaResult.path, viewport, WIDTH, HEIGHT, hexToRgba(color, 0.25));
-              }
-            }
-            drawExpressionLayer(ctx, path, visible, viewport, WIDTH, HEIGHT);
-            if (visible) {
-              const roots = graph.get<{ x: number; y: number }[]>(ids.roots);
-              if (roots.length > 0) drawScatter(ctx, roots, viewport, WIDTH, HEIGHT, 4, theme.ink);
-              const discontinuities = graph.get<{ before: { x: number; y: number }; after: { x: number; y: number } }[]>(
-                ids.discontinuities,
-              );
-              if (discontinuities.length > 0) {
-                drawOpenCircles(ctx, discontinuities.flatMap((g) => [g.before, g.after]), viewport, WIDTH, HEIGHT, 4);
-              }
-              const derivativePath = graph.get<Path2D | null>(ids.derivativePath);
-              if (derivativePath) drawPath(ctx, derivativePath, viewport, WIDTH, HEIGHT, true);
-            }
-          }
-        } catch {
-          // A row whose cells haven't been registered yet (ExpressionRow
-          // hasn't mounted this render pass) -- skip it this frame, it'll
-          // draw on the next redraw once mounted.
-        }
-      }
-      const intersections = graph.get<{ x: number; y: number }[]>(INTERSECTIONS_CELL);
-      if (intersections.length > 0) drawScatter(ctx, intersections, viewport, WIDTH, HEIGHT, 5, "#9333ea");
-      for (const a of graph.get<MultiGraphAnnotation[]>(ANNOTATIONS_CELL)) {
-        const selected = a.id === selectedAnnotationId;
-        const sx = toScreenX(a.x, viewport, WIDTH);
-        const sy = toScreenY(a.y, viewport, HEIGHT);
-        ctx.save();
-        ctx.fillStyle = selected ? "#dc2626" : "#b8752e";
-        ctx.beginPath();
-        ctx.arc(sx, sy, selected ? 6 : 4, 0, Math.PI * 2);
-        ctx.fill();
-        if (selected) {
-          ctx.strokeStyle = "#dc2626";
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(sx, sy, 10, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-        ctx.font = selected ? "bold 12px sans-serif" : "12px sans-serif";
-        ctx.fillStyle = selected ? "#dc2626" : theme.ink;
-        ctx.fillText(a.label, sx + 8, sy - 8);
-        ctx.restore();
-      }
-      const readout = graph.get<PointReadout | null>(POINT_READOUT_CELL);
-      if (readout) {
-        drawPoint(ctx, readout, viewport, WIDTH, HEIGHT, 6, `#${readout.color.toString(16).padStart(6, "0")}`);
-      }
+      drawGraphCanvasMulti(ctx, WIDTH, HEIGHT, graph, selectedAnnotationId);
     }
     redraw();
     return graph.subscribeAll(redraw);
@@ -1003,7 +1003,13 @@ export function GraphCanvasMulti() {
         <p style={{ margin: "0.25rem 0", color: "var(--muted)", fontSize: "0.85rem" }}>No curve close enough to that point.</p>
       )}
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="multi-expression" />{" "}
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="multi-expression"
+          renderAtScale={(ctx, width, height) => drawGraphCanvasMulti(ctx, width, height, graph, selectedAnnotationId)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />{" "}
         <SvgExportButton getSvg={() => getMultiGraphSvg(graph, rowIds)} label="multi-expression" />{" "}
         <button type="button" onClick={handlePlaySound}>
           🔊 Play sound

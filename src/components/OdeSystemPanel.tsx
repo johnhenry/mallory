@@ -165,6 +165,51 @@ export interface OdeSystemPanelProps {
  * on a direction field sampled at t0). No animation/dragging, no
  * multi-trajectory overlay.
  */
+/**
+ * Pure re-render of the vector-field + trajectory + classified fixed-point
+ * markers canvas, extracted from the draw effect below so
+ * `PngExportButton`'s `renderAtScale` (issue #278) can call it against a
+ * fresh offscreen canvas at any size.
+ */
+export function drawOdeSystemPanel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  viewport: Viewport,
+  vectorField: VectorFieldResult,
+  trajectory: TrajectoryResult,
+  fixedPoints: FixedPointsResult,
+  x0: string,
+  y0: string,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  drawAxes(ctx, viewport, width, height);
+  if (vectorField.ok) drawVectorField(ctx, vectorField.points, viewport, width, height);
+  if (trajectory.ok) {
+    drawPath(ctx, trajectory.path, viewport, width, height);
+    drawPoint(ctx, { x: Number(x0), y: Number(y0) }, viewport, width, height, 5, "#dc2626");
+  }
+  if (fixedPoints.ok) {
+    ctx.save();
+    ctx.font = "11px sans-serif";
+    const theme = getThemeColors();
+    for (const fp of fixedPoints.points) {
+      const sx = toScreenX(fp.x, viewport, width);
+      const sy = toScreenY(fp.y, viewport, height);
+      ctx.fillStyle = FIXED_POINT_COLOR[fp.kind];
+      ctx.beginPath();
+      ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = theme.ink;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = theme.ink;
+      ctx.fillText(FIXED_POINT_LABEL[fp.kind], sx + 9, sy - 9);
+    }
+    ctx.restore();
+  }
+}
+
 export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, syncUrl = true }: OdeSystemPanelProps = {}) {
   const graph = useOdeSystemGraph(cellId, externalGraph);
   // Namespaced by cellId, same collision-avoidance fix as OdePanel's.
@@ -243,32 +288,7 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    drawAxes(ctx, viewport, WIDTH, HEIGHT);
-    if (vectorField.ok) drawVectorField(ctx, vectorField.points, viewport, WIDTH, HEIGHT);
-    if (trajectory.ok) {
-      drawPath(ctx, trajectory.path, viewport, WIDTH, HEIGHT);
-      drawPoint(ctx, { x: Number(x0), y: Number(y0) }, viewport, WIDTH, HEIGHT, 5, "#dc2626");
-    }
-    if (fixedPoints.ok) {
-      ctx.save();
-      ctx.font = "11px sans-serif";
-      const theme = getThemeColors();
-      for (const fp of fixedPoints.points) {
-        const sx = toScreenX(fp.x, viewport, WIDTH);
-        const sy = toScreenY(fp.y, viewport, HEIGHT);
-        ctx.fillStyle = FIXED_POINT_COLOR[fp.kind];
-        ctx.beginPath();
-        ctx.arc(sx, sy, 6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = theme.ink;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-        ctx.fillStyle = theme.ink;
-        ctx.fillText(FIXED_POINT_LABEL[fp.kind], sx + 9, sy - 9);
-      }
-      ctx.restore();
-    }
+    drawOdeSystemPanel(ctx, WIDTH, HEIGHT, viewport, vectorField, trajectory, fixedPoints, x0, y0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trajectory, vectorField, fixedPoints, xMin, xMax, yMin, yMax, x0, y0]);
 
@@ -312,7 +332,13 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
       </div>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="ode-system" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="ode-system"
+          renderAtScale={(ctx, width, height) => drawOdeSystemPanel(ctx, width, height, viewport, vectorField, trajectory, fixedPoints, x0, y0)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton
           getSvg={() => {
             const layers: SvgLayer[] = [];
