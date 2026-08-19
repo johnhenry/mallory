@@ -190,6 +190,66 @@ function probabilityColor(p: number): [number, number, number] {
  * labels ("drawn" and "csv" datasets), and folding this panel's tab-mate
  * DigitClassifierPanel into the same `/ml` route (see ml.tsx).
  */
+/**
+ * Pure re-render of the decision-boundary canvas, extracted from the draw
+ * effect below so `PngExportButton`'s `renderAtScale` (issue #278) can
+ * call it against a fresh offscreen canvas at any size.
+ */
+export function drawMlBoundaryPanel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  boundaryGrid: { kind: "probability" | "class"; grid: number[][] } | null,
+  pointsResult: Result<LabeledPoint[]>,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  if (boundaryGrid) {
+    const image = ctx.createImageData(width, height);
+    const resolution = boundaryGrid.grid.length;
+    for (let py = 0; py < height; py++) {
+      // Canvas y grows downward; grid row 0 is the domain's MIN y, so flip.
+      const gy = Math.min(resolution - 1, Math.floor(((height - 1 - py) / height) * resolution));
+      for (let px = 0; px < width; px++) {
+        const gx = Math.min(resolution - 1, Math.floor((px / width) * resolution));
+        const cell = boundaryGrid.grid[gy]![gx]!;
+        const [r, g, b] = boundaryGrid.kind === "probability" ? probabilityColor(cell) : classBackgroundColor(cell);
+        const idx = (py * width + px) * 4;
+        image.data[idx] = r;
+        image.data[idx + 1] = g;
+        image.data[idx + 2] = b;
+        image.data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+  drawAxes(ctx, VIEWPORT, width, height);
+  if (pointsResult.ok) {
+    const byClass = new Map<number, LabeledPoint[]>();
+    for (const p of pointsResult.value) {
+      const bucket = byClass.get(p.label);
+      if (bucket) bucket.push(p);
+      else byClass.set(p.label, [p]);
+    }
+    for (const [cls, pts] of [...byClass.entries()].sort((a, b) => a[0] - b[0])) {
+      drawScatter(ctx, pts, VIEWPORT, width, height, 3, classColor(cls));
+    }
+  }
+}
+
+/**
+ * Pure re-render of the training-loss canvas, extracted from the draw
+ * effect below so `PngExportButton`'s `renderAtScale` (issue #278) can
+ * call it against a fresh offscreen canvas at any size.
+ */
+export function drawMlLossPanel(ctx: CanvasRenderingContext2D, width: number, height: number, lossHistory: number[]): void {
+  ctx.clearRect(0, 0, width, height);
+  if (lossHistory.length < 2) return;
+  const maxLoss = Math.max(...lossHistory);
+  const viewport: Viewport = { xMin: 0, xMax: lossHistory.length - 1, yMin: 0, yMax: maxLoss * 1.05 };
+  drawAxes(ctx, viewport, width, height);
+  drawPolyline(ctx, lossHistory.map((loss, i) => ({ x: i, y: loss })), viewport, width, height, "#dc2626");
+}
+
 export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {}) {
   const graph = useMlGraph(cellId);
   useCellGraphTools(`ml_${cellId}`, graph);
@@ -380,53 +440,13 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
   useEffect(() => {
     const ctx = boundaryCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, BOUNDARY_SIZE, BOUNDARY_SIZE);
-    if (boundaryGrid) {
-      const image = ctx.createImageData(BOUNDARY_SIZE, BOUNDARY_SIZE);
-      const resolution = boundaryGrid.grid.length;
-      for (let py = 0; py < BOUNDARY_SIZE; py++) {
-        // Canvas y grows downward; grid row 0 is the domain's MIN y, so flip.
-        const gy = Math.min(resolution - 1, Math.floor(((BOUNDARY_SIZE - 1 - py) / BOUNDARY_SIZE) * resolution));
-        for (let px = 0; px < BOUNDARY_SIZE; px++) {
-          const gx = Math.min(resolution - 1, Math.floor((px / BOUNDARY_SIZE) * resolution));
-          const cell = boundaryGrid.grid[gy]![gx]!;
-          const [r, g, b] = boundaryGrid.kind === "probability" ? probabilityColor(cell) : classBackgroundColor(cell);
-          const idx = (py * BOUNDARY_SIZE + px) * 4;
-          image.data[idx] = r;
-          image.data[idx + 1] = g;
-          image.data[idx + 2] = b;
-          image.data[idx + 3] = 255;
-        }
-      }
-      ctx.putImageData(image, 0, 0);
-    }
-    drawAxes(ctx, VIEWPORT, BOUNDARY_SIZE, BOUNDARY_SIZE);
-    if (pointsResult.ok) {
-      // Issue #253: grouped by whichever labels are actually present (not
-      // hardcoded to 0/1), each drawn in its own CLASS_COLORS entry -- the
-      // binary case (labels 0/1 only) draws in exactly the same blue/red as
-      // before.
-      const byClass = new Map<number, LabeledPoint[]>();
-      for (const p of pointsResult.value) {
-        const bucket = byClass.get(p.label);
-        if (bucket) bucket.push(p);
-        else byClass.set(p.label, [p]);
-      }
-      for (const [cls, pts] of [...byClass.entries()].sort((a, b) => a[0] - b[0])) {
-        drawScatter(ctx, pts, VIEWPORT, BOUNDARY_SIZE, BOUNDARY_SIZE, 3, classColor(cls));
-      }
-    }
+    drawMlBoundaryPanel(ctx, BOUNDARY_SIZE, BOUNDARY_SIZE, boundaryGrid, pointsResult);
   }, [boundaryGrid, pointsResult]);
 
   useEffect(() => {
     const ctx = lossCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, LOSS_WIDTH, LOSS_HEIGHT);
-    if (lossHistory.length < 2) return;
-    const maxLoss = Math.max(...lossHistory);
-    const viewport: Viewport = { xMin: 0, xMax: lossHistory.length - 1, yMin: 0, yMax: maxLoss * 1.05 };
-    drawAxes(ctx, viewport, LOSS_WIDTH, LOSS_HEIGHT);
-    drawPolyline(ctx, lossHistory.map((loss, i) => ({ x: i, y: loss })), viewport, LOSS_WIDTH, LOSS_HEIGHT, "#dc2626");
+    drawMlLossPanel(ctx, LOSS_WIDTH, LOSS_HEIGHT, lossHistory);
   }, [lossHistory]);
 
   const lastLoss = lossHistory[lossHistory.length - 1];
@@ -600,7 +620,13 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
             style={{ border: "1px solid var(--border)", maxWidth: "100%", cursor: dataset === "drawn" ? "crosshair" : "default" }}
           />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => boundaryCanvasRef.current} label="ml-decision-boundary" />
+            <PngExportButton
+              getCanvas={() => boundaryCanvasRef.current}
+              label="ml-decision-boundary"
+              renderAtScale={(ctx, width, height) => drawMlBoundaryPanel(ctx, width, height, boundaryGrid, pointsResult)}
+              baseWidth={BOUNDARY_SIZE}
+              baseHeight={BOUNDARY_SIZE}
+            />
           </div>
         </div>
         <div>
@@ -610,7 +636,13 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
           </p>
           <canvas ref={lossCanvasRef} width={LOSS_WIDTH} height={LOSS_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => lossCanvasRef.current} label="ml-loss" />
+            <PngExportButton
+              getCanvas={() => lossCanvasRef.current}
+              label="ml-loss"
+              renderAtScale={(ctx, width, height) => drawMlLossPanel(ctx, width, height, lossHistory)}
+              baseWidth={LOSS_WIDTH}
+              baseHeight={LOSS_HEIGHT}
+            />
           </div>
         </div>
       </div>
