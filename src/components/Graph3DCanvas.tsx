@@ -150,6 +150,11 @@ export function Graph3DCanvas({
   const surfaceGroupRef = useRef<THREE.Group | null>(null);
   const highlightGroupRef = useRef<THREE.Group | null>(null);
   const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Populated by the mount-once effect below -- lets `renderThreeAtScale`
+  // (issue #278) build a temporary offscreen renderer around this panel's
+  // existing scene/camera without touching the live on-screen renderer.
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
   /** The export payload, shared by the full render job and the scrub preview so they can't drift apart. */
   function buildSurfaceExportInput(): { source: string; params: Record<string, number>; tracks: Record<string, Keyframe[] | undefined>; xDomain: SurfaceDomain; yDomain: SurfaceDomain; duration: number } {
@@ -205,6 +210,8 @@ export function Graph3DCanvas({
 
     const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.1, 1000);
     camera.position.set(8, 8, 8);
+    sceneRef.current = scene;
+    cameraRef.current = camera;
 
     // `preserveDrawingBuffer: true` -- without it, WebGL is free to clear the
     // drawing buffer immediately after compositing each frame, so a
@@ -259,6 +266,8 @@ export function Graph3DCanvas({
       surfaceGroupRef.current = null;
       highlightGroupRef.current = null;
       rendererCanvasRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
     };
   }, []);
 
@@ -356,7 +365,19 @@ export function Graph3DCanvas({
       )}
       <div ref={containerRef} style={{ position: "relative", maxWidth: WIDTH, border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="surface-3d" />
+        <PngExportButton
+          getCanvas={() => rendererCanvasRef.current}
+          label="surface-3d"
+          renderThreeAtScale={(canvas, width, height) => {
+            if (!sceneRef.current || !cameraRef.current) return;
+            const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(width, height, false);
+            renderer.render(sceneRef.current, cameraRef.current);
+            renderer.dispose();
+          }}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom.</p>
       {/* Server-side ecmanim export: a full camera orbit around the current

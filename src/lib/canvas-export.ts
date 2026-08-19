@@ -72,3 +72,31 @@ export function downloadCanvasPngAtScale(
   render(ctx, canvas.width, canvas.height);
   return downloadCanvasPng(canvas, filename);
 }
+
+/**
+ * The Three.js/WebGL equivalent of `downloadCanvasPngAtScale` (issue #278):
+ * a genuine higher-resolution re-render, done by handing a fresh, correctly-
+ * sized offscreen `<canvas>` to `render` and letting the CALLER build a
+ * temporary `THREE.WebGLRenderer` around it (with `preserveDrawingBuffer:
+ * true`, matching every on-screen renderer's own #101 setup) and call
+ * `renderer.render(scene, camera)` once against it -- this module stays
+ * Three.js-agnostic (no `three` import) since `render` fully owns the
+ * WebGL side, including disposing its temporary renderer when done.
+ * Reusing the SAME scene/camera objects the on-screen renderer already
+ * built is safe -- rendering a scene/camera pair through a second renderer
+ * doesn't mutate either, so the live on-screen canvas is never touched or
+ * left in a resized/restored state.
+ */
+export function downloadThreeCanvasPngAtScale(
+  baseWidth: number,
+  baseHeight: number,
+  scale: number,
+  render: (canvas: HTMLCanvasElement, width: number, height: number) => void,
+  filename: string,
+): Promise<void> {
+  const canvas = document.createElement("canvas");
+  canvas.width = baseWidth * scale;
+  canvas.height = baseHeight * scale;
+  render(canvas, canvas.width, canvas.height);
+  return downloadCanvasPng(canvas, filename);
+}
