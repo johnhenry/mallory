@@ -72,6 +72,42 @@ export function residualPlot(smoothed: SmoothedSeries, residuals: number[]): Res
   };
 }
 
+/**
+ * Pure re-render of the smoothing canvas, extracted from the draw effect
+ * below so `PngExportButton`'s `renderAtScale` (issue #278) can call it
+ * against a fresh offscreen canvas at any size. Wraps the already-shared
+ * `smoothingPlot()` helper (issue #45 item 1) rather than re-deriving the
+ * viewport/point math.
+ */
+export function drawStatisticsSmoothingPanel(ctx: CanvasRenderingContext2D, width: number, height: number, smoothingResult: SmoothingResult): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!smoothingResult.ok) return;
+  const { viewport, rawPoints, smoothedPoints } = smoothingPlot(smoothingResult.data, smoothingResult.smoothed);
+  drawAxes(ctx, viewport, width, height);
+  drawScatter(ctx, rawPoints, viewport, width, height, 2.5, "#93c5fd");
+  drawPolyline(ctx, smoothedPoints, viewport, width, height, "#dc2626");
+}
+
+/**
+ * Pure re-render of the residual canvas, extracted from the draw effect
+ * below so `PngExportButton`'s `renderAtScale` (issue #278) can call it
+ * against a fresh offscreen canvas at any size. Wraps the already-shared
+ * `residualPlot()` helper (issue #45 item 1).
+ */
+export function drawStatisticsResidualPanel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  smoothingResult: SmoothingResult,
+  smoothingShowResidual: boolean,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!smoothingShowResidual || !smoothingResult.ok) return;
+  const { viewport, points } = residualPlot(smoothingResult.smoothed, smoothingResult.residuals);
+  drawAxes(ctx, viewport, width, height);
+  drawPolyline(ctx, points, viewport, width, height, "#16a34a");
+}
+
 type DistType = "normal" | "binomial" | "poisson" | "studentT" | "chiSquare";
 
 const DIST_LABELS: Record<DistType, string> = {
@@ -374,28 +410,15 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
   const SMOOTHING_HEIGHT = 200;
 
   useEffect(() => {
-    const canvas = smoothingCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = smoothingCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
-    if (!smoothingResult.ok) return;
-    const { viewport, rawPoints, smoothedPoints } = smoothingPlot(smoothingResult.data, smoothingResult.smoothed);
-    drawAxes(ctx, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
-    drawScatter(ctx, rawPoints, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, 2.5, "#93c5fd");
-    drawPolyline(ctx, smoothedPoints, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, "#dc2626");
+    drawStatisticsSmoothingPanel(ctx, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, smoothingResult);
   }, [smoothingResult]);
 
   useEffect(() => {
-    const canvas = residualCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = residualCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
-    if (!smoothingShowResidual || !smoothingResult.ok) return;
-    const { viewport, points } = residualPlot(smoothingResult.smoothed, smoothingResult.residuals);
-    drawAxes(ctx, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT);
-    drawPolyline(ctx, points, viewport, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, "#16a34a");
+    drawStatisticsResidualPanel(ctx, SMOOTHING_WIDTH, SMOOTHING_HEIGHT, smoothingResult, smoothingShowResidual);
   }, [smoothingResult, smoothingShowResidual]);
 
   return (
@@ -463,7 +486,13 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
       )}
       <canvas ref={smoothingCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => smoothingCanvasRef.current} label="statistics-smoothing" />{" "}
+        <PngExportButton
+          getCanvas={() => smoothingCanvasRef.current}
+          label="statistics-smoothing"
+          renderAtScale={(ctx, width, height) => drawStatisticsSmoothingPanel(ctx, width, height, smoothingResult)}
+          baseWidth={SMOOTHING_WIDTH}
+          baseHeight={SMOOTHING_HEIGHT}
+        />{" "}
         <SvgExportButton
           getSvg={() => {
             if (!smoothingResult.ok) return null;
@@ -485,7 +514,13 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
         <>
           <canvas ref={residualCanvasRef} width={SMOOTHING_WIDTH} height={SMOOTHING_HEIGHT} style={{ border: "1px solid var(--border)", maxWidth: "100%", marginTop: "0.5rem" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => residualCanvasRef.current} label="statistics-residual" />{" "}
+            <PngExportButton
+              getCanvas={() => residualCanvasRef.current}
+              label="statistics-residual"
+              renderAtScale={(ctx, width, height) => drawStatisticsResidualPanel(ctx, width, height, smoothingResult, smoothingShowResidual)}
+              baseWidth={SMOOTHING_WIDTH}
+              baseHeight={SMOOTHING_HEIGHT}
+            />{" "}
             <SvgExportButton
               getSvg={() => {
                 if (!smoothingResult.ok) return null;
