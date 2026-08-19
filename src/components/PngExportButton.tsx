@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { downloadCanvasPng, downloadCanvasPngAtScale, pngExportFilename } from "../lib/canvas-export.ts";
+import { downloadCanvasPng, downloadCanvasPngAtScale, downloadThreeCanvasPngAtScale, pngExportFilename } from "../lib/canvas-export.ts";
 
 export interface PngExportButtonProps {
   getCanvas: () => HTMLCanvasElement | null;
@@ -12,16 +12,26 @@ export interface PngExportButtonProps {
    * upscaling the on-screen raster -- see `downloadCanvasPngAtScale`'s own
    * doc comment. Optional and backward-compatible: every existing caller
    * that doesn't pass this keeps its single "Download PNG" button exactly
-   * as before.
+   * as before. Canvas2D panels only -- Three.js/WebGL panels use
+   * `renderThreeAtScale` instead (mutually exclusive with this prop).
    */
   renderAtScale?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
+  /**
+   * The Three.js/WebGL equivalent of `renderAtScale` (issue #278): given a
+   * fresh, correctly-sized offscreen `<canvas>`, the caller builds a
+   * temporary `THREE.WebGLRenderer` around it and renders its scene/camera
+   * once -- see `downloadThreeCanvasPngAtScale`'s own doc comment for why
+   * this needs a different shape than the Canvas2D `renderAtScale` above.
+   */
+  renderThreeAtScale?: (canvas: HTMLCanvasElement, width: number, height: number) => void;
   baseWidth?: number;
   baseHeight?: number;
 }
 
 /** A "Download PNG" button for any panel's canvas -- see canvas-export.ts's own doc comment for the export mechanism and its current v1 limits. */
-export function PngExportButton({ getCanvas, label, renderAtScale, baseWidth, baseHeight }: PngExportButtonProps) {
+export function PngExportButton({ getCanvas, label, renderAtScale, renderThreeAtScale, baseWidth, baseHeight }: PngExportButtonProps) {
   const [error, setError] = useState<string | null>(null);
+  const hasScaledExport = (renderAtScale || renderThreeAtScale) && baseWidth && baseHeight;
 
   async function handleClick() {
     setError(null);
@@ -39,9 +49,13 @@ export function PngExportButton({ getCanvas, label, renderAtScale, baseWidth, ba
 
   async function handle2xClick() {
     setError(null);
-    if (!renderAtScale || !baseWidth || !baseHeight) return;
+    if (!baseWidth || !baseHeight) return;
     try {
-      await downloadCanvasPngAtScale(baseWidth, baseHeight, 2, renderAtScale, pngExportFilename(`${label}-2x`));
+      if (renderThreeAtScale) {
+        await downloadThreeCanvasPngAtScale(baseWidth, baseHeight, 2, renderThreeAtScale, pngExportFilename(`${label}-2x`));
+      } else if (renderAtScale) {
+        await downloadCanvasPngAtScale(baseWidth, baseHeight, 2, renderAtScale, pngExportFilename(`${label}-2x`));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -52,7 +66,7 @@ export function PngExportButton({ getCanvas, label, renderAtScale, baseWidth, ba
       <button type="button" onClick={handleClick}>
         Download PNG
       </button>
-      {renderAtScale && baseWidth && baseHeight && (
+      {hasScaledExport && (
         <button type="button" onClick={handle2xClick} style={{ marginLeft: "0.5rem" }}>
           Download PNG (2x)
         </button>
