@@ -219,6 +219,11 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
   const containerRef = useRef<HTMLDivElement>(null);
   const groupRef = useRef<THREE.Group | null>(null);
   const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Populated by the mount-once effect below -- lets `renderThreeAtScale`
+  // (issue #278) build a temporary offscreen renderer around this panel's
+  // existing scene/camera without touching the live on-screen renderer.
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
   // Issue #43's undo/redo, extended to the whole row list (issue #251):
   // getCurrentState/restoreState (above) snapshot/restore every surface
@@ -259,6 +264,8 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
 
     const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.1, 1000);
     camera.position.set(6, 6, 6);
+    sceneRef.current = scene;
+    cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(WIDTH, HEIGHT, false);
@@ -298,6 +305,8 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
       labelOverlay.dispose();
       groupRef.current = null;
       rendererCanvasRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
     };
   }, []);
 
@@ -345,7 +354,19 @@ export function ParametricSurfacePanel({ cellId = "param-surface-1" }: { cellId?
       </button>
       <div ref={containerRef} style={{ position: "relative", maxWidth: WIDTH, border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="parametric-surface" />{" "}
+        <PngExportButton
+          getCanvas={() => rendererCanvasRef.current}
+          label="parametric-surface"
+          renderThreeAtScale={(canvas, width, height) => {
+            if (!sceneRef.current || !cameraRef.current) return;
+            const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(width, height, false);
+            renderer.render(sceneRef.current, cameraRef.current);
+            renderer.dispose();
+          }}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />{" "}
         <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
           ↩ Undo
         </button>{" "}

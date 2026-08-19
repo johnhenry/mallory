@@ -175,6 +175,11 @@ export function VectorField3DPanel({ cellId = "vector-field-3d-1" }: { cellId?: 
   const containerRef = useRef<HTMLDivElement>(null);
   const groupRef = useRef<THREE.Group | null>(null);
   const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Populated by the mount-once effect below -- lets `renderThreeAtScale`
+  // (issue #278) build a temporary offscreen renderer around this panel's
+  // existing scene/camera without touching the live on-screen renderer.
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
   function addField() {
     const { id, index } = appendRow(graph, containerIds.list);
@@ -221,6 +226,8 @@ export function VectorField3DPanel({ cellId = "vector-field-3d-1" }: { cellId?: 
 
     const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.1, 1000);
     camera.position.set(6, 6, 6);
+    sceneRef.current = scene;
+    cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(WIDTH, HEIGHT, false);
@@ -260,6 +267,8 @@ export function VectorField3DPanel({ cellId = "vector-field-3d-1" }: { cellId?: 
       labelOverlay.dispose();
       groupRef.current = null;
       rendererCanvasRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
     };
   }, []);
 
@@ -315,7 +324,19 @@ export function VectorField3DPanel({ cellId = "vector-field-3d-1" }: { cellId?: 
       </button>
       <div ref={containerRef} style={{ position: "relative", maxWidth: WIDTH, border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="vector-field-3d" />
+        <PngExportButton
+          getCanvas={() => rendererCanvasRef.current}
+          label="vector-field-3d"
+          renderThreeAtScale={(canvas, width, height) => {
+            if (!sceneRef.current || !cameraRef.current) return;
+            const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(width, height, false);
+            renderer.render(sceneRef.current, cameraRef.current);
+            renderer.dispose();
+          }}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom.</p>
     </div>
