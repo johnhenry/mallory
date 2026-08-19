@@ -90,6 +90,50 @@ export function analyzeGraph(graph: Graph<string>): GraphAnalysis {
   };
 }
 
+export interface CondensationResult {
+  /** One vertex ("C0", "C1", ...) per strongly connected component; one edge Ci -> Cj whenever the original graph has ANY edge from a Ci-member to a Cj-member (deduplicated -- the condensation cares about reachability between components, not how many original edges cross it). */
+  graph: Graph<string>;
+  /** Condensed vertex id -> its original member vertices, for labeling/tooltips. */
+  members: Map<string, string[]>;
+}
+
+/**
+ * "Skeletonizes" a directed graph into its condensation (issue #297, per
+ * the video's own framing: "consider each component as a black box: we
+ * don't care what's inside, only about their external connections"). The
+ * condensation of ANY directed graph is a DAG -- a cycle among components
+ * would mean they're mutually reachable, i.e. actually one component, not
+ * several (this is exactly why `stronglyConnectedComponents` is a
+ * well-defined partition in the first place).
+ */
+export function buildCondensationGraph(graph: Graph<string>, components: readonly string[][]): CondensationResult {
+  const componentOf = new Map<string, number>();
+  components.forEach((component, i) => {
+    for (const v of component) componentOf.set(v, i);
+  });
+
+  const condensed = new Graph<string>(true);
+  const members = new Map<string, string[]>();
+  components.forEach((component, i) => {
+    const id = `C${i}`;
+    condensed.addVertex(id);
+    members.set(id, component);
+  });
+
+  const seenEdges = new Set<string>();
+  for (const e of graph.edges()) {
+    const fromId = `C${componentOf.get(e.from)}`;
+    const toId = `C${componentOf.get(e.to)}`;
+    if (fromId === toId) continue; // an edge inside one component, not between two
+    const key = `${fromId}->${toId}`;
+    if (seenEdges.has(key)) continue;
+    seenEdges.add(key);
+    condensed.addEdge(fromId, toId, 1);
+  }
+
+  return { graph: condensed, members };
+}
+
 export interface TraversalResult {
   order: string[];
 }

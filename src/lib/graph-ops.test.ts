@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   analyzeGraph,
+  buildCondensationGraph,
   circularLayout,
   parseEdgeListText,
   runBfs,
@@ -150,4 +151,31 @@ test("analyzeGraph: stronglyConnectedComponents collapses to a single component 
   const g = parseEdgeListText("A B\nB C\nC A", true);
   const analysis = analyzeGraph(g);
   assert.equal(analysis.stronglyConnectedComponents.length, 1);
+});
+
+test("buildCondensationGraph: two components with a one-way edge produce a 2-vertex condensation DAG with exactly 1 edge", () => {
+  // {A,B} mutually reachable, {C,D} mutually reachable, one edge A->C (no way back).
+  const g = parseEdgeListText("A B\nB A\nC D\nD C\nA C", true);
+  const analysis = analyzeGraph(g);
+  const { graph: condensed, members } = buildCondensationGraph(g, analysis.stronglyConnectedComponents);
+  assert.equal(condensed.vertices().length, 2);
+  assert.equal(condensed.edges().length, 1);
+  const abId = [...members.entries()].find(([, m]) => m.includes("A"))![0];
+  const cdId = [...members.entries()].find(([, m]) => m.includes("C"))![0];
+  assert.deepEqual(condensed.edges()[0], { from: abId, to: cdId, weight: 1 });
+});
+
+test("buildCondensationGraph: parallel original edges between the same two components collapse to ONE condensation edge", () => {
+  const g = parseEdgeListText("A B\nB A\nC D\nD C\nA C\nB D", true); // two A/B->C/D edges
+  const analysis = analyzeGraph(g);
+  const { graph: condensed } = buildCondensationGraph(g, analysis.stronglyConnectedComponents);
+  assert.equal(condensed.edges().length, 1, "A->C and B->D both cross the same two components, so they must collapse to one condensation edge");
+});
+
+test("buildCondensationGraph: an irreducible (single-SCC) graph condenses to one vertex, no edges", () => {
+  const g = parseEdgeListText("A B\nB C\nC A", true);
+  const analysis = analyzeGraph(g);
+  const { graph: condensed } = buildCondensationGraph(g, analysis.stronglyConnectedComponents);
+  assert.equal(condensed.vertices().length, 1);
+  assert.equal(condensed.edges().length, 0, "an edge within the same component must not become a condensation self-loop");
 });
