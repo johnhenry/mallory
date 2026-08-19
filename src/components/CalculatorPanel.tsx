@@ -250,6 +250,18 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
         ))}
       </div>
 
+      {state.history.length > 0 && (
+        <div style={{ margin: "0.25rem 0" }}>
+          {/* Clears the log only, not stored variables (issue #318) -- the
+              history persists to localStorage and previously grew without
+              any way to drop it (a stale error line from a past session
+              could sit at the top of a "fresh" calculator forever). */}
+          <button type="button" onClick={() => setState((s) => ({ history: [], variables: s.variables }))} style={{ fontSize: "0.8rem" }}>
+            Clear history
+          </button>
+        </div>
+      )}
+
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
         <span style={{ color: "#2563eb" }}>{"›"}</span>
         <input

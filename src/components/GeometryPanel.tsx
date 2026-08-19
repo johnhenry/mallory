@@ -1039,7 +1039,10 @@ function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointR
   const mid = theta1 + diff / 2;
   const labelX = vx + (ARC_RADIUS + 14) * Math.cos(mid);
   const labelY = vy + (ARC_RADIUS + 14) * Math.sin(mid);
-  ctx.fillStyle = "var(--muted)";
+  // getThemeColors(), not "var(--muted)" -- canvas fillStyle silently
+  // ignores CSS custom properties (theme-colors.ts's own doc comment), so
+  // this label was rendering in whatever color the context last used.
+  ctx.fillStyle = getThemeColors().muted;
   ctx.font = "12px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";

@@ -27,7 +27,7 @@ const CARD_DESCRIPTIONS: Record<string, string> = {
   "/notes": "Mix text and live graph cells in one reactive document.",
   "/gallery": "Every graph and notebook you've saved, in one place.",
   "/workspace": "A shared variable graph any panel -- or an outside agent -- can read and write live.",
-  "/tiles": "Arrange several panels side by side in a single custom tiled layout.",
+  "/tiles": "Wang-tile laboratory: edge-matching solvers (backtracking, SAT), symmetry expansion, entropy & diffraction analysis across square/hex/tri/cube lattices.",
   "/streaming-dataset": "Watch a live-updating dataset drive a chart in real time, point by point.",
   "/cellular-automata": "Step and animate 1D and 2D cellular automata rules, live.",
 };
