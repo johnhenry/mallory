@@ -219,7 +219,17 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
           </div>
           <canvas ref={cayleyCanvasRef} style={{ display: "none" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => cayleyCanvasRef.current} label="cayley-table" />
+            <PngExportButton
+              getCanvas={() => cayleyCanvasRef.current}
+              label="cayley-table"
+              renderAtScale={
+                groupInfo.ok
+                  ? (ctx, width) => drawCayleyTable(ctx, groupInfo.value, width / (groupInfo.value.labels.length + 1))
+                  : undefined
+              }
+              baseWidth={groupInfo.ok ? cayleyTableCanvasSize(groupInfo.value).width : undefined}
+              baseHeight={groupInfo.ok ? cayleyTableCanvasSize(groupInfo.value).height : undefined}
+            />
           </div>
         </div>
       ) : (
