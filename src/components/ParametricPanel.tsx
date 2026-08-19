@@ -69,6 +69,35 @@ export function seedParametricRow(graph: CellGraph, rowId: string, index: number
  * (issue #251), each its own independent x(t)/y(t)-or-r(θ) curve (see
  * `seedParametricRow`).
  */
+/**
+ * Pure re-render of the shared parametric/polar curves canvas, extracted
+ * from the redraw effect below so `PngExportButton`'s `renderAtScale`
+ * (issue #278) can call it against a fresh offscreen canvas at any size.
+ */
+export function drawParametricPanel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  graph: CellGraph,
+  containerIds: ReturnType<typeof cellIdsParametric>,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  const vp = graph.get<Viewport | null>(containerIds.liveViewport) ?? graph.get<Viewport>(containerIds.viewport);
+  drawAxes(ctx, vp, width, height);
+  for (const rowId of graph.get<string[]>(containerIds.list)) {
+    const ids = cellIdsParametric(rowId);
+    try {
+      if (!graph.get<boolean>(ids.visible)) continue;
+      const path = graph.get<PathResult>(ids.path);
+      if (!path.ok) continue;
+      const color = graph.get<number>(ids.color);
+      drawPath(ctx, { ...path.path, stroke: { ...path.path.stroke, color } }, vp, width, height);
+    } catch {
+      // A row whose cells haven't registered yet -- skip it this frame.
+    }
+  }
+}
+
 function useParametricGraph(containerId: string): { graph: CellGraph; containerIds: ReturnType<typeof cellIdsParametric> } {
   // `containerIds` is memoized on the ref itself, not recomputed every
   // render -- see ImplicitPanel's identical `useImplicitGraph` doc comment
@@ -206,24 +235,7 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    function redraw() {
-      if (!ctx) return;
-      ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      const vp = graph.get<Viewport | null>(containerIds.liveViewport) ?? graph.get<Viewport>(containerIds.viewport);
-      drawAxes(ctx, vp, WIDTH, HEIGHT);
-      for (const rowId of graph.get<string[]>(containerIds.list)) {
-        const ids = cellIdsParametric(rowId);
-        try {
-          if (!graph.get<boolean>(ids.visible)) continue;
-          const path = graph.get<PathResult>(ids.path);
-          if (!path.ok) continue;
-          const color = graph.get<number>(ids.color);
-          drawPath(ctx, { ...path.path, stroke: { ...path.path.stroke, color } }, vp, WIDTH, HEIGHT);
-        } catch {
-          // A row whose cells haven't registered yet -- skip it this frame.
-        }
-      }
-    }
+    const redraw = () => drawParametricPanel(ctx, WIDTH, HEIGHT, graph, containerIds);
     redraw();
     return graph.subscribeAll(redraw);
   }, [graph, containerIds]);
@@ -376,7 +388,13 @@ export function ParametricPanel({ cellId = "parametric-1" }: ParametricPanelProp
         onWheel={handleWheel}
       />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="parametric" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="parametric"
+          renderAtScale={(ctx, width, height) => drawParametricPanel(ctx, width, height, graph, containerIds)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton getSvg={getExportSvg} label="parametric" />{" "}
         <button type="button" onClick={resetView}>
           Reset view

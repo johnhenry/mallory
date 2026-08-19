@@ -58,6 +58,42 @@ function seedSeriesRowDefault(graph: CellGraph, rowId: string, index: number): v
   seedSeriesRow(graph, rowId, { ...(DEFAULT_SERIES_STATE.rows[0] as SeriesRowState), color: paletteColor(index) });
 }
 
+/**
+ * Pure re-render of the shared partial-sums/final-sum canvas, extracted
+ * from the redraw effect below so `PngExportButton`'s `renderAtScale`
+ * (issue #278) can call it against a fresh offscreen canvas at any size.
+ */
+export function drawSeriesPanel(ctx: CanvasRenderingContext2D, width: number, height: number, graph: CellGraph, containerIds: ReturnType<typeof cellIdsSeries>): void {
+  ctx.clearRect(0, 0, width, height);
+  const vp = graph.get<Viewport | null>(containerIds.liveViewport) ?? graph.get<Viewport>(containerIds.viewport);
+  drawAxes(ctx, vp, width, height);
+  for (const rowId of graph.get<string[]>(containerIds.list)) {
+    const ids = cellIdsSeries(rowId);
+    try {
+      if (!graph.get<boolean>(ids.visible)) continue;
+      const result = graph.get<Result<SeriesResult>>(ids.result);
+      if (!result.ok) continue;
+      const color = graph.get<number>(ids.color);
+      const { partialSums, finalSum } = result.value;
+      drawScatter(ctx, partialSums.map((p) => ({ x: p.n, y: p.sum })), vp, width, height, 3, hexToRgba(color, 1));
+
+      if (finalSum !== null) {
+        const sy = height - ((finalSum - vp.yMin) / (vp.yMax - vp.yMin)) * height;
+        ctx.save();
+        ctx.strokeStyle = hexToRgba(color, 0.6);
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, sy);
+        ctx.lineTo(width, sy);
+        ctx.stroke();
+        ctx.restore();
+      }
+    } catch {
+      // A row whose cells haven't registered yet -- skip it this frame.
+    }
+  }
+}
+
 function useSeriesGraph(containerId: string): { graph: CellGraph; containerIds: ReturnType<typeof cellIdsSeries> } {
   // `containerIds` is memoized on the ref itself, not recomputed every
   // render -- see ImplicitPanel's identical `useImplicitGraph` doc comment
@@ -241,37 +277,7 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    function redraw() {
-      if (!ctx) return;
-      ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      const vp = graph.get<Viewport | null>(containerIds.liveViewport) ?? graph.get<Viewport>(containerIds.viewport);
-      drawAxes(ctx, vp, WIDTH, HEIGHT);
-      for (const rowId of graph.get<string[]>(containerIds.list)) {
-        const ids = cellIdsSeries(rowId);
-        try {
-          if (!graph.get<boolean>(ids.visible)) continue;
-          const result = graph.get<Result<SeriesResult>>(ids.result);
-          if (!result.ok) continue;
-          const color = graph.get<number>(ids.color);
-          const { partialSums, finalSum } = result.value;
-          drawScatter(ctx, partialSums.map((p) => ({ x: p.n, y: p.sum })), vp, WIDTH, HEIGHT, 3, hexToRgba(color, 1));
-
-          if (finalSum !== null) {
-            const sy = HEIGHT - ((finalSum - vp.yMin) / (vp.yMax - vp.yMin)) * HEIGHT;
-            ctx.save();
-            ctx.strokeStyle = hexToRgba(color, 0.6);
-            ctx.setLineDash([4, 4]);
-            ctx.beginPath();
-            ctx.moveTo(0, sy);
-            ctx.lineTo(WIDTH, sy);
-            ctx.stroke();
-            ctx.restore();
-          }
-        } catch {
-          // A row whose cells haven't registered yet -- skip it this frame.
-        }
-      }
-    }
+    const redraw = () => drawSeriesPanel(ctx, WIDTH, HEIGHT, graph, containerIds);
     redraw();
     return graph.subscribeAll(redraw);
   }, [graph, containerIds]);
@@ -428,7 +434,13 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
         onWheel={handleWheel}
       />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="series" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="series"
+          renderAtScale={(ctx, width, height) => drawSeriesPanel(ctx, width, height, graph, containerIds)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton getSvg={getExportSvg} label="series" />{" "}
         <button type="button" onClick={resetView}>
           Reset view

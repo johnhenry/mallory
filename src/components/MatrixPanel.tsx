@@ -119,12 +119,26 @@ export interface RootsPlot {
   points: Array<{ x: number; y: number }>;
 }
 
-/** Shared between the polynomial-roots canvas's draw effect and its SVG export (issue #45). */
+/** Shared between the polynomial-roots canvas's draw effect, its SVG export, and its 2x-scale PNG export (issue #45/#278). */
 export function rootsPlot(polyRoots: Result<ComplexNumber[]>): RootsPlot | null {
   if (!polyRoots.ok) return null;
   const points = polyRoots.value.map((r) => ({ x: r.value, y: r.iValue }));
   const maxAbs = Math.max(1, ...points.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y))));
   return { viewport: { xMin: -maxAbs * 1.2, xMax: maxAbs * 1.2, yMin: -maxAbs * 1.2, yMax: maxAbs * 1.2 }, points };
+}
+
+/**
+ * Pure re-render of the polynomial-roots canvas, extracted from the draw
+ * effect below so `PngExportButton`'s `renderAtScale` (issue #278) can
+ * call it against a fresh offscreen canvas at any size.
+ */
+export function drawMatrixRootsPanel(ctx: CanvasRenderingContext2D, width: number, height: number, polyRoots: Result<ComplexNumber[]>): void {
+  ctx.clearRect(0, 0, width, height);
+  const plot = rootsPlot(polyRoots);
+  if (plot) {
+    drawAxes(ctx, plot.viewport, width, height);
+    drawScatter(ctx, plot.points, plot.viewport, width, height, 4, "#dc2626");
+  }
 }
 
 /** Matrix playground: determinant/inverse, step-through RREF, every MatrixMath decomposition over one entered matrix, and polynomial roots (any degree) via a companion matrix fed to adapter-math's eigGeneral. */
@@ -160,12 +174,7 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
   useEffect(() => {
     const ctx = rootCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE);
-    const plot = rootsPlot(polyRoots);
-    if (plot) {
-      drawAxes(ctx, plot.viewport, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE);
-      drawScatter(ctx, plot.points, plot.viewport, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE, 4, "#dc2626");
-    }
+    drawMatrixRootsPanel(ctx, ROOT_CANVAS_SIZE, ROOT_CANVAS_SIZE, polyRoots);
   }, [polyRoots]);
 
   function updateMatrixText(value: string) {
@@ -317,7 +326,13 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
         <div>
           <canvas ref={rootCanvasRef} width={ROOT_CANVAS_SIZE} height={ROOT_CANVAS_SIZE} style={{ border: "1px solid var(--border)" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => rootCanvasRef.current} label="matrix-roots" />
+            <PngExportButton
+              getCanvas={() => rootCanvasRef.current}
+              label="matrix-roots"
+              renderAtScale={(ctx, width, height) => drawMatrixRootsPanel(ctx, width, height, polyRoots)}
+              baseWidth={ROOT_CANVAS_SIZE}
+              baseHeight={ROOT_CANVAS_SIZE}
+            />
             <SvgExportButton
               getSvg={() => {
                 const plot = rootsPlot(polyRoots);
