@@ -439,7 +439,13 @@ export function StreamingDatasetPanel() {
         {"  "}
         <span style={{ color: "#dc2626" }}>■</span> without prefetch ({withoutPrefetchArrivals.length} arrived)
       </p>
-      <PngExportButton getCanvas={() => timingCanvasRef.current} label="streaming-dataset-prefetch-timing" />
+      <PngExportButton
+        getCanvas={() => timingCanvasRef.current}
+        label="streaming-dataset-prefetch-timing"
+        renderAtScale={(ctx, width, height) => drawPrefetchTimingChart(ctx, width, height, withPrefetchArrivals, withoutPrefetchArrivals)}
+        baseWidth={TIMING_WIDTH}
+        baseHeight={TIMING_HEIGHT}
+      />
 
       <h2>Concurrent map: ordered vs. completion order</h2>
       <p style={{ color: "var(--muted)" }}>
@@ -523,7 +529,13 @@ export function StreamingDatasetPanel() {
         {"  "}
         <span style={{ color: "#2563eb" }}>■</span> windowed average (window {appliedWindowSize})
       </p>
-      <PngExportButton getCanvas={() => smoothingCanvasRef.current} label="streaming-dataset-smoothing" />
+      <PngExportButton
+        getCanvas={() => smoothingCanvasRef.current}
+        label="streaming-dataset-smoothing"
+        renderAtScale={(ctx, width, height) => drawSmoothingChart(ctx, width, height, rawSignal, smoothedSignal, appliedWindowSize)}
+        baseWidth={SMOOTHING_WIDTH}
+        baseHeight={SMOOTHING_HEIGHT}
+      />
 
       <h2>Tee: independent consumers</h2>
       <p style={{ color: "var(--muted)" }}>
@@ -558,7 +570,13 @@ export function StreamingDatasetPanel() {
         {"  "}
         <span style={{ color: "#9333ea" }}>■</span> slow branch ({slowArrivals.length} arrived)
       </p>
-      <PngExportButton getCanvas={() => teeCanvasRef.current} label="streaming-dataset-tee" />
+      <PngExportButton
+        getCanvas={() => teeCanvasRef.current}
+        label="streaming-dataset-tee"
+        renderAtScale={(ctx, width, height) => drawTeeTimingChart(ctx, width, height, fastArrivals, slowArrivals)}
+        baseWidth={TIMING_WIDTH}
+        baseHeight={TIMING_HEIGHT}
+      />
     </div>
   );
 }
