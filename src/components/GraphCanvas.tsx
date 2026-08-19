@@ -421,6 +421,15 @@ export interface GraphCanvasProps {
    * animation on a secondary pane. Defaults to this pane's own duration cell.
    */
   durationCellId?: string;
+  /**
+   * Starting viewport when this pane's cells aren't already seeded
+   * (mallory-graph#305 bug 2). The global default
+   * (`DEFAULT_GRAPH_STATE.viewport`, y up to 100) fits the main tab's
+   * default `x^2` -- a caller whose `defaultSource` is an amplitude-1
+   * trig curve (the Compare tab's sin/cos) must pass a matching viewport
+   * or the curves render as a near-flat line squashed at y=0.
+   */
+  initialViewport?: Viewport;
 }
 
 export function GraphCanvas({
@@ -430,8 +439,8 @@ export function GraphCanvas({
   showTransport = true,
   syncUrl = true,
   durationCellId,
+  initialViewport = DEFAULT_GRAPH_STATE.viewport,
 }: GraphCanvasProps = {}) {
-  const initialViewport = DEFAULT_GRAPH_STATE.viewport;
   const ids = cellIds(cellId);
   const graph = useExpressionGraph(cellId, defaultSource, initialViewport, externalGraph);
   const navigate = useNavigate();

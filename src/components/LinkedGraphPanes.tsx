@@ -11,6 +11,14 @@ const PANE_DEFAULT_SOURCE: Record<(typeof PANE_IDS)[number], string> = {
   "pane-b": "cos(x)",
 };
 
+// mallory-graph#305 bug 2: the global default viewport
+// (DEFAULT_GRAPH_STATE.viewport, y in -10..100) fits the main tab's
+// default x^2, but squashes this tab's amplitude-1 sin/cos into a flat
+// line at the bottom of the pane. Both panes get a viewport matched to
+// their own trig defaults instead; pan/zoom and URL-hydrated state still
+// override it as usual.
+const PANE_INITIAL_VIEWPORT = { xMin: -10, xMax: 10, yMin: -2, yMax: 2 };
+
 // Deliberately not namespaced by cellId, same reasoning as TIME_CELL: there's
 // one shared graph per linked view, and the primary pane's transport should
 // scrub across the longer of the two panes' animations, not cut off at
@@ -118,11 +126,19 @@ export function LinkedGraphPanes() {
           defaultSource={PANE_DEFAULT_SOURCE["pane-a"]}
           durationCellId={COMBINED_DURATION_CELL}
           graph={graph}
+          initialViewport={PANE_INITIAL_VIEWPORT}
           syncUrl={false}
         />
       </div>
       <div style={{ minWidth: 0 }}>
-        <GraphCanvas cellId="pane-b" defaultSource={PANE_DEFAULT_SOURCE["pane-b"]} graph={graph} showTransport={false} syncUrl={false} />
+        <GraphCanvas
+          cellId="pane-b"
+          defaultSource={PANE_DEFAULT_SOURCE["pane-b"]}
+          graph={graph}
+          initialViewport={PANE_INITIAL_VIEWPORT}
+          showTransport={false}
+          syncUrl={false}
+        />
       </div>
     </div>
   );
