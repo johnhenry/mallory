@@ -473,7 +473,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   const [dxInput, setDxInput] = useState("1");
   const [dyInput, setDyInput] = useState("0");
   const [factorInput, setFactorInput] = useState("2");
-  const dragRef = useRef<{ id: string; moved: boolean } | null>(null);
+  const dragRef = useRef<{ id: string; moved: boolean; startSx: number; startSy: number } | null>(null);
 
   useCellGraphTools(toolPrefix, graph);
 
@@ -722,15 +722,29 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
     const { x, y } = dataCoordsFromEvent(e);
     const freeHit = nearestPointId(graph, listIds, x, y, currentHitDataRadius(), true);
     if (freeHit) {
-      dragRef.current = { id: freeHit, moved: false };
+      const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+      dragRef.current = { id: freeHit, moved: false, startSx: sx, startSy: sy };
       e.currentTarget.setPointerCapture(e.pointerId);
     }
   }
 
+  // A press only becomes a DRAG after the pointer travels this far in
+  // screen pixels (mallory-graph#305 bug 3): real mice jitter a pixel or
+  // two between press and release, and without a threshold every click on
+  // a point counted as a "drag" -- so handlePointerUp's !moved check never
+  // fired, tool selections (line/circle/reflect/...) never registered, and
+  // the point relocated by the jitter instead. 4px matches the slop
+  // budget pointer UIs conventionally use.
+  const DRAG_THRESHOLD_PX = 4;
+
   function handlePointerMove(e: PointerEvent<HTMLCanvasElement>) {
     const drag = dragRef.current;
     if (!drag) return;
-    drag.moved = true;
+    if (!drag.moved) {
+      const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+      if (Math.hypot(sx - drag.startSx, sy - drag.startSy) < DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+    }
     const { x, y } = dataCoordsFromEvent(e);
     graph.set(pointCellId(drag.id), { x, y });
   }

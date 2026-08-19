@@ -421,6 +421,15 @@ export interface GraphCanvasProps {
    * animation on a secondary pane. Defaults to this pane's own duration cell.
    */
   durationCellId?: string;
+  /**
+   * Starting viewport when this pane's cells aren't already seeded
+   * (mallory-graph#305 bug 2). The global default
+   * (`DEFAULT_GRAPH_STATE.viewport`, y up to 100) fits the main tab's
+   * default `x^2` -- a caller whose `defaultSource` is an amplitude-1
+   * trig curve (the Compare tab's sin/cos) must pass a matching viewport
+   * or the curves render as a near-flat line squashed at y=0.
+   */
+  initialViewport?: Viewport;
 }
 
 export function GraphCanvas({
@@ -430,8 +439,8 @@ export function GraphCanvas({
   showTransport = true,
   syncUrl = true,
   durationCellId,
+  initialViewport = DEFAULT_GRAPH_STATE.viewport,
 }: GraphCanvasProps = {}) {
-  const initialViewport = DEFAULT_GRAPH_STATE.viewport;
   const ids = cellIds(cellId);
   const graph = useExpressionGraph(cellId, defaultSource, initialViewport, externalGraph);
   const navigate = useNavigate();
@@ -924,8 +933,8 @@ export function GraphCanvas({
         </div>
       )}
       <form onSubmit={handleChatSubmit} style={{ margin: "0.5rem 0" }}>
-        <label>
-          Chat:{" "}
+        <label title="A fixed set of command phrasings, not free-text chat -- the placeholder shows the shapes it understands.">
+          Commands:{" "}
           <input
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
@@ -933,7 +942,7 @@ export function GraphCanvas({
             style={{ font: "inherit", width: "32ch" }}
           />
         </label>{" "}
-        <button type="submit">Send</button>
+        <button type="submit">Run</button>
         {chatLog.length > 0 && (
           <ul style={{ fontSize: "0.85rem", listStyle: "none", padding: 0, margin: "0.25rem 0" }}>
             {chatLog.slice(-5).map((entry, i) => (

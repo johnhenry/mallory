@@ -369,8 +369,8 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
       <MatrixGraphView matrixGraph={matrixGraph} />
 
       <form onSubmit={handleChatSubmit} style={{ margin: "0.5rem 0" }}>
-        <label>
-          Chat:{" "}
+        <label title="A fixed set of command phrasings, not free-text chat -- the placeholder shows the shapes it understands.">
+          Commands:{" "}
           <input
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
@@ -378,7 +378,7 @@ export function MatrixPanel({ cellId = "matrix-1" }: { cellId?: string } = {}) {
             style={{ font: "inherit", width: "32ch" }}
           />
         </label>{" "}
-        <button type="submit">Send</button>
+        <button type="submit">Run</button>
         {chatLog.length > 0 && (
           <ul style={{ fontSize: "0.85rem", listStyle: "none", padding: 0, margin: "0.25rem 0" }}>
             {chatLog.slice(-5).map((entry, i) => (

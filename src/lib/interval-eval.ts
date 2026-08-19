@@ -59,16 +59,29 @@ export function evaluateInterval(expr: Expr, env: IntervalEnv): Interval {
 
 function evaluateIntervalFunc(name: string, x: Interval): Interval {
   switch (name) {
+    // Every non-exact elementary function is outward-rounded by 1 ulp per
+    // side (mallory-graph#305 smaller note 1, upstream johnhenry/mallory#57):
+    // mallory-math's Interval computes bounds with plain Math.* calls and no
+    // directed rounding, so a POINT input came back as a point output --
+    // `sqrt(2)` displayed `[1.4142135623730951, 1.4142135623730951]`, an
+    // interval that provably does NOT contain the irrational sqrt(2). One
+    // ulp outward per side restores the containment guarantee interval
+    // mode's whole pitch rests on (Math.sqrt is correctly rounded to
+    // 0.5 ulp; the libm-style trig/exp/log are within ~1 ulp on every
+    // mainstream engine, so 1 ulp of slack covers both), at the cost of a
+    // deliberately-loose bound when the true value happens to be exactly
+    // representable (sqrt(4) reports a width-2-ulp interval around 2).
+    // `abs` is exact -- no widening.
     case "sqrt":
-      return x.sqrt();
+      return outward(x.sqrt());
     case "exp":
-      return x.exp();
+      return outward(x.exp());
     case "ln":
-      return x.log();
+      return outward(x.log());
     case "sin":
-      return x.sin();
+      return outward(x.sin());
     case "cos":
-      return x.cos();
+      return outward(x.cos());
     case "abs":
       return x.abs();
     // tan = sin/cos has no dedicated Interval method; dividing the two
@@ -76,8 +89,28 @@ function evaluateIntervalFunc(name: string, x: Interval): Interval {
     // interval error, exactly the correct behavior near an odd multiple of
     // pi/2 -- not a workaround, the mathematically right answer.
     case "tan":
-      return x.sin().divide(x.cos());
+      return outward(x.sin()).divide(outward(x.cos()));
     default:
       throw new Error(`"${name}" isn't supported in interval mode (no rigorous Interval implementation available).`);
   }
+}
+
+/** `lo` stepped one representable double toward -Infinity, `hi` one toward +Infinity -- IEEE-754 nextafter via bit manipulation, since JS has no Math.nextafter. */
+function outward(x: Interval): Interval {
+  return new Interval(nextDown(x.lo), nextUp(x.hi));
+}
+
+const F64 = new Float64Array(1);
+const U64 = new BigUint64Array(F64.buffer);
+
+export function nextUp(value: number): number {
+  if (Number.isNaN(value) || value === Infinity) return value;
+  if (value === 0) return Number.MIN_VALUE;
+  F64[0] = value;
+  U64[0] = (U64[0] as bigint) + (value > 0 ? 1n : -1n);
+  return F64[0] as number;
+}
+
+export function nextDown(value: number): number {
+  return -nextUp(-value);
 }

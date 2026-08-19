@@ -72,3 +72,41 @@ test("malformed input throws rather than returning a nonsensical result", () => 
   assert.throws(() => evaluateUnitExpr("5 m in"));
   assert.throws(() => evaluateUnitExpr("in km"));
 });
+
+// -- unit cancellation (mallory-graph#305 bug 1) ---------------------------
+
+test("#305: 5 m/s * 3 s simplifies to 15 m, not 15 m/s*s (identical symbols cancel)", () => {
+  const result = evaluateUnitExpr("5 m/s * 3 s");
+  assert.equal(result.value, 15);
+  assert.equal(result.symbol, "m");
+});
+
+test("cancellation handles exponents: m/s^2 * s leaves m/s", () => {
+  const result = evaluateUnitExpr("2 m/s^2 * 3 s");
+  assert.equal(result.value, 6);
+  assert.equal(result.symbol, "m/s");
+});
+
+test("full cancellation yields a dimensionless value: 6 s / 3 s = 2", () => {
+  const result = evaluateUnitExpr("6 s / 3 s");
+  assert.equal(result.value, 2);
+  assert.equal(result.symbol, "");
+  assert.ok(result.isDimensionless);
+});
+
+test("cancellation is textual, never dimensional: m/s * min does NOT silently convert (s and min are different symbols)", () => {
+  const result = evaluateUnitExpr("5 m/s * 2 min");
+  assert.equal(result.symbol, "m/s*min");
+});
+
+test("no-op simplification keeps the user's own units verbatim: 3 km / 2 s stays km/s, never converts to base SI", () => {
+  const result = evaluateUnitExpr("3 km / 2 s");
+  assert.equal(result.value, 1.5);
+  assert.equal(result.symbol, "km/s");
+});
+
+test("an explicit `in <unit>` conversion is never re-simplified: 3 mi in km stays km", () => {
+  const result = evaluateUnitExpr("3 mi in km");
+  assert.equal(result.symbol, "km");
+  assert.ok(Math.abs(result.value - 4.828032) < 1e-9);
+});
