@@ -236,6 +236,99 @@ function useMonteCarloGraph(cellId: string): CellGraph {
 }
 
 /** Seeded (reproducible) Monte Carlo demos: pi estimation via dart-throwing, and a distribution-sampling histogram with its theoretical density overlaid. */
+/** Pure re-render of the dart-throw canvas, wrapping the already-shared `dartPlot()` helper. */
+export function drawMonteCarloDarts(ctx: CanvasRenderingContext2D, width: number, height: number, dartResult: DartResult): void {
+  ctx.clearRect(0, 0, width, height);
+  const plot = dartPlot(dartResult);
+  if (plot) {
+    drawAxes(ctx, plot.viewport, width, height);
+    drawScatter(ctx, plot.insidePoints, plot.viewport, width, height, 1.5, "#16a34a");
+    drawScatter(ctx, plot.outsidePoints, plot.viewport, width, height, 1.5, "#dc2626");
+  }
+}
+
+/** Pure re-render of the convergence canvas, wrapping the already-shared `convergencePlot()` helper. */
+export function drawMonteCarloConvergence(ctx: CanvasRenderingContext2D, width: number, height: number, dartResult: DartResult): void {
+  ctx.clearRect(0, 0, width, height);
+  const plot = convergencePlot(dartResult);
+  if (plot) {
+    drawAxes(ctx, plot.viewport, width, height);
+    drawScatter(ctx, plot.points, plot.viewport, width, height, 1.5, "#2563eb");
+    if (plot.piReferenceLine) {
+      ctx.save();
+      ctx.strokeStyle = "#9ca3af";
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      plot.piReferenceLine.forEach((p, i) => {
+        const sx = ((p.x - plot.viewport.xMin) / (plot.viewport.xMax - plot.viewport.xMin)) * width;
+        const sy = height - ((p.y - plot.viewport.yMin) / (plot.viewport.yMax - plot.viewport.yMin)) * height;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+/** Pure re-render of the histogram canvas, wrapping the already-shared `histogramPlot()` helper. */
+export function drawMonteCarloHistogram(ctx: CanvasRenderingContext2D, width: number, height: number, histResult: HistResult): void {
+  ctx.clearRect(0, 0, width, height);
+  const plot = histogramPlot(histResult);
+  if (plot) {
+    drawAxes(ctx, plot.viewport, width, height);
+    drawHistogram(ctx, plot.bins, plot.viewport, width, height);
+    drawPath(ctx, plot.densityPath, plot.viewport, width, height);
+  }
+}
+
+/** Pure re-render of the integrand/confidence-band canvas, wrapping the already-shared `integrandPlot()` helper. */
+export function drawMonteCarloIntegrand(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  integrandResult: IntegrandResult,
+  revealedCheckpoints: number,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  const plot = integrandPlot(integrandResult, revealedCheckpoints);
+  if (!plot) return;
+  drawAxes(ctx, plot.viewport, width, height);
+
+  ctx.save();
+  ctx.fillStyle = "rgba(37, 99, 235, 0.15)";
+  ctx.beginPath();
+  plot.bandPoints.forEach((p, i) => {
+    const sx = toScreenX(p.x, plot.viewport, width);
+    const sy = toScreenY(p.yHigh, plot.viewport, height);
+    if (i === 0) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+  });
+  for (let i = plot.bandPoints.length - 1; i >= 0; i--) {
+    const p = plot.bandPoints[i];
+    if (!p) continue;
+    ctx.lineTo(toScreenX(p.x, plot.viewport, width), toScreenY(p.yLow, plot.viewport, height));
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  drawPolyline(ctx, plot.estimatePoints, plot.viewport, width, height, "#2563eb");
+
+  ctx.save();
+  ctx.strokeStyle = "#9ca3af";
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  plot.trueValueLine.forEach((p, i) => {
+    const sx = toScreenX(p.x, plot.viewport, width);
+    const sy = toScreenY(p.y, plot.viewport, height);
+    if (i === 0) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string } = {}) {
   const graph = useMonteCarloGraph(cellId);
   useCellGraphTools(`data_montecarlo_${cellId}`, graph);
@@ -315,93 +408,25 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
   useEffect(() => {
     const ctx = dartCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    const plot = dartPlot(dartResult);
-    if (plot) {
-      drawAxes(ctx, plot.viewport, WIDTH, HEIGHT);
-      drawScatter(ctx, plot.insidePoints, plot.viewport, WIDTH, HEIGHT, 1.5, "#16a34a");
-      drawScatter(ctx, plot.outsidePoints, plot.viewport, WIDTH, HEIGHT, 1.5, "#dc2626");
-    }
+    drawMonteCarloDarts(ctx, WIDTH, HEIGHT, dartResult);
   }, [dartResult]);
 
   useEffect(() => {
     const ctx = convergenceCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, 120);
-    const plot = convergencePlot(dartResult);
-    if (plot) {
-      drawAxes(ctx, plot.viewport, WIDTH, 120);
-      drawScatter(ctx, plot.points, plot.viewport, WIDTH, 120, 1.5, "#2563eb");
-      if (plot.piReferenceLine) {
-        ctx.save();
-        ctx.strokeStyle = "#9ca3af";
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        plot.piReferenceLine.forEach((p, i) => {
-          const sx = ((p.x - plot.viewport.xMin) / (plot.viewport.xMax - plot.viewport.xMin)) * WIDTH;
-          const sy = 120 - ((p.y - plot.viewport.yMin) / (plot.viewport.yMax - plot.viewport.yMin)) * 120;
-          if (i === 0) ctx.moveTo(sx, sy);
-          else ctx.lineTo(sx, sy);
-        });
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
+    drawMonteCarloConvergence(ctx, WIDTH, 120, dartResult);
   }, [dartResult]);
 
   useEffect(() => {
     const ctx = histCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    const plot = histogramPlot(histResult);
-    if (plot) {
-      drawAxes(ctx, plot.viewport, WIDTH, HEIGHT);
-      drawHistogram(ctx, plot.bins, plot.viewport, WIDTH, HEIGHT);
-      drawPath(ctx, plot.densityPath, plot.viewport, WIDTH, HEIGHT);
-    }
+    drawMonteCarloHistogram(ctx, WIDTH, HEIGHT, histResult);
   }, [histResult]);
 
   useEffect(() => {
     const ctx = integrandCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    const height = 220;
-    ctx.clearRect(0, 0, WIDTH, height);
-    const plot = integrandPlot(integrandResult, revealedCheckpoints);
-    if (!plot) return;
-    drawAxes(ctx, plot.viewport, WIDTH, height);
-
-    ctx.save();
-    ctx.fillStyle = "rgba(37, 99, 235, 0.15)";
-    ctx.beginPath();
-    plot.bandPoints.forEach((p, i) => {
-      const sx = toScreenX(p.x, plot.viewport, WIDTH);
-      const sy = toScreenY(p.yHigh, plot.viewport, height);
-      if (i === 0) ctx.moveTo(sx, sy);
-      else ctx.lineTo(sx, sy);
-    });
-    for (let i = plot.bandPoints.length - 1; i >= 0; i--) {
-      const p = plot.bandPoints[i];
-      if (!p) continue;
-      ctx.lineTo(toScreenX(p.x, plot.viewport, WIDTH), toScreenY(p.yLow, plot.viewport, height));
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-
-    drawPolyline(ctx, plot.estimatePoints, plot.viewport, WIDTH, height, "#2563eb");
-
-    ctx.save();
-    ctx.strokeStyle = "#9ca3af";
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    plot.trueValueLine.forEach((p, i) => {
-      const sx = toScreenX(p.x, plot.viewport, WIDTH);
-      const sy = toScreenY(p.y, plot.viewport, height);
-      if (i === 0) ctx.moveTo(sx, sy);
-      else ctx.lineTo(sx, sy);
-    });
-    ctx.stroke();
-    ctx.restore();
+    drawMonteCarloIntegrand(ctx, WIDTH, 220, integrandResult, revealedCheckpoints);
   }, [integrandResult, revealedCheckpoints]);
 
   function updateSeed(value: string) {
@@ -434,7 +459,13 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
       <canvas ref={dartCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <canvas ref={convergenceCanvasRef} width={WIDTH} height={120} style={{ border: "1px solid var(--border)", display: "block", marginTop: "0.25rem" }} />
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.5rem" }}>
-        <PngExportButton getCanvas={() => dartCanvasRef.current} label="monte-carlo-darts" />
+        <PngExportButton
+          getCanvas={() => dartCanvasRef.current}
+          label="monte-carlo-darts"
+          renderAtScale={(ctx, width, height) => drawMonteCarloDarts(ctx, width, height, dartResult)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton
           getSvg={() => {
             const plot = dartPlot(dartResult);
@@ -447,7 +478,13 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
           }}
           label="monte-carlo-darts"
         />
-        <PngExportButton getCanvas={() => convergenceCanvasRef.current} label="monte-carlo-convergence" />
+        <PngExportButton
+          getCanvas={() => convergenceCanvasRef.current}
+          label="monte-carlo-convergence"
+          renderAtScale={(ctx, width, height) => drawMonteCarloConvergence(ctx, width, height, dartResult)}
+          baseWidth={WIDTH}
+          baseHeight={120}
+        />
         <SvgExportButton
           getSvg={() => {
             const plot = convergencePlot(dartResult);
@@ -531,7 +568,13 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
       </div>
       <canvas ref={histCanvasRef} width={WIDTH} height={HEIGHT} style={{ border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => histCanvasRef.current} label="monte-carlo-histogram" />
+        <PngExportButton
+          getCanvas={() => histCanvasRef.current}
+          label="monte-carlo-histogram"
+          renderAtScale={(ctx, width, height) => drawMonteCarloHistogram(ctx, width, height, histResult)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton
           getSvg={() => {
             const plot = histogramPlot(histResult);
@@ -593,7 +636,13 @@ export function MonteCarloPanel({ cellId = "monte-carlo-1" }: { cellId?: string 
       </div>
       <canvas ref={integrandCanvasRef} width={WIDTH} height={220} style={{ border: "1px solid var(--border)", display: "block" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => integrandCanvasRef.current} label="monte-carlo-integrand" />
+        <PngExportButton
+          getCanvas={() => integrandCanvasRef.current}
+          label="monte-carlo-integrand"
+          renderAtScale={(ctx, width, height) => drawMonteCarloIntegrand(ctx, width, height, integrandResult, revealedCheckpoints)}
+          baseWidth={WIDTH}
+          baseHeight={220}
+        />
         <SvgExportButton
           getSvg={() => {
             const plot = integrandPlot(integrandResult, revealedCheckpoints);

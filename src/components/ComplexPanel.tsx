@@ -254,6 +254,74 @@ export interface ComplexPanelProps {
  * under f) shipped as a follow-up, still part of #20. General zero/pole
  * finding for an arbitrary f(z) and MathLive keyboard entry remain deferred.
  */
+/**
+ * Pure re-render of the z-plane canvas (domain coloring + roots-of-unity/
+ * zeros/poles overlays + conformal-grid lines), extracted from the draw
+ * effect below so `PngExportButton`'s `renderAtScale` (issue #278) can
+ * call it against a fresh offscreen canvas at any size. Deliberately
+ * always renders at full resolution -- the on-screen effect's live-preview
+ * downscale-then-stretch path (`liveViewport` mid-gesture) is a
+ * performance optimization for interactive panning, not something an
+ * export should reproduce.
+ */
+export function drawComplexZPlane(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  parseResult: Result<Expr>,
+  params: Record<string, number>,
+  viewport: Viewport,
+  showRootsOfUnity: boolean,
+  rootsResult: Result<ComplexNumber[]>,
+  showConformalGrid: boolean,
+  conformalGridResult: Result<ConformalGridReading>,
+  showZeros: boolean,
+  zerosResult: Result<ComplexNumber[]>,
+  showPoles: boolean,
+  polesResult: Result<ComplexNumber[]>,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!parseResult.ok) return;
+  const expr = parseResult.value;
+  const f = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
+  renderDomainColoring(ctx, width, height, viewport, f);
+  drawAxes(ctx, viewport, width, height);
+  if (showRootsOfUnity && rootsResult.ok) {
+    const points = rootsResult.value.map((r) => ({ x: r.value, y: r.iValue }));
+    drawScatter(ctx, points, viewport, width, height, 6, "#111827");
+  }
+  if (showConformalGrid && conformalGridResult.ok) {
+    for (const line of conformalGridResult.value.zLines) drawPolyline(ctx, line, viewport, width, height, "rgba(255,255,255,0.6)");
+  }
+  if (showZeros && zerosResult.ok) {
+    const points = zerosResult.value.map((r) => ({ x: r.value, y: r.iValue }));
+    drawScatter(ctx, points, viewport, width, height, 5, "#16a34a");
+  }
+  if (showPoles && polesResult.ok) {
+    const points = polesResult.value.map((r) => ({ x: r.value, y: r.iValue }));
+    drawScatter(ctx, points, viewport, width, height, 5, "#dc2626");
+  }
+}
+
+/**
+ * Pure re-render of the w-plane conformal-grid canvas, extracted from the
+ * draw effect below so `PngExportButton`'s `renderAtScale` (issue #278)
+ * can call it against a fresh offscreen canvas at any size.
+ */
+export function drawComplexWPlane(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  showConformalGrid: boolean,
+  conformalGridResult: Result<ConformalGridReading>,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!showConformalGrid || !conformalGridResult.ok) return;
+  const { wLines, wViewport } = conformalGridResult.value;
+  drawAxes(ctx, wViewport, width, height);
+  for (const line of wLines) drawPolyline(ctx, line, wViewport, width, height, "#2563eb");
+}
+
 export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncUrl = true }: ComplexPanelProps = {}) {
   const graph = useComplexGraph(cellId, externalGraph);
   useCellGraphTools(`graphing_complex_${cellId}`, graph);
@@ -398,16 +466,15 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    if (!parseResult.ok) return;
-    const expr = parseResult.value;
-    const f = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
-    if (liveViewport) {
+    if (liveViewport && parseResult.ok) {
       // Live gesture in progress -- the full-resolution raster (~230K
       // evaluations) is too expensive to redraw on every pointermove/wheel
       // tick, so render a LIVE_PREVIEW_DOWNSCALE-reduced raster into a
       // reused offscreen canvas and stretch it up. Replaced by one
       // full-resolution render below once the gesture commits.
+      const expr = parseResult.value;
+      const f = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
+      ctx.clearRect(0, 0, WIDTH, HEIGHT);
       const pw = Math.max(1, Math.round(WIDTH / LIVE_PREVIEW_DOWNSCALE));
       const ph = Math.max(1, Math.round(HEIGHT / LIVE_PREVIEW_DOWNSCALE));
       if (!previewCanvasRef.current) previewCanvasRef.current = document.createElement("canvas");
@@ -419,37 +486,37 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
         renderDomainColoring(previewCtx, pw, ph, liveViewport, f);
         ctx.drawImage(preview, 0, 0, pw, ph, 0, 0, WIDTH, HEIGHT);
       }
-    } else {
-      renderDomainColoring(ctx, WIDTH, HEIGHT, viewport, f);
+      drawAxes(ctx, viewport, WIDTH, HEIGHT);
+      if (showRootsOfUnity && rootsResult.ok) drawScatter(ctx, rootsResult.value.map((r) => ({ x: r.value, y: r.iValue })), viewport, WIDTH, HEIGHT, 6, "#111827");
+      if (showConformalGrid && conformalGridResult.ok) {
+        for (const line of conformalGridResult.value.zLines) drawPolyline(ctx, line, viewport, WIDTH, HEIGHT, "rgba(255,255,255,0.6)");
+      }
+      if (showZeros && zerosResult.ok) drawScatter(ctx, zerosResult.value.map((r) => ({ x: r.value, y: r.iValue })), viewport, WIDTH, HEIGHT, 5, "#16a34a");
+      if (showPoles && polesResult.ok) drawScatter(ctx, polesResult.value.map((r) => ({ x: r.value, y: r.iValue })), viewport, WIDTH, HEIGHT, 5, "#dc2626");
+      return;
     }
-    drawAxes(ctx, viewport, WIDTH, HEIGHT);
-    if (showRootsOfUnity && rootsResult.ok) {
-      const points = rootsResult.value.map((r) => ({ x: r.value, y: r.iValue }));
-      drawScatter(ctx, points, viewport, WIDTH, HEIGHT, 6, "#111827");
-    }
-    if (showConformalGrid && conformalGridResult.ok) {
-      for (const line of conformalGridResult.value.zLines) drawPolyline(ctx, line, viewport, WIDTH, HEIGHT, "rgba(255,255,255,0.6)");
-    }
-    if (showZeros && zerosResult.ok) {
-      const points = zerosResult.value.map((r) => ({ x: r.value, y: r.iValue }));
-      drawScatter(ctx, points, viewport, WIDTH, HEIGHT, 5, "#16a34a");
-    }
-    if (showPoles && polesResult.ok) {
-      const points = polesResult.value.map((r) => ({ x: r.value, y: r.iValue }));
-      drawScatter(ctx, points, viewport, WIDTH, HEIGHT, 5, "#dc2626");
-    }
+    drawComplexZPlane(
+      ctx,
+      WIDTH,
+      HEIGHT,
+      parseResult,
+      params,
+      viewport,
+      showRootsOfUnity,
+      rootsResult,
+      showConformalGrid,
+      conformalGridResult,
+      showZeros,
+      zerosResult,
+      showPoles,
+      polesResult,
+    );
   }, [parseResult, showRootsOfUnity, rootsResult, showConformalGrid, conformalGridResult, showZeros, zerosResult, showPoles, polesResult, params, viewport, liveViewport]);
 
   useEffect(() => {
-    const canvas = wCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = wCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    if (!showConformalGrid || !conformalGridResult.ok) return;
-    const { wLines, wViewport } = conformalGridResult.value;
-    drawAxes(ctx, wViewport, WIDTH, HEIGHT);
-    for (const line of wLines) drawPolyline(ctx, line, wViewport, WIDTH, HEIGHT, "#2563eb");
+    drawComplexWPlane(ctx, WIDTH, HEIGHT, showConformalGrid, conformalGridResult);
   }, [showConformalGrid, conformalGridResult]);
 
   useEffect(() => {
@@ -689,7 +756,13 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
               Image of the grid under f(z), z-plane on the left → w-plane on the right (auto-fit window).
             </p>
             <div style={{ margin: "0.25rem 0" }}>
-              <PngExportButton getCanvas={() => wCanvasRef.current} label="complex-plane-w" />{" "}
+              <PngExportButton
+                getCanvas={() => wCanvasRef.current}
+                label="complex-plane-w"
+                renderAtScale={(ctx, width, height) => drawComplexWPlane(ctx, width, height, showConformalGrid, conformalGridResult)}
+                baseWidth={WIDTH}
+                baseHeight={HEIGHT}
+              />{" "}
               <SvgExportButton
                 getSvg={() => {
                   if (!conformalGridResult.ok) return null;
@@ -703,7 +776,30 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
         )}
       </div>
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="complex-plane" />{" "}
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="complex-plane"
+          renderAtScale={(ctx, width, height) =>
+            drawComplexZPlane(
+              ctx,
+              width,
+              height,
+              parseResult,
+              params,
+              viewport,
+              showRootsOfUnity,
+              rootsResult,
+              showConformalGrid,
+              conformalGridResult,
+              showZeros,
+              zerosResult,
+              showPoles,
+              polesResult,
+            )
+          }
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />{" "}
         <button type="button" onClick={resetView}>
           Reset view
         </button>
