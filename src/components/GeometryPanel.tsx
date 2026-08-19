@@ -401,6 +401,61 @@ export interface GeometryPanelProps {
   cellId?: string;
 }
 
+/**
+ * Pure re-render of the construction canvas, extracted from the redraw
+ * effect below so `PngExportButton`'s `renderAtScale` (issue #278) can
+ * call it against a fresh offscreen canvas at any size. `pending`/
+ * `pendingAngle`/`pendingPolygon` aren't graph state (they're the
+ * in-progress-selection UI state), so they're passed explicitly rather
+ * than read off `graph`.
+ */
+export function drawGeometryPanel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  graph: CellGraph,
+  listIds: CellIdsGeometry,
+  pending: string | null,
+  pendingAngle: string[],
+  pendingPolygon: string[],
+): void {
+  ctx.clearRect(0, 0, width, height);
+  drawAxes(ctx, VIEWPORT, width, height);
+  for (const id of graph.get<string[]>(listIds.objectList)) {
+    if (graph.has(pointCellId(id))) {
+      const p = graph.get<PointRecord>(pointCellId(id));
+      const isFree = graph.role(pointCellId(id)) === "free";
+      const isPendingSelection = id === pending || pendingAngle.includes(id) || pendingPolygon.includes(id);
+      const color = isPendingSelection ? "#dc2626" : isFree ? "#2563eb" : "var(--muted)";
+      drawDot(ctx, p.x, p.y, color);
+    } else if (graph.has(lineCellId(id))) {
+      const { a, b } = graph.get<LineRecord>(lineCellId(id));
+      const pa = graph.get<PointRecord>(pointCellId(a));
+      const pb = graph.get<PointRecord>(pointCellId(b));
+      const length = graph.get<number>(lengthCellId(id));
+      drawLine(ctx, pa, pb, length < DEGENERATE_EPSILON);
+    } else if (graph.has(circleCellId(id))) {
+      const { center, radiusPoint } = graph.get<CircleRecord>(circleCellId(id));
+      const pc = graph.get<PointRecord>(pointCellId(center));
+      const radius = graph.get<number>(radiusCellId(id));
+      drawCircle(ctx, pc, radius, radius < DEGENERATE_EPSILON);
+    } else if (graph.has(angleRecordCellId(id))) {
+      const { a, vertex, c } = graph.get<AngleRecord>(angleRecordCellId(id));
+      const pa = graph.get<PointRecord>(pointCellId(a));
+      const pv = graph.get<PointRecord>(pointCellId(vertex));
+      const pc = graph.get<PointRecord>(pointCellId(c));
+      const angle = graph.get<number>(angleValueCellId(id));
+      drawAngle(ctx, pa, pv, pc, angle);
+    } else if (graph.has(polygonCellId(id))) {
+      const { points } = graph.get<PolygonRecord>(polygonCellId(id));
+      const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
+      const area = graph.get<number>(areaCellId(id));
+      const selfIntersecting = graph.get<boolean>(polygonSelfIntersectingCellId(id));
+      drawPolygon(ctx, pts, area, selfIntersecting);
+    }
+  }
+}
+
 export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "geo-1" }: GeometryPanelProps = {}) {
   const listIds = cellIdsGeometry(cellId);
   const graph = useGeometryGraph(listIds, externalGraph);
@@ -703,55 +758,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    function redraw() {
-      if (!ctx) return;
-      ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      drawAxes(ctx, VIEWPORT, WIDTH, HEIGHT);
-      for (const id of graph.get<string[]>(listIds.objectList)) {
-        if (graph.has(pointCellId(id))) {
-          const p = graph.get<PointRecord>(pointCellId(id));
-          const isFree = graph.role(pointCellId(id)) === "free";
-          const isPendingSelection = id === pending || pendingAngle.includes(id) || pendingPolygon.includes(id);
-          const color = isPendingSelection ? "#dc2626" : isFree ? "#2563eb" : "var(--muted)";
-          drawDot(ctx, p.x, p.y, color);
-        } else if (graph.has(lineCellId(id))) {
-          const { a, b } = graph.get<LineRecord>(lineCellId(id));
-          const pa = graph.get<PointRecord>(pointCellId(a));
-          const pb = graph.get<PointRecord>(pointCellId(b));
-          // Reads (not just draws) the dependent length cell -- a lazily-
-          // defined cell only reports hasValue:true, and so only appears in
-          // AlgebraView's Objects list, once something actually calls
-          // get() on it. Nothing else ever did.
-          const length = graph.get<number>(lengthCellId(id));
-          drawLine(ctx, pa, pb, length < DEGENERATE_EPSILON);
-        } else if (graph.has(circleCellId(id))) {
-          const { center, radiusPoint } = graph.get<CircleRecord>(circleCellId(id));
-          const pc = graph.get<PointRecord>(pointCellId(center));
-          // Same reasoning as the line's length above -- reuse the
-          // dependent radius cell's own value instead of recomputing it
-          // inline, which also makes it appear in the Objects list.
-          const radius = graph.get<number>(radiusCellId(id));
-          drawCircle(ctx, pc, radius, radius < DEGENERATE_EPSILON);
-        } else if (graph.has(angleRecordCellId(id))) {
-          const { a, vertex, c } = graph.get<AngleRecord>(angleRecordCellId(id));
-          const pa = graph.get<PointRecord>(pointCellId(a));
-          const pv = graph.get<PointRecord>(pointCellId(vertex));
-          const pc = graph.get<PointRecord>(pointCellId(c));
-          // Reads the dependent angle value the same reuse-it-for-drawing
-          // pattern length/radius already establish (also populates hasValue
-          // for AlgebraView's Objects list).
-          const angle = graph.get<number>(angleValueCellId(id));
-          drawAngle(ctx, pa, pv, pc, angle);
-        } else if (graph.has(polygonCellId(id))) {
-          const { points } = graph.get<PolygonRecord>(polygonCellId(id));
-          const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
-          // Same reasoning as length/radius/angle above.
-          const area = graph.get<number>(areaCellId(id));
-          const selfIntersecting = graph.get<boolean>(polygonSelfIntersectingCellId(id));
-          drawPolygon(ctx, pts, area, selfIntersecting);
-        }
-      }
-    }
+    const redraw = () => drawGeometryPanel(ctx, WIDTH, HEIGHT, graph, listIds, pending, pendingAngle, pendingPolygon);
     redraw();
     return graph.subscribeAll(redraw);
     // `pending`/`pendingAngle`/`pendingPolygon` aren't graph state, so they
@@ -911,7 +918,13 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         onPointerUp={handlePointerUp}
       />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="geometry" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="geometry"
+          renderAtScale={(ctx, width, height) => drawGeometryPanel(ctx, width, height, graph, listIds, pending, pendingAngle, pendingPolygon)}
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
         <SvgExportButton
           getSvg={() => {
             const layers = geometryExportLayers();
