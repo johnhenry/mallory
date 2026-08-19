@@ -263,6 +263,11 @@ function VoxelSpacetimeView({ spacetime }: { spacetime: Spacetime2D | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const groupRef = useRef<THREE.Group | null>(null);
   const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Populated by the mount-once effect below -- lets `renderThreeAtScale`
+  // (issue #278) build a temporary offscreen renderer around this view's
+  // existing scene/camera without touching the live on-screen renderer.
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -275,6 +280,8 @@ function VoxelSpacetimeView({ spacetime }: { spacetime: Spacetime2D | null }) {
 
     const camera = new THREE.PerspectiveCamera(50, VOXEL_VIEW_SIZE / VOXEL_VIEW_SIZE, 0.1, 1000);
     camera.position.set(8, 8, 8);
+    sceneRef.current = scene;
+    cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(VOXEL_VIEW_SIZE, VOXEL_VIEW_SIZE, false);
@@ -310,6 +317,8 @@ function VoxelSpacetimeView({ spacetime }: { spacetime: Spacetime2D | null }) {
       container.removeChild(renderer.domElement);
       groupRef.current = null;
       rendererCanvasRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
     };
   }, []);
 
@@ -342,7 +351,19 @@ function VoxelSpacetimeView({ spacetime }: { spacetime: Spacetime2D | null }) {
     <div>
       <div ref={containerRef} style={{ position: "relative", maxWidth: VOXEL_VIEW_SIZE, border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="ca-voxel-spacetime" />
+        <PngExportButton
+          getCanvas={() => rendererCanvasRef.current}
+          label="ca-voxel-spacetime"
+          renderThreeAtScale={(canvas, width, height) => {
+            if (!sceneRef.current || !cameraRef.current) return;
+            const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(width, height, false);
+            renderer.render(sceneRef.current, cameraRef.current);
+            renderer.dispose();
+          }}
+          baseWidth={VOXEL_VIEW_SIZE}
+          baseHeight={VOXEL_VIEW_SIZE}
+        />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom. Y axis is time (generation); color sweeps from early (red) to late (violet) generations.</p>
     </div>
@@ -373,6 +394,11 @@ function Voxel3DFrameView({ frame }: { frame: Spacetime3D[number] | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const groupRef = useRef<THREE.Group | null>(null);
   const rendererCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Populated by the mount-once effect below -- lets `renderThreeAtScale`
+  // (issue #278) build a temporary offscreen renderer around this view's
+  // existing scene/camera without touching the live on-screen renderer.
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -385,6 +411,8 @@ function Voxel3DFrameView({ frame }: { frame: Spacetime3D[number] | null }) {
 
     const camera = new THREE.PerspectiveCamera(50, VOXEL_3D_VIEW_SIZE / VOXEL_3D_VIEW_SIZE, 0.1, 1000);
     camera.position.set(8, 8, 8);
+    sceneRef.current = scene;
+    cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(VOXEL_3D_VIEW_SIZE, VOXEL_3D_VIEW_SIZE, false);
@@ -420,6 +448,8 @@ function Voxel3DFrameView({ frame }: { frame: Spacetime3D[number] | null }) {
       container.removeChild(renderer.domElement);
       groupRef.current = null;
       rendererCanvasRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
     };
   }, []);
 
@@ -452,7 +482,19 @@ function Voxel3DFrameView({ frame }: { frame: Spacetime3D[number] | null }) {
     <div>
       <div ref={containerRef} style={{ position: "relative", maxWidth: VOXEL_3D_VIEW_SIZE, border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => rendererCanvasRef.current} label="ca-totalistic-3d" />
+        <PngExportButton
+          getCanvas={() => rendererCanvasRef.current}
+          label="ca-totalistic-3d"
+          renderThreeAtScale={(canvas, width, height) => {
+            if (!sceneRef.current || !cameraRef.current) return;
+            const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(width, height, false);
+            renderer.render(sceneRef.current, cameraRef.current);
+            renderer.dispose();
+          }}
+          baseWidth={VOXEL_3D_VIEW_SIZE}
+          baseHeight={VOXEL_3D_VIEW_SIZE}
+        />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom. Color sweeps across the Z axis (near to far); use the transport controls below to scrub through generations.</p>
     </div>
