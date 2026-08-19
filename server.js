@@ -21,10 +21,26 @@ const noCacheOnUnhashedStatic = async (req, next) => {
   return res;
 };
 
+// srvx's static server doesn't map .wasm, so the ONNX Runtime binaries
+// (dist/client/ort/*.wasm, ~26MB) went out as text/plain -- which makes the
+// browser REFUSE WebAssembly.instantiateStreaming (it requires
+// application/wasm) and fall back to buffering the whole file before
+// compiling. That's mallory-graph#312's "Loading model... for 35+ seconds":
+// no streaming compilation, on the app's largest asset. Verified live
+// before this fix: `curl -sI .../ort/ort-wasm-simd-threaded.jsep.wasm` ->
+// `content-type: text/plain; charset=UTF-8`.
+const wasmContentType = async (req, next) => {
+  const res = await next();
+  if (res && new URL(req.url).pathname.endsWith(".wasm")) {
+    res.headers.set("Content-Type", "application/wasm");
+  }
+  return res;
+};
+
 const server = serve({
   port: Number(port),
   hostname: host,
-  middleware: [noCacheOnUnhashedStatic, serveStatic({ dir: "./dist/client" })],
+  middleware: [noCacheOnUnhashedStatic, wasmContentType, serveStatic({ dir: "./dist/client" })],
   fetch: handler.fetch,
 });
 
