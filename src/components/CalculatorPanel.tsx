@@ -240,7 +240,11 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
           >
             <span style={{ color: "#555" }}>{entry.input}</span>
             <span style={{ color: entry.isError ? "var(--danger)" : entry.isAssignment ? "#2563eb" : "inherit", fontWeight: entry.isAssignment ? 600 : 400 }}>
-              {entry.display}
+              {/* Explicit "error:" prefix (mallory-graph#305): a failed
+                  line's message previously differed from a result only by
+                  color, which reads as broken output rather than a labeled
+                  failure (and not at all for colorblind users). */}
+              {entry.isError ? `error: ${entry.display}` : entry.display}
             </span>
           </div>
         ))}

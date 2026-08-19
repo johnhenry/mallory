@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Interval, Symbolic } from "mallory-math";
-import { evaluateInterval } from "./interval-eval.ts";
+import { evaluateInterval, nextDown, nextUp } from "./interval-eval.ts";
 
 test("evaluateInterval: matches hand-computed bounds for x^2 over [1,2] ([1,4])", () => {
   const expr = Symbolic.parse("x^2");
@@ -110,4 +110,33 @@ test("evaluateInterval: property test -- the result interval contains the float 
     }
   }
   assert.ok(checkedAtLeastOnce, "the property sweep never actually compared anything -- test setup is broken");
+});
+
+// -- outward rounding (mallory-graph#305, upstream johnhenry/mallory#57) ----
+
+test("nextUp/nextDown: step exactly one representable double, symmetric across zero", () => {
+  assert.ok(nextUp(1) > 1);
+  assert.equal(nextUp(1), 1 + Number.EPSILON);
+  assert.ok(nextDown(1) < 1);
+  assert.equal(nextUp(0), Number.MIN_VALUE);
+  assert.equal(nextDown(0), -Number.MIN_VALUE);
+  assert.equal(nextDown(-1), -(1 + Number.EPSILON));
+});
+
+test("#305: sqrt(2) on a point interval yields strictly widened bounds that CONTAIN the true value, not a degenerate point", () => {
+  const result = evaluateInterval(Symbolic.parse("sqrt(2)"), {});
+  assert.ok(result.lo < result.hi, "bounds must differ -- sqrt(2) is irrational, a point interval cannot contain it");
+  assert.ok(result.lo < Math.SQRT2 && Math.SQRT2 < result.hi);
+  // ...but only barely: exactly 1 ulp of slack each side of the correctly-rounded float.
+  assert.equal(nextUp(result.lo), Math.SQRT2);
+  assert.equal(nextDown(result.hi), Math.SQRT2);
+});
+
+test("outward rounding applies to exp/ln/sin/cos too; abs stays exact", () => {
+  for (const src of ["exp(1)", "ln(2)", "sin(1)", "cos(1)"]) {
+    const result = evaluateInterval(Symbolic.parse(src), {});
+    assert.ok(result.lo < result.hi, `${src} must widen`);
+  }
+  const absResult = evaluateInterval(Symbolic.parse("abs(-3)"), {});
+  assert.equal(absResult.lo, absResult.hi);
 });
