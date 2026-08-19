@@ -146,6 +146,18 @@ function useImageFrequencyGraph(cellId: string): CellGraph {
  * sidestepping RGB-to-grayscale conversion and letting this PR focus on the
  * fft2/fftshift/mask/ifft2 pipeline itself, the CAS-correctness-heavy core.
  */
+/**
+ * Pure re-render of one of the three grayscale-grid canvases (original/
+ * spectrum/filtered), extracted from the draw effect below so
+ * `PngExportButton`'s `renderAtScale` (issue #278) can call it against a
+ * fresh offscreen canvas at any size. `grid` is `null` when `result` isn't
+ * ok, matching the on-screen effect's own clear-and-return behavior.
+ */
+export function drawImageFrequencyGrid(ctx: CanvasRenderingContext2D, width: number, height: number, grid: number[][] | null): void {
+  ctx.clearRect(0, 0, width, height);
+  if (grid) drawGrayscaleGrid(ctx, grid, width, height);
+}
+
 export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: string } = {}) {
   const graph = useImageFrequencyGraph(cellId);
   useCellGraphTools(`image_frequency_${cellId}`, graph);
@@ -275,13 +287,9 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
     const spectrum = spectrumCanvasRef.current?.getContext("2d");
     const filtered = filteredCanvasRef.current?.getContext("2d");
     if (!original || !spectrum || !filtered) return;
-    original.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    spectrum.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    filtered.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    if (!result.ok) return;
-    drawGrayscaleGrid(original, result.value.original, CANVAS_SIZE, CANVAS_SIZE);
-    drawGrayscaleGrid(spectrum, result.value.magnitudeSpectrum, CANVAS_SIZE, CANVAS_SIZE);
-    drawGrayscaleGrid(filtered, result.value.filtered, CANVAS_SIZE, CANVAS_SIZE);
+    drawImageFrequencyGrid(original, CANVAS_SIZE, CANVAS_SIZE, result.ok ? result.value.original : null);
+    drawImageFrequencyGrid(spectrum, CANVAS_SIZE, CANVAS_SIZE, result.ok ? result.value.magnitudeSpectrum : null);
+    drawImageFrequencyGrid(filtered, CANVAS_SIZE, CANVAS_SIZE, result.ok ? result.value.filtered : null);
   }, [result]);
 
   return (
@@ -418,7 +426,13 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Original</p>
           <canvas ref={originalCanvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => originalCanvasRef.current} label="image-frequency-original" />
+            <PngExportButton
+              getCanvas={() => originalCanvasRef.current}
+              label="image-frequency-original"
+              renderAtScale={(ctx, width, height) => drawImageFrequencyGrid(ctx, width, height, result.ok ? result.value.original : null)}
+              baseWidth={CANVAS_SIZE}
+              baseHeight={CANVAS_SIZE}
+            />
           </div>
         </div>
         <div>
@@ -440,7 +454,13 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
             }}
           />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => spectrumCanvasRef.current} label="image-frequency-spectrum" />
+            <PngExportButton
+              getCanvas={() => spectrumCanvasRef.current}
+              label="image-frequency-spectrum"
+              renderAtScale={(ctx, width, height) => drawImageFrequencyGrid(ctx, width, height, result.ok ? result.value.magnitudeSpectrum : null)}
+              baseWidth={CANVAS_SIZE}
+              baseHeight={CANVAS_SIZE}
+            />
           </div>
           {maskType === "freehand" && (
             <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
@@ -460,7 +480,13 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Filtered</p>
           <canvas ref={filteredCanvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => filteredCanvasRef.current} label="image-frequency-filtered" />
+            <PngExportButton
+              getCanvas={() => filteredCanvasRef.current}
+              label="image-frequency-filtered"
+              renderAtScale={(ctx, width, height) => drawImageFrequencyGrid(ctx, width, height, result.ok ? result.value.filtered : null)}
+              baseWidth={CANVAS_SIZE}
+              baseHeight={CANVAS_SIZE}
+            />
           </div>
         </div>
       </div>

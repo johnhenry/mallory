@@ -178,6 +178,80 @@ function useGraphTheoryGraph(cellId: string): CellGraph {
   return ref.current;
 }
 
+/**
+ * Pure re-render of the main graph canvas, extracted from the draw effect
+ * below so `PngExportButton`'s `renderAtScale` (issue #278) can call it
+ * against a fresh offscreen canvas at any size.
+ */
+export function drawGraphTheoryPanel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  graphResult: Result<Graph<string>>,
+  algorithmResult: Result<AlgorithmResult>,
+  startVertex: string,
+  vertexPositions: Record<string, LayoutPoint>,
+  showEditor: boolean,
+  showAnimation: boolean,
+  currentStep: AlgorithmStep | undefined,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  if (!graphResult.ok) return;
+
+  const g = graphResult.value;
+  const layout = computeLayout(g.vertices(), vertexPositions, showEditor);
+  const highlightedEdges = new Set<string>();
+  const highlightedVertices = new Set<string>();
+  if (showAnimation && currentStep) {
+    for (const v of currentStep.visitedVertices) highlightedVertices.add(v);
+    for (const e of currentStep.visitedEdges) highlightedEdges.add(`${e.from} ${e.to}`);
+  } else if (algorithmResult.ok) {
+    const r = algorithmResult.value;
+    if (r.kind === "path") for (let i = 0; i < r.path.length - 1; i++) highlightedEdges.add(`${r.path[i]} ${r.path[i + 1]}`);
+    if (r.kind === "mst") for (const e of r.edges) highlightedEdges.add(`${e.from} ${e.to}`);
+    if (r.kind === "order") for (const v of r.order) highlightedVertices.add(v);
+  }
+  const edgeKey = (a: string, b: string) => highlightedEdges.has(`${a} ${b}`) || highlightedEdges.has(`${b} ${a}`);
+
+  ctx.save();
+  for (const e of g.edges()) {
+    const from = layout.get(e.from);
+    const to = layout.get(e.to);
+    if (!from || !to) continue;
+    const highlighted = edgeKey(e.from, e.to);
+    ctx.strokeStyle = highlighted ? "#dc2626" : "#9ca3af";
+    ctx.lineWidth = highlighted ? 3 : 1.5;
+    ctx.beginPath();
+    ctx.moveTo(toScreenX(from.x, VIEWPORT, width), toScreenY(from.y, VIEWPORT, height));
+    ctx.lineTo(toScreenX(to.x, VIEWPORT, width), toScreenY(to.y, VIEWPORT, height));
+    ctx.stroke();
+    const midX = toScreenX((from.x + to.x) / 2, VIEWPORT, width);
+    const midY = toScreenY((from.y + to.y) / 2, VIEWPORT, height);
+    ctx.fillStyle = "#374151";
+    ctx.font = "11px sans-serif";
+    ctx.fillText(String(e.weight), midX, midY);
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = "13px sans-serif";
+  for (const v of g.vertices()) {
+    const p = layout.get(v);
+    if (!p) continue;
+    const sx = toScreenX(p.x, VIEWPORT, width);
+    const sy = toScreenY(p.y, VIEWPORT, height);
+    ctx.fillStyle = v === startVertex ? "#16a34a" : highlightedVertices.has(v) ? "#2563eb" : "#1f2937";
+    ctx.beginPath();
+    ctx.arc(sx, sy, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(v, sx, sy);
+  }
+  ctx.restore();
+}
+
 /** A graph from a text edge list, drawn with a deterministic circular layout, with BFS/DFS/Dijkstra/shortest-path/MST results highlighted and a structural summary (cycle/components/topological order/adjacency matrix). */
 export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: string } = {}) {
   const graph = useGraphTheoryGraph(cellId);
@@ -297,66 +371,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    if (!graphResult.ok) return;
-
-    const g = graphResult.value;
-    const layout = computeLayout(g.vertices(), vertexPositions, showEditor);
-    const highlightedEdges = new Set<string>();
-    const highlightedVertices = new Set<string>();
-    if (showAnimation && currentStep) {
-      // Animation on: only the current step's cumulative reveal is
-      // highlighted, not the whole result at once.
-      for (const v of currentStep.visitedVertices) highlightedVertices.add(v);
-      for (const e of currentStep.visitedEdges) highlightedEdges.add(`${e.from} ${e.to}`);
-    } else if (algorithmResult.ok) {
-      const r = algorithmResult.value;
-      if (r.kind === "path") for (let i = 0; i < r.path.length - 1; i++) highlightedEdges.add(`${r.path[i]} ${r.path[i + 1]}`);
-      if (r.kind === "mst") for (const e of r.edges) highlightedEdges.add(`${e.from} ${e.to}`);
-      if (r.kind === "order") for (const v of r.order) highlightedVertices.add(v);
-    }
-    const edgeKey = (a: string, b: string) =>
-      highlightedEdges.has(`${a} ${b}`) || highlightedEdges.has(`${b} ${a}`);
-
-    // Edges
-    ctx.save();
-    for (const e of g.edges()) {
-      const from = layout.get(e.from);
-      const to = layout.get(e.to);
-      if (!from || !to) continue;
-      const highlighted = edgeKey(e.from, e.to);
-      ctx.strokeStyle = highlighted ? "#dc2626" : "#9ca3af";
-      ctx.lineWidth = highlighted ? 3 : 1.5;
-      ctx.beginPath();
-      ctx.moveTo(toScreenX(from.x, VIEWPORT, WIDTH), toScreenY(from.y, VIEWPORT, HEIGHT));
-      ctx.lineTo(toScreenX(to.x, VIEWPORT, WIDTH), toScreenY(to.y, VIEWPORT, HEIGHT));
-      ctx.stroke();
-      const midX = toScreenX((from.x + to.x) / 2, VIEWPORT, WIDTH);
-      const midY = toScreenY((from.y + to.y) / 2, VIEWPORT, HEIGHT);
-      ctx.fillStyle = "#374151";
-      ctx.font = "11px sans-serif";
-      ctx.fillText(String(e.weight), midX, midY);
-    }
-    ctx.restore();
-
-    // Vertices
-    ctx.save();
-    ctx.font = "13px sans-serif";
-    for (const v of g.vertices()) {
-      const p = layout.get(v);
-      if (!p) continue;
-      const sx = toScreenX(p.x, VIEWPORT, WIDTH);
-      const sy = toScreenY(p.y, VIEWPORT, HEIGHT);
-      ctx.fillStyle = v === startVertex ? "#16a34a" : highlightedVertices.has(v) ? "#2563eb" : "#1f2937";
-      ctx.beginPath();
-      ctx.arc(sx, sy, 14, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#fff";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(v, sx, sy);
-    }
-    ctx.restore();
+    drawGraphTheoryPanel(ctx, WIDTH, HEIGHT, graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep);
   }, [graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep]);
 
   useEffect(() => {
@@ -464,7 +479,15 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
         style={{ border: "1px solid #ccc", cursor: showEditor ? "crosshair" : "default", touchAction: showEditor ? "none" : "auto" }}
       />
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton getCanvas={() => canvasRef.current} label="graph-theory" />
+        <PngExportButton
+          getCanvas={() => canvasRef.current}
+          label="graph-theory"
+          renderAtScale={(ctx, width, height) =>
+            drawGraphTheoryPanel(ctx, width, height, graphResult, algorithmResult, startVertex, vertexPositions, showEditor, showAnimation, currentStep)
+          }
+          baseWidth={WIDTH}
+          baseHeight={HEIGHT}
+        />
       </div>
       {!graphResult.ok && <p style={{ color: "crimson" }}>{graphResult.message}</p>}
 
@@ -533,7 +556,17 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
         <>
           <canvas ref={heatmapCanvasRef} width={HEATMAP_SIZE} height={HEATMAP_SIZE} style={{ border: "1px solid #ccc", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
-            <PngExportButton getCanvas={() => heatmapCanvasRef.current} label="graph-theory-adjacency" />
+            <PngExportButton
+              getCanvas={() => heatmapCanvasRef.current}
+              label="graph-theory-adjacency"
+              renderAtScale={
+                analysis.ok
+                  ? (ctx, width, height) => drawHeatmap(ctx, analysis.value.adjacencyMatrix.matrix, analysis.value.adjacencyMatrix.order, width, height)
+                  : undefined
+              }
+              baseWidth={HEATMAP_SIZE}
+              baseHeight={HEATMAP_SIZE}
+            />
           </div>
         </>
       ) : (
