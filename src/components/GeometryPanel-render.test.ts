@@ -37,7 +37,7 @@ function radioLabels(group: Element): string[] {
   return Array.from(group.querySelectorAll("label")).map((l) => l.textContent?.trim() ?? "");
 }
 
-test("GeometryPanel: tool palette is split into an Objects group and an Actions group", async () => {
+test("GeometryPanel: tool palette is split into Objects, Actions, and Select groups", async () => {
   const graph = new CellGraph();
   const listIds = cellIdsGeometry("render-test-groups");
   const { container, unmount } = await mount(
@@ -45,15 +45,18 @@ test("GeometryPanel: tool palette is split into an Objects group and an Actions 
   );
 
   const groups = container.querySelectorAll('[role="radiogroup"]');
-  assert.equal(groups.length, 2, "expected exactly two radiogroups (Objects, Actions)");
+  assert.equal(groups.length, 3, "expected exactly three radiogroups (Objects, Actions, Select)");
 
   const objectsGroup = Array.from(groups).find((g) => g.getAttribute("aria-label") === "Objects");
   const actionsGroup = Array.from(groups).find((g) => g.getAttribute("aria-label") === "Actions");
+  const selectGroup = Array.from(groups).find((g) => g.getAttribute("aria-label") === "Select");
   assert.ok(objectsGroup, "expected a radiogroup labeled Objects");
   assert.ok(actionsGroup, "expected a radiogroup labeled Actions");
+  assert.ok(selectGroup, "expected a radiogroup labeled Select (#336 item 1)");
 
   const objectLabels = radioLabels(objectsGroup as Element);
   const actionLabels = radioLabels(actionsGroup as Element);
+  const selectLabels = radioLabels(selectGroup as Element);
 
   for (const t of ["point", "line", "circle", "reflect", "polygon", "angle"]) {
     assert.ok(objectLabels.includes(t), `expected "${t}" in the Objects group, got: ${objectLabels.join(", ")}`);
@@ -61,6 +64,7 @@ test("GeometryPanel: tool palette is split into an Objects group and an Actions 
   for (const t of ["rotate", "translate", "scale"]) {
     assert.ok(actionLabels.includes(t), `expected "${t}" in the Actions group, got: ${actionLabels.join(", ")}`);
   }
+  assert.deepEqual(selectLabels, ["select"]);
   // No overlap, and no tool dropped in the split.
   assert.equal(objectLabels.length, 6);
   assert.equal(actionLabels.length, 3);
