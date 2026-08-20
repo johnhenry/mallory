@@ -1,4 +1,5 @@
 import { type PointerEvent, useEffect, useRef, useState } from "react";
+import { type AngleUnit, angleUnitSuffix, formatAngle, getAngleUnit, setAngleUnit, subscribeToAngleUnit, unitToDegrees } from "../lib/angle-unit.ts";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -417,6 +418,7 @@ export function drawGeometryPanel(
   pending: string | null,
   pendingAngle: string[],
   pendingPolygon: string[],
+  angleUnit: AngleUnit = "radians",
 ): void {
   ctx.clearRect(0, 0, width, height);
   drawAxes(ctx, VIEWPORT, width, height);
@@ -444,7 +446,7 @@ export function drawGeometryPanel(
       const pv = graph.get<PointRecord>(pointCellId(vertex));
       const pc = graph.get<PointRecord>(pointCellId(c));
       const angle = graph.get<number>(angleValueCellId(id));
-      drawAngle(ctx, pa, pv, pc, angle);
+      drawAngle(ctx, pa, pv, pc, angle, angleUnit);
     } else if (graph.has(polygonCellId(id))) {
       const { points } = graph.get<PolygonRecord>(polygonCellId(id));
       const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
@@ -472,6 +474,12 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   const [dxInput, setDxInput] = useState("1");
   const [dyInput, setDyInput] = useState("0");
   const [factorInput, setFactorInput] = useState("2");
+  // A global, localStorage-backed preference (angle-unit.ts) rather than
+  // component-local state that would reset on remount -- shared with
+  // ComplexPanel's arg() display, so switching it here also flips that
+  // panel next time it renders.
+  const [angleUnit, setAngleUnitState] = useState<AngleUnit>(getAngleUnit());
+  useEffect(() => subscribeToAngleUnit(setAngleUnitState), []);
   const dragRef = useRef<{ id: string; moved: boolean; startSx: number; startSy: number } | null>(null);
 
   useCellGraphTools(toolPrefix, graph);
@@ -705,7 +713,14 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
     if (tool === "line") addLine(graph, listIds, pending, hitId);
     else if (tool === "circle") addCircle(graph, listIds, pending, hitId);
     else if (tool === "reflect") addReflection(graph, listIds, pending, hitId);
-    else if (tool === "rotate") addRotation(graph, listIds, pending, hitId, Number(angleInput) || 90);
+    else if (tool === "rotate") {
+      // addRotation's angleDegrees param (and the op's storage) is
+      // degrees-typed regardless of display preference -- convert the
+      // typed value (in whatever unit is currently selected) at this one
+      // boundary. Fallback is a quarter turn, expressed in the current unit.
+      const angleFallback = angleUnit === "degrees" ? 90 : Math.PI / 2;
+      addRotation(graph, listIds, pending, hitId, unitToDegrees(Number(angleInput) || angleFallback, angleUnit));
+    }
     else if (tool === "scale") addScale(graph, listIds, pending, hitId, Number(factorInput) || 2);
     setPending(null);
   }
@@ -769,15 +784,15 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    const redraw = () => drawGeometryPanel(ctx, WIDTH, HEIGHT, graph, listIds, pending, pendingAngle, pendingPolygon);
+    const redraw = () => drawGeometryPanel(ctx, WIDTH, HEIGHT, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit);
     redraw();
     return graph.subscribeAll(redraw);
-    // `pending`/`pendingAngle`/`pendingPolygon` aren't graph state, so they
-    // can't trigger a redraw via subscribeAll -- re-running this effect
-    // (which calls redraw() once immediately) on selection change is what
-    // keeps the highlight in sync.
+    // `pending`/`pendingAngle`/`pendingPolygon`/`angleUnit` aren't graph
+    // state, so they can't trigger a redraw via subscribeAll -- re-running
+    // this effect (which calls redraw() once immediately) on selection
+    // change (or a live angle-unit toggle) is what keeps the canvas in sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, pending, pendingAngle, pendingPolygon]);
+  }, [graph, pending, pendingAngle, pendingPolygon, angleUnit]);
 
   /**
    * Builds the exported SVG's layer list -- a `layersToSvgDocument`-ready
@@ -823,7 +838,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         const pv = graph.get<PointRecord>(pointCellId(vertex));
         const pc = graph.get<PointRecord>(pointCellId(c));
         const angle = graph.get<number>(angleValueCellId(id));
-        layers.push(...angleExportLayers(pa, pv, pc, angle));
+        layers.push(...angleExportLayers(pa, pv, pc, angle, angleUnit));
       } else if (graph.has(polygonCellId(id))) {
         const { points } = graph.get<PolygonRecord>(polygonCellId(id));
         const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
@@ -861,6 +876,18 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
 
   return (
     <div>
+      <label style={{ display: "block", margin: "0.25rem 0", fontSize: "0.85rem" }}>
+        Angle unit:{" "}
+        <select value={angleUnit} onChange={(e) => setAngleUnit(e.target.value === "degrees" ? "degrees" : "radians")}>
+          <option value="radians">Radians</option>
+          <option value="degrees">Degrees</option>
+        </select>
+        <span style={{ marginLeft: "0.5rem", color: "var(--muted)" }}>
+          Affects measured-angle labels and the rotate tool's input here, and the Complex panel's arg() readout.
+          Shared across this browser (this doesn't change how typed expressions like sin(x) are evaluated -- those
+          stay radians).
+        </span>
+      </label>
       <div style={{ margin: "0.25rem 0", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
         {TOOL_GROUPS.map((group) => (
           <div
@@ -898,7 +925,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         ))}
         {tool === "rotate" && (
           <label>
-            angle (°):{" "}
+            angle ({angleUnitSuffix(angleUnit).trim() || "rad"}):{" "}
             <input value={angleInput} onChange={(e) => setAngleInput(e.target.value)} style={{ font: "inherit", width: "5ch" }} />
           </label>
         )}
@@ -932,7 +959,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         <PngExportButton
           getCanvas={() => canvasRef.current}
           label="geometry"
-          renderAtScale={(ctx, width, height) => drawGeometryPanel(ctx, width, height, graph, listIds, pending, pendingAngle, pendingPolygon)}
+          renderAtScale={(ctx, width, height) => drawGeometryPanel(ctx, width, height, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit)}
           baseWidth={WIDTH}
           baseHeight={HEIGHT}
         />
@@ -1013,7 +1040,7 @@ function drawCircle(ctx: CanvasRenderingContext2D, center: PointRecord, radius: 
  * matching interiorAngleRadians' own "always the <=180 degree angle"
  * convention.
  */
-function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointRecord, c: PointRecord, angleRadians: number): void {
+function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointRecord, c: PointRecord, angleRadians: number, angleUnit: AngleUnit): void {
   const vx = toScreenX(vertex.x, VIEWPORT, WIDTH);
   const vy = toScreenY(vertex.y, VIEWPORT, HEIGHT);
   const ax = toScreenX(a.x, VIEWPORT, WIDTH);
@@ -1043,12 +1070,12 @@ function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointR
   ctx.font = "12px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(`${((angleRadians * 180) / Math.PI).toFixed(1)}°`, labelX, labelY);
+  ctx.fillText(formatAngle(angleRadians, angleUnit), labelX, labelY);
   ctx.restore();
 }
 
 /** `drawAngle`'s exact theta1/theta2/diff/anticlockwise/labelX/labelY math, re-emitted as an `"arc"` + `"text"` SvgLayer pair instead of Canvas2D calls -- see that function's own doc comment for the geometry. */
-function angleExportLayers(a: PointRecord, vertex: PointRecord, c: PointRecord, angleRadians: number): SvgLayer[] {
+function angleExportLayers(a: PointRecord, vertex: PointRecord, c: PointRecord, angleRadians: number, angleUnit: AngleUnit): SvgLayer[] {
   const vx = toScreenX(vertex.x, VIEWPORT, WIDTH);
   const vy = toScreenY(vertex.y, VIEWPORT, HEIGHT);
   const ax = toScreenX(a.x, VIEWPORT, WIDTH);
@@ -1067,7 +1094,7 @@ function angleExportLayers(a: PointRecord, vertex: PointRecord, c: PointRecord, 
   const labelY = vy + (ARC_RADIUS + 14) * Math.sin(mid);
   return [
     { kind: "arc", cxPx: vx, cyPx: vy, radiusPx: ARC_RADIUS, startAngle: theta1, endAngle: theta2, anticlockwise, color: "#9333ea", strokeWidth: 1.5 },
-    { kind: "text", xPx: labelX, yPx: labelY, label: `${((angleRadians * 180) / Math.PI).toFixed(1)}°` },
+    { kind: "text", xPx: labelX, yPx: labelY, label: formatAngle(angleRadians, angleUnit) },
   ];
 }
 

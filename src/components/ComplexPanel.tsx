@@ -1,4 +1,5 @@
 import { ComplexNumber, Symbolic, type Expr } from "mallory-math";
+import { type AngleUnit, formatAngle, getAngleUnit, setAngleUnit, subscribeToAngleUnit } from "../lib/angle-unit.ts";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
@@ -375,6 +376,11 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
   }, [graph, freeVars]);
 
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  // Shared global preference (angle-unit.ts) -- also affects Geometry
+  // panel's measured-angle labels/rotate input; a change made there is
+  // reflected here next render via the subscription, and vice versa.
+  const [angleUnit, setAngleUnitState] = useState<AngleUnit>(getAngleUnit());
+  useEffect(() => subscribeToAngleUnit(setAngleUnitState), []);
 
   async function handleSave() {
     const title = window.prompt("Title for this saved complex-plane setup:", "Untitled");
@@ -810,12 +816,20 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
         <label>
           im(z): <input value={probeIm} onChange={(e) => graph.set(ids.probeIm, e.target.value)} style={{ font: "inherit", width: "8ch" }} />
         </label>
+        <label>
+          arg unit:{" "}
+          <select value={angleUnit} onChange={(e) => setAngleUnit(e.target.value === "degrees" ? "degrees" : "radians")}>
+            <option value="radians">Radians</option>
+            <option value="degrees">Degrees</option>
+          </select>
+        </label>
       </div>
       {probeResult.ok ? (
         <p>
           f({probeRe}{Number(probeIm) >= 0 ? "+" : ""}{probeIm}i) = {probeResult.value.re.toFixed(4)}
           {probeResult.value.im >= 0 ? "+" : ""}
-          {probeResult.value.im.toFixed(4)}i (|f(z)| = {probeResult.value.magnitude.toFixed(4)}, arg = {probeResult.value.angle.toFixed(4)})
+          {probeResult.value.im.toFixed(4)}i (|f(z)| = {probeResult.value.magnitude.toFixed(4)}, arg ={" "}
+          {formatAngle(probeResult.value.angle, angleUnit, 4)})
         </p>
       ) : (
         <p style={{ color: "var(--danger)" }}>{probeResult.message}</p>

@@ -87,15 +87,16 @@ test("GeometryPanel: selecting a tool from either group still switches the activ
   assert.equal(radioFor("point").checked, true);
   assert.equal(radioFor("rotate").checked, false);
 
-  // Switch to an Actions-group tool ("rotate"): its own extra "angle (°)"
-  // input should appear, proving the tool state actually changed, not just
-  // the checked attribute in isolation.
+  // Switch to an Actions-group tool ("rotate"): its own extra angle input
+  // should appear, proving the tool state actually changed, not just the
+  // checked attribute in isolation. Default angle unit is radians, so the
+  // label reads "angle (rad)", not "angle (°)".
   await update(() => {
     radioFor("rotate").dispatchEvent(new domWindow.MouseEvent("click", { bubbles: true, cancelable: true }) as unknown as Event);
   });
   assert.equal(radioFor("rotate").checked, true);
   assert.equal(radioFor("point").checked, false);
-  assert.ok(container.textContent?.includes("angle (°)"), "expected the rotate tool's angle input to appear");
+  assert.ok(container.textContent?.includes("angle (rad)"), "expected the rotate tool's angle input to appear");
 
   // Switch back to an Objects-group tool ("angle" itself, the disputed one).
   await update(() => {
