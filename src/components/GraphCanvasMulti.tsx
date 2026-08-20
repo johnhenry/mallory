@@ -1,6 +1,6 @@
 import type { Path2D } from "mallory-math";
 import { addLocalSave } from "../lib/local-saves.ts";
-import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState, type WheelEvent } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, EXPRESSION_LIST_CELL, VIEWPORT_CELL } from "../lib/cell-ids.ts";
 import { parseDesmosExpressionList, type DesmosImportRow } from "../lib/desmos-import.ts";
@@ -40,6 +40,7 @@ import { SvgExportButton } from "./SvgExportButton.tsx";
 import { useCell } from "../lib/use-cell.ts";
 import { useCollabSession } from "../hooks/use-collab-session.ts";
 import { useDebouncedSubscribeAll } from "../hooks/use-debounced-subscribe-all.ts";
+import { useNonPassiveWheel } from "../hooks/use-non-passive-wheel.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 
 const WIDTH = 600;
@@ -686,11 +687,17 @@ export function GraphCanvasMulti() {
    * debounced instead -- fires `ZOOM_COMMIT_DEBOUNCE_MS` after the last
    * wheel event, reset on every new one, same idea as a search-box's
    * debounced fetch.
+   *
+   * Attached via `useNonPassiveWheel` below, NOT the React `onWheel` prop --
+   * see that hook's own doc comment for why `preventDefault()` here only
+   * actually stops the page from also scrolling when the listener itself is
+   * non-passive.
    */
-  function handleCanvasWheel(e: WheelEvent<HTMLCanvasElement>) {
+  function handleCanvasWheel(e: WheelEvent) {
+    if (!canvasRef.current) return;
     e.preventDefault();
     const viewport = graph.get<Viewport | null>(LIVE_VIEWPORT_CELL) ?? graph.get<Viewport>(VIEWPORT_CELL);
-    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    const { sx, sy } = canvasEventPoint(e, canvasRef.current, WIDTH, HEIGHT);
     const anchorX = toDataX(sx, viewport, WIDTH);
     const anchorY = toDataY(sy, viewport, HEIGHT);
     const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
@@ -703,6 +710,7 @@ export function GraphCanvasMulti() {
       commitLiveViewport();
     }, ZOOM_COMMIT_DEBOUNCE_MS);
   }
+  useNonPassiveWheel(canvasRef, handleCanvasWheel);
 
   useEffect(() => {
     return () => {
@@ -982,7 +990,6 @@ export function GraphCanvasMulti() {
           onPointerMove={handleCanvasPointerMove}
           onPointerUp={handleCanvasPointerUp}
           onPointerCancel={handleCanvasPointerUp}
-          onWheel={handleCanvasWheel}
           onKeyDown={handleCanvasKeyDown}
           tabIndex={0}
           role="img"

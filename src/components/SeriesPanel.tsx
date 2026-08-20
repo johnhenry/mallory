@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, type WheelEvent as ReactWheelEvent } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsSeries } from "../lib/cell-ids.ts";
 import { analyzeSeries, computeSeriesViewport, type SeriesResult } from "../lib/series-analysis.ts";
@@ -6,6 +6,7 @@ import { DEFAULT_SERIES_STATE, decodeSeriesState, encodeSeriesState, type Series
 import { drawAxes, drawScatter, hexToRgba, type Viewport } from "../lib/render-path.ts";
 import { scatterPointsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useNonPassiveWheel } from "../hooks/use-non-passive-wheel.ts";
 import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { canvasEventPoint, toDataX, toDataY } from "../lib/viewport.ts";
@@ -360,11 +361,18 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
     e.currentTarget.releasePointerCapture(e.pointerId);
   }
 
-  /** Wheel-to-zoom, anchored on the cursor's data point; the real commit is debounced (no pointerup to trigger it). */
-  function handleWheel(e: ReactWheelEvent<HTMLCanvasElement>) {
+  /**
+   * Wheel-to-zoom, anchored on the cursor's data point; the real commit is
+   * debounced (no pointerup to trigger it). Attached via `useNonPassiveWheel`
+   * below, NOT the React `onWheel` prop -- see that hook's own doc comment
+   * for why `preventDefault()` here only actually stops the page from also
+   * scrolling when the listener itself is non-passive.
+   */
+  function handleWheel(e: WheelEvent) {
+    if (!canvasRef.current) return;
     e.preventDefault();
     const vp = graph.get<Viewport | null>(containerIds.liveViewport) ?? graph.get<Viewport>(containerIds.viewport);
-    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    const { sx, sy } = canvasEventPoint(e, canvasRef.current, WIDTH, HEIGHT);
     const anchorX = toDataX(sx, vp, WIDTH);
     const anchorY = toDataY(sy, vp, HEIGHT);
     const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
@@ -377,6 +385,7 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
       commitLiveViewport();
     }, ZOOM_COMMIT_DEBOUNCE_MS);
   }
+  useNonPassiveWheel(canvasRef, handleWheel);
 
   /** Re-fits the viewport to the FIRST row's CURRENT series data (not a fixed constant -- this panel's viewport is inherently a fit, unlike FourierPanel's fixed domain; scoped to the first row, same v1 primary-row convention `useSeriesGraph`'s own initial fit uses). */
   function resetView() {
@@ -431,7 +440,6 @@ export function SeriesPanel({ cellId = "series-1" }: { cellId?: string } = {}) {
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onWheel={handleWheel}
       />
       <div style={{ margin: "0.25rem 0" }}>
         <PngExportButton
