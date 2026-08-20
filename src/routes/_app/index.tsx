@@ -15,7 +15,7 @@ export const Route = createFileRoute("/_app/")({
 // renders, just with a generic fallback description below.
 const CARD_DESCRIPTIONS: Record<string, string> = {
   "/calculator": "Quick arithmetic and expressions — no plot, no viewport, just an answer.",
-  "/graphing": "Multi-expression plots, implicit relations, parametric & polar curves, and complex-plane domain coloring.",
+  "/graphing": "Expression plots, implicit relations, parametric & polar curves, and complex-plane domain coloring.",
   "/3d": "z = f(x, y) meshes paired live with their 2D cross-section.",
   "/geo": "Compass-and-straightedge constructions with live dependent objects.",
   "/calculus": "Single ODEs and coupled systems, slope fields, closed-form solving.",
