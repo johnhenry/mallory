@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cayleyTableCanvasSize, drawCayleyTable } from "../lib/cayley-table-render.ts";
 import { cellIdsDiscrete, type CellIdsDiscrete } from "../lib/cell-ids.ts";
+import { resolveDiscreteChatCommand } from "../lib/discrete-chat-commands.ts";
 import {
   buildGroupInfo,
   factorizeForPanel,
@@ -162,6 +163,31 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
   const crtText = useCell<string>(graph, ids.crtText);
   const crtResult = useCell<Result<CrtResult | { ok: false; message: string }>>(graph, ids.crtResult);
 
+  // DiscretePanel's first chat-command surface (#339, mirroring MatrixPanel's
+  // identically-shaped one from issue #46 item 1): contextual commands like
+  // "is this a group" that read whatever's already entered, rather than the
+  // literal-bearing phrasings nl-query-discrete.ts's
+  // resolveDiscreteNavigationCommand handles from a DIFFERENT panel's chat
+  // box. resolveDiscreteChatCommand only ever reads the graph, so there's no
+  // setter bundle to pass through, same as MatrixPanel's.
+  const [chatInput, setChatInput] = useState("");
+  const [chatLog, setChatLog] = useState<Array<{ input: string; ok: boolean; message: string }>>([]);
+  function handleChatSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const input = chatInput.trim();
+    if (!input) return;
+    const result = resolveDiscreteChatCommand(input, { graph, ids });
+    setChatLog((log) => [
+      ...log,
+      {
+        input,
+        ok: result?.ok ?? false,
+        message: result?.message ?? `Didn't understand that. Try "is this a group", "gcd of this", "factor this", or "crt result".`,
+      },
+    ]);
+    setChatInput("");
+  }
+
   useEffect(() => {
     function writeUrl() {
       window.history.replaceState(null, "", `#${encodeDiscreteState(getCurrentDiscreteState(graph, ids))}`);
@@ -296,6 +322,28 @@ export function DiscretePanel({ cellId = "discrete-1" }: { cellId?: string } = {
       ) : (
         <p style={{ color: "var(--danger)" }}>{crtResult.message}</p>
       )}
+
+      <form onSubmit={handleChatSubmit} style={{ margin: "0.5rem 0" }}>
+        <label title="A fixed set of command phrasings, not free-text chat -- the placeholder shows the shapes it understands.">
+          Commands:{" "}
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder='"is this a group", "gcd of this", "factor this"...'
+            style={{ font: "inherit", width: "32ch" }}
+          />
+        </label>{" "}
+        <button type="submit">Run</button>
+        {chatLog.length > 0 && (
+          <ul style={{ fontSize: "0.85rem", listStyle: "none", padding: 0, margin: "0.25rem 0" }}>
+            {chatLog.slice(-5).map((entry, i) => (
+              <li key={i} style={{ color: entry.ok ? "inherit" : "var(--danger)" }}>
+                <strong>{entry.input}</strong> — {entry.message}
+              </li>
+            ))}
+          </ul>
+        )}
+      </form>
     </div>
   );
 }
