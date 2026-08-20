@@ -40,10 +40,47 @@ export interface ComplexStateV3 {
   showPoles: boolean;
 }
 
-export type ComplexState = ComplexStateV3;
+/**
+ * One independent complex function (#336 item 7, unlimited functions):
+ * exactly the v3 flat state's own 10 persisted fields, plus color/
+ * visibility -- same convention as StatisticsRowState/RegressionRowState.
+ * Unlike RegressionPanel/OdeSystemPanel, there's no shared canvas to
+ * overlay N functions on here: domain coloring is a per-pixel raster of
+ * ONE function, so every function gets its own complete pair of canvases
+ * (z-plane + w-plane) rather than a shared viewport overlay -- see
+ * cellIdsComplex's own doc comment and ComplexPanel.tsx's `ComplexFunction`
+ * sub-component.
+ */
+export interface ComplexRowState {
+  exprText: string;
+  probeRe: string;
+  probeIm: string;
+  showRootsOfUnity: boolean;
+  rootsN: string;
+  showConformalGrid: boolean;
+  conformalGridType: ConformalGridType;
+  conformalGridSpacing: string;
+  showZeros: boolean;
+  showPoles: boolean;
+  color: number;
+  visible: boolean;
+}
 
-export const DEFAULT_COMPLEX_STATE: ComplexState = {
-  v: 3,
+/**
+ * v4: unlimited independent functions, each fully self-contained (#336
+ * item 7) -- no container-level fields beyond the ordered row list itself
+ * (tracked at the cell-graph level via cellIdsComplex's own `list`, not
+ * part of this serialized shape, same convention as
+ * StatisticsStateV2/RegressionStateV2).
+ */
+export interface ComplexStateV4 {
+  v: 4;
+  rows: ComplexRowState[];
+}
+
+export type ComplexState = ComplexStateV4;
+
+const DEFAULT_ROW: ComplexRowState = {
   exprText: "z^2 + 1",
   probeRe: "1",
   probeIm: "1",
@@ -54,19 +91,29 @@ export const DEFAULT_COMPLEX_STATE: ComplexState = {
   conformalGridSpacing: "0.5",
   showZeros: false,
   showPoles: false,
+  // Matches ComplexGraph3DPanel's own default accent -- these are sibling
+  // "complex function" panels.
+  color: 0x9333ea,
+  visible: true,
+};
+
+export const DEFAULT_COMPLEX_STATE: ComplexState = {
+  v: 4,
+  rows: [DEFAULT_ROW],
 };
 
 export function encodeComplexState(state: ComplexState): string {
   return encodeStateFragment(state);
 }
 
-/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades a v1/v2 payload up to v3 with the newer fields defaulted off. */
+/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades a v1/v2/v3 payload up to v4 with the newer fields defaulted off. */
 export function decodeComplexState(fragment: string): ComplexState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
-    if (isComplexStateV3(parsed)) return parsed;
-    if (isComplexStateV2(parsed)) return upgradeComplexV2ToV3(parsed);
-    if (isComplexStateV1(parsed)) return upgradeComplexV2ToV3(upgradeComplexV1ToV2(parsed));
+    if (isComplexStateV4(parsed)) return parsed;
+    if (isComplexStateV3(parsed)) return upgradeComplexV3ToV4(parsed);
+    if (isComplexStateV2(parsed)) return upgradeComplexV3ToV4(upgradeComplexV2ToV3(parsed));
+    if (isComplexStateV1(parsed)) return upgradeComplexV3ToV4(upgradeComplexV2ToV3(upgradeComplexV1ToV2(parsed)));
     return null;
   } catch {
     return null;
@@ -78,9 +125,9 @@ export function upgradeComplexV1ToV2(v1: ComplexStateV1): ComplexStateV2 {
   return {
     ...v1,
     v: 2,
-    showConformalGrid: DEFAULT_COMPLEX_STATE.showConformalGrid,
-    conformalGridType: DEFAULT_COMPLEX_STATE.conformalGridType,
-    conformalGridSpacing: DEFAULT_COMPLEX_STATE.conformalGridSpacing,
+    showConformalGrid: DEFAULT_ROW.showConformalGrid,
+    conformalGridType: DEFAULT_ROW.conformalGridType,
+    conformalGridSpacing: DEFAULT_ROW.conformalGridSpacing,
   };
 }
 
@@ -89,8 +136,31 @@ export function upgradeComplexV2ToV3(v2: ComplexStateV2): ComplexStateV3 {
   return {
     ...v2,
     v: 3,
-    showZeros: DEFAULT_COMPLEX_STATE.showZeros,
-    showPoles: DEFAULT_COMPLEX_STATE.showPoles,
+    showZeros: DEFAULT_ROW.showZeros,
+    showPoles: DEFAULT_ROW.showPoles,
+  };
+}
+
+/** Exported for notebook-state.ts's own "complex" block upgrade -- notebook blocks nest this panel's state type directly rather than re-declaring its version history, so they need the same v3->v4 migration this file's own decodeComplexState applies (same pattern as statistics-state.ts's exported `upgradeStatisticsV1ToV2`). */
+export function upgradeComplexV3ToV4(v3: ComplexStateV3): ComplexStateV4 {
+  return {
+    v: 4,
+    rows: [
+      {
+        exprText: v3.exprText,
+        probeRe: v3.probeRe,
+        probeIm: v3.probeIm,
+        showRootsOfUnity: v3.showRootsOfUnity,
+        rootsN: v3.rootsN,
+        showConformalGrid: v3.showConformalGrid,
+        conformalGridType: v3.conformalGridType,
+        conformalGridSpacing: v3.conformalGridSpacing,
+        showZeros: v3.showZeros,
+        showPoles: v3.showPoles,
+        color: DEFAULT_ROW.color,
+        visible: true,
+      },
+    ],
   };
 }
 
@@ -123,5 +193,22 @@ export function isComplexStateV3(value: unknown): value is ComplexStateV3 {
   const v = value as Record<string, unknown>;
   if (v.v !== 3 || !hasV2Fields(v)) return false;
   return typeof v.showZeros === "boolean" && typeof v.showPoles === "boolean";
+}
+
+function hasV3Fields(v: Record<string, unknown>): boolean {
+  if (!hasV2Fields(v)) return false;
+  return typeof v.showZeros === "boolean" && typeof v.showPoles === "boolean";
+}
+
+export function isComplexStateV4(value: unknown): value is ComplexStateV4 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.v !== 4 || !Array.isArray(v.rows)) return false;
+  return v.rows.every((r) => {
+    if (typeof r !== "object" || r === null) return false;
+    const row = r as Record<string, unknown>;
+    if (typeof row.color !== "number" || typeof row.visible !== "boolean") return false;
+    return hasV3Fields(row);
+  });
 }
 

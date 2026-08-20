@@ -512,6 +512,21 @@ export function cellIdsGraphTheory(cellId: string) {
 
 export type CellIdsGraphTheory = ReturnType<typeof cellIdsGraphTheory>;
 
+/**
+ * Unlimited independent functions (#336 item 7): domain coloring is a
+ * per-pixel raster of ONE function -- you cannot overlay two different
+ * domain colorings on one canvas, unlike the "unlimited overlaid rows on a
+ * shared plot" panels (RegressionPanel/OdeSystemPanel). So the solution
+ * mirrors StatisticsPanel's own unlimited-datasets port instead: `list` is
+ * the ONLY container-level field (called with the panel's own container
+ * id, the ordered list of function ids every function lives under) --
+ * every other field below, including `param` (a function field, skipped
+ * by multi-panel-rows.ts's own `removeRow` per its doc comment) and the
+ * viewport/liveViewport pair, is per-function (called with a function id):
+ * each function gets its own expression, probe point, roots-of-unity/
+ * conformal-grid/zeros/poles overlay state, pan/zoom viewport, color, and
+ * visibility.
+ */
 export function cellIdsComplex(cellId: string) {
   return {
     exprText: `complexExprText:${cellId}`,
@@ -543,6 +558,12 @@ export function cellIdsComplex(cellId: string) {
     // panning/zooming moves them on screen without recomputing their values.
     viewport: `complexViewport:${cellId}`,
     liveViewport: `complexLiveViewport:${cellId}`,
+    // Unlimited independent functions (#336 item 7): color/visible are
+    // per-function; list is container-level (see this function's own doc
+    // comment).
+    color: `complexColor:${cellId}`,
+    visible: `complexVisible:${cellId}`,
+    list: `complexList:${cellId}`,
   };
 }
 

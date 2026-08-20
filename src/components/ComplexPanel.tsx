@@ -4,10 +4,12 @@ import { addLocalSave } from "../lib/local-saves.ts";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsComplex, type CellIdsComplex } from "../lib/cell-ids.ts";
+import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";
 import {
   DEFAULT_COMPLEX_STATE,
   decodeComplexState,
   encodeComplexState,
+  type ComplexRowState,
   type ComplexState,
   type ConformalGridType,
 } from "../lib/complex-state.ts";
@@ -46,32 +48,193 @@ const ZOOM_COMMIT_DEBOUNCE_MS = 150;
 // regardless of viewport.
 const LIVE_PREVIEW_DOWNSCALE = 4;
 
-export function seedComplexState(graph: CellGraph, ids: CellIdsComplex, state: ComplexState): void {
-  graph.set(ids.exprText, state.exprText);
-  graph.set(ids.probeRe, state.probeRe);
-  graph.set(ids.probeIm, state.probeIm);
-  graph.set(ids.showRootsOfUnity, state.showRootsOfUnity);
-  graph.set(ids.rootsN, state.rootsN);
-  graph.set(ids.showConformalGrid, state.showConformalGrid);
-  graph.set(ids.conformalGridType, state.conformalGridType);
-  graph.set(ids.conformalGridSpacing, state.conformalGridSpacing);
-  graph.set(ids.showZeros, state.showZeros);
-  graph.set(ids.showPoles, state.showPoles);
+/**
+ * Seeds one function's own cells (#336 item 7, unlimited independent
+ * functions): its own expression, probe point, roots-of-unity/conformal-
+ * grid/zeros/poles overlay state, color and visibility, plus its own
+ * derived result cells and its own pan/zoom viewport pair (deliberately
+ * NOT part of the persisted ComplexState/URL-hash schema -- see
+ * cellIdsComplex's own doc comment -- but still seeded here to sane
+ * defaults, same convention `useComplexGraph` used before this port).
+ * Mirrors StatisticsPanel/RegressionPanel's own `seedStatisticsRow`/
+ * `seedRegressionDataset`.
+ */
+export function seedComplexRow(graph: CellGraph, rowId: string, row: ComplexRowState): void {
+  const ids = cellIdsComplex(rowId);
+  graph.set(ids.exprText, row.exprText);
+  graph.set(ids.probeRe, row.probeRe);
+  graph.set(ids.probeIm, row.probeIm);
+  graph.set(ids.showRootsOfUnity, row.showRootsOfUnity);
+  graph.set(ids.rootsN, row.rootsN);
+  graph.set(ids.showConformalGrid, row.showConformalGrid);
+  graph.set(ids.conformalGridType, row.conformalGridType);
+  graph.set(ids.conformalGridSpacing, row.conformalGridSpacing);
+  graph.set(ids.showZeros, row.showZeros);
+  graph.set(ids.showPoles, row.showPoles);
+  graph.set(ids.color, row.color);
+  graph.set(ids.visible, row.visible);
+
+  // Pan/zoom viewport -- not part of the persisted state schema (see
+  // cell-ids.ts's own note on why zerosResult/polesResult/rootsResult
+  // deliberately don't depend on it).
+  graph.set(ids.viewport, VIEWPORT, { auxiliary: true });
+  graph.set<Viewport | null>(ids.liveViewport, null, { auxiliary: true });
+
+  graph.define(ids.parseResult, (): Result<Expr> => {
+    try {
+      return { ok: true, value: Symbolic.parse(graph.get<string>(ids.exprText)) };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  // Free-variable sliders (e.g. `f(z) = z^2 + c`) -- reuses the same
+  // collectFreeVars/defaultSliderRange machinery as GraphCanvas/
+  // ExpressionRow, just keyed off "z" instead of the real-axis variable.
+  // `params` is auxiliary (not schema/gallery state): it depends on
+  // per-name slider cells seeded lazily by an effect in the component
+  // below, mirroring GraphCanvas's `ids.params`.
+  graph.define(
+    ids.freeVars,
+    (): string[] => {
+      const parsed = graph.get<Result<Expr>>(ids.parseResult);
+      if (!parsed.ok) return [];
+      return collectFreeVars(parsed.value, "z");
+    },
+    { auxiliary: true },
+  );
+
+  graph.define(
+    ids.params,
+    (): Record<string, number> => {
+      const names = graph.get<string[]>(ids.freeVars);
+      const params: Record<string, number> = {};
+      for (const name of names) params[name] = graph.get<number>(ids.param(name));
+      return params;
+    },
+    { auxiliary: true },
+  );
+
+  graph.define(ids.probeResult, (): Result<ProbeReading> => {
+    try {
+      const parsed = graph.get<Result<Expr>>(ids.parseResult);
+      if (!parsed.ok) throw new Error(parsed.message);
+      const re = Number(graph.get<string>(ids.probeRe));
+      const im = Number(graph.get<string>(ids.probeIm));
+      if (Number.isNaN(re) || Number.isNaN(im)) throw new Error("Probe re/im must both be numbers.");
+      const env = complexParamEnv(graph.get<Record<string, number>>(ids.params), new ComplexNumber(re, im));
+      const w = evaluateComplex(parsed.value, env);
+      return { ok: true, value: { re: w.value, im: w.iValue, magnitude: w.magnitude(), angle: w.angle() } };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  graph.define(ids.rootsResult, (): Result<ComplexNumber[]> => {
+    try {
+      const n = Number(graph.get<string>(ids.rootsN));
+      return { ok: true, value: nthRootsOfUnity(n) };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  graph.define(ids.conformalGridResult, (): Result<ConformalGridReading> => {
+    try {
+      const parsed = graph.get<Result<Expr>>(ids.parseResult);
+      if (!parsed.ok) throw new Error(parsed.message);
+      const expr = parsed.value;
+      const spacing = Number(graph.get<string>(ids.conformalGridSpacing));
+      if (Number.isNaN(spacing) || spacing <= 0) throw new Error("Grid spacing must be a positive number.");
+      const gridType = graph.get<ConformalGridType>(ids.conformalGridType);
+      // Reads the COMMITTED viewport (ids.viewport), not a live
+      // mid-gesture override -- regenerating the grid + re-mapping it
+      // through f only happens once per gesture, on release, same
+      // FourierPanel (#188) convention.
+      const vp = graph.get<Viewport>(ids.viewport);
+      const maxRadius = Math.max(Math.abs(vp.xMin), Math.abs(vp.xMax), Math.abs(vp.yMin), Math.abs(vp.yMax));
+      const zGrid = gridType === "polar" ? polarGridLines(maxRadius, spacing, 12) : rectangularGridLines(vp, spacing);
+      const zLines = zGrid.map((line) => line.map((z) => ({ x: z.value, y: z.iValue })));
+      const params = graph.get<Record<string, number>>(ids.params);
+      const wLines = mapGridLines(zGrid, (z) => evaluateComplex(expr, complexParamEnv(params, z)));
+      const wViewport = autoFitViewport(wLines, vp);
+      return { ok: true, value: { zLines, wLines, wViewport } };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  graph.define(ids.zerosResult, (): Result<ComplexNumber[]> => {
+    try {
+      const parsed = graph.get<Result<Expr>>(ids.parseResult);
+      if (!parsed.ok) throw new Error(parsed.message);
+      const expr = parsed.value;
+      const derivative = Symbolic.differentiate(expr, "z");
+      const params = graph.get<Record<string, number>>(ids.params);
+      const g = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
+      const gPrime = (z: ComplexNumber) => evaluateComplex(derivative, complexParamEnv(params, z));
+      return { ok: true, value: findComplexZeros(g, gPrime, ROOT_SEARCH_DOMAIN) };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  graph.define(ids.polesResult, (): Result<ComplexNumber[]> => {
+    try {
+      const parsed = graph.get<Result<Expr>>(ids.parseResult);
+      if (!parsed.ok) throw new Error(parsed.message);
+      const expr = parsed.value;
+      const derivative = Symbolic.differentiate(expr, "z");
+      const params = graph.get<Record<string, number>>(ids.params);
+      const f = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
+      const fPrime = (z: ComplexNumber) => evaluateComplex(derivative, complexParamEnv(params, z));
+      return { ok: true, value: findComplexPoles(f, fPrime, ROOT_SEARCH_DOMAIN) };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  });
 }
 
-export function getCurrentComplexState(graph: CellGraph, ids: CellIdsComplex): ComplexState {
+function seedComplexRowDefault(graph: CellGraph, rowId: string, index: number): void {
+  seedComplexRow(graph, rowId, { ...(DEFAULT_COMPLEX_STATE.rows[0] as ComplexRowState), color: paletteColor(index) });
+}
+
+/**
+ * Full re-seed of the container: clears any existing functions (deleting
+ * their cells) and seeds fresh ones from `state.rows` -- same "delete then
+ * replay" shape StatisticsPanel's own `seedStatisticsState` uses, needed
+ * because a notebook block's seeding effect runs AFTER `useComplexGraph`
+ * has already constructed one default function.
+ */
+export function seedComplexState(graph: CellGraph, containerIds: CellIdsComplex, state: ComplexState): void {
+  const existing = graph.has(containerIds.list) ? graph.get<string[]>(containerIds.list) : [];
+  for (const rowId of existing) removeRow(graph, containerIds.list, rowId, cellIdsComplex(rowId));
+  const rowIds = state.rows.map(() => crypto.randomUUID());
+  graph.set(containerIds.list, rowIds, { auxiliary: true });
+  rowIds.forEach((id, i) => seedComplexRow(graph, id, state.rows[i] as ComplexRowState));
+}
+
+/** Builds the full serializable state of a complex panel -- shared by the URL-sync effect and the save-to-gallery handler. */
+export function getCurrentComplexState(graph: CellGraph, containerIds: CellIdsComplex): ComplexState {
   return {
-    v: 3,
-    exprText: graph.get<string>(ids.exprText),
-    probeRe: graph.get<string>(ids.probeRe),
-    probeIm: graph.get<string>(ids.probeIm),
-    showRootsOfUnity: graph.get<boolean>(ids.showRootsOfUnity),
-    rootsN: graph.get<string>(ids.rootsN),
-    showConformalGrid: graph.get<boolean>(ids.showConformalGrid),
-    conformalGridType: graph.get<ConformalGridType>(ids.conformalGridType),
-    conformalGridSpacing: graph.get<string>(ids.conformalGridSpacing),
-    showZeros: graph.get<boolean>(ids.showZeros),
-    showPoles: graph.get<boolean>(ids.showPoles),
+    v: 4,
+    rows: graph.get<string[]>(containerIds.list).map((rowId) => {
+      const ids = cellIdsComplex(rowId);
+      return {
+        exprText: graph.get<string>(ids.exprText),
+        probeRe: graph.get<string>(ids.probeRe),
+        probeIm: graph.get<string>(ids.probeIm),
+        showRootsOfUnity: graph.get<boolean>(ids.showRootsOfUnity),
+        rootsN: graph.get<string>(ids.rootsN),
+        showConformalGrid: graph.get<boolean>(ids.showConformalGrid),
+        conformalGridType: graph.get<ConformalGridType>(ids.conformalGridType),
+        conformalGridSpacing: graph.get<string>(ids.conformalGridSpacing),
+        showZeros: graph.get<boolean>(ids.showZeros),
+        showPoles: graph.get<boolean>(ids.showPoles),
+        color: graph.get<number>(ids.color),
+        visible: graph.get<boolean>(ids.visible),
+      };
+    }),
   };
 }
 
@@ -98,7 +261,8 @@ interface ConformalGridReading {
 }
 
 /**
- * Sets up the complex-plane panel's reactive cells -- a function-of-z
+ * Sets up the complex-plane panel's reactive cells -- an ordered list of
+ * fully independent function rows (#336 item 7), each with a function-of-z
  * domain plus a probe point and a roots-of-unity demo, none of which fit
  * `cellIds`/GraphCanvas's real-axis-only expression shape (see
  * complex-eval.ts's doc comment for why `Symbolic`'s own evaluators can't
@@ -112,128 +276,12 @@ function useComplexGraph(cellId: string, externalGraph?: CellGraph): CellGraph {
   const ref = useRef<CellGraph | null>(null);
   if (!ref.current) {
     const graph = externalGraph ?? new CellGraph();
-    const ids = cellIdsComplex(cellId);
-    if (!graph.has(ids.exprText)) {
+    const containerIds = cellIdsComplex(cellId);
+    if (!graph.has(containerIds.list)) {
+      graph.set(containerIds.list, [] as string[], { auxiliary: true });
       const decoded = !externalGraph && typeof window !== "undefined" ? decodeComplexState(window.location.hash.slice(1)) : null;
-      seedComplexState(graph, ids, decoded ?? DEFAULT_COMPLEX_STATE);
-      graph.set(ids.viewport, VIEWPORT, { auxiliary: true });
-      graph.set<Viewport | null>(ids.liveViewport, null, { auxiliary: true });
-
-      graph.define(ids.parseResult, (): Result<Expr> => {
-        try {
-          return { ok: true, value: Symbolic.parse(graph.get<string>(ids.exprText)) };
-        } catch (e) {
-          return { ok: false, message: e instanceof Error ? e.message : String(e) };
-        }
-      });
-
-      // Free-variable sliders (e.g. `f(z) = z^2 + c`) -- reuses the same
-      // collectFreeVars/defaultSliderRange machinery as GraphCanvas/
-      // ExpressionRow, just keyed off "z" instead of the real-axis variable.
-      // `params` is auxiliary (not schema/gallery state): it depends on
-      // per-name slider cells seeded lazily by an effect in the component
-      // below, mirroring GraphCanvas's `ids.params`.
-      graph.define(
-        ids.freeVars,
-        (): string[] => {
-          const parsed = graph.get<Result<Expr>>(ids.parseResult);
-          if (!parsed.ok) return [];
-          return collectFreeVars(parsed.value, "z");
-        },
-        { auxiliary: true },
-      );
-
-      graph.define(
-        ids.params,
-        (): Record<string, number> => {
-          const names = graph.get<string[]>(ids.freeVars);
-          const params: Record<string, number> = {};
-          for (const name of names) params[name] = graph.get<number>(ids.param(name));
-          return params;
-        },
-        { auxiliary: true },
-      );
-
-      graph.define(ids.probeResult, (): Result<ProbeReading> => {
-        try {
-          const parsed = graph.get<Result<Expr>>(ids.parseResult);
-          if (!parsed.ok) throw new Error(parsed.message);
-          const re = Number(graph.get<string>(ids.probeRe));
-          const im = Number(graph.get<string>(ids.probeIm));
-          if (Number.isNaN(re) || Number.isNaN(im)) throw new Error("Probe re/im must both be numbers.");
-          const env = complexParamEnv(graph.get<Record<string, number>>(ids.params), new ComplexNumber(re, im));
-          const w = evaluateComplex(parsed.value, env);
-          return { ok: true, value: { re: w.value, im: w.iValue, magnitude: w.magnitude(), angle: w.angle() } };
-        } catch (e) {
-          return { ok: false, message: e instanceof Error ? e.message : String(e) };
-        }
-      });
-
-      graph.define(ids.rootsResult, (): Result<ComplexNumber[]> => {
-        try {
-          const n = Number(graph.get<string>(ids.rootsN));
-          return { ok: true, value: nthRootsOfUnity(n) };
-        } catch (e) {
-          return { ok: false, message: e instanceof Error ? e.message : String(e) };
-        }
-      });
-
-      graph.define(ids.conformalGridResult, (): Result<ConformalGridReading> => {
-        try {
-          const parsed = graph.get<Result<Expr>>(ids.parseResult);
-          if (!parsed.ok) throw new Error(parsed.message);
-          const expr = parsed.value;
-          const spacing = Number(graph.get<string>(ids.conformalGridSpacing));
-          if (Number.isNaN(spacing) || spacing <= 0) throw new Error("Grid spacing must be a positive number.");
-          const gridType = graph.get<ConformalGridType>(ids.conformalGridType);
-          // Reads the COMMITTED viewport (ids.viewport), not a live
-          // mid-gesture override -- regenerating the grid + re-mapping it
-          // through f only happens once per gesture, on release, same
-          // FourierPanel (#188) convention.
-          const vp = graph.get<Viewport>(ids.viewport);
-          const maxRadius = Math.max(Math.abs(vp.xMin), Math.abs(vp.xMax), Math.abs(vp.yMin), Math.abs(vp.yMax));
-          const zGrid = gridType === "polar" ? polarGridLines(maxRadius, spacing, 12) : rectangularGridLines(vp, spacing);
-          const zLines = zGrid.map((line) => line.map((z) => ({ x: z.value, y: z.iValue })));
-          const params = graph.get<Record<string, number>>(ids.params);
-          const wLines = mapGridLines(zGrid, (z) => evaluateComplex(expr, complexParamEnv(params, z)));
-          const wViewport = autoFitViewport(wLines, vp);
-          return { ok: true, value: { zLines, wLines, wViewport } };
-        } catch (e) {
-          return { ok: false, message: e instanceof Error ? e.message : String(e) };
-        }
-      });
-
-      graph.define(ids.zerosResult, (): Result<ComplexNumber[]> => {
-        try {
-          const parsed = graph.get<Result<Expr>>(ids.parseResult);
-          if (!parsed.ok) throw new Error(parsed.message);
-          const expr = parsed.value;
-          const derivative = Symbolic.differentiate(expr, "z");
-          const params = graph.get<Record<string, number>>(ids.params);
-          const g = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
-          const gPrime = (z: ComplexNumber) => evaluateComplex(derivative, complexParamEnv(params, z));
-          return { ok: true, value: findComplexZeros(g, gPrime, ROOT_SEARCH_DOMAIN) };
-        } catch (e) {
-          return { ok: false, message: e instanceof Error ? e.message : String(e) };
-        }
-      });
-
-      graph.define(ids.polesResult, (): Result<ComplexNumber[]> => {
-        try {
-          const parsed = graph.get<Result<Expr>>(ids.parseResult);
-          if (!parsed.ok) throw new Error(parsed.message);
-          const expr = parsed.value;
-          const derivative = Symbolic.differentiate(expr, "z");
-          const params = graph.get<Record<string, number>>(ids.params);
-          const f = (z: ComplexNumber) => evaluateComplex(expr, complexParamEnv(params, z));
-          const fPrime = (z: ComplexNumber) => evaluateComplex(derivative, complexParamEnv(params, z));
-          return { ok: true, value: findComplexPoles(f, fPrime, ROOT_SEARCH_DOMAIN) };
-        } catch (e) {
-          return { ok: false, message: e instanceof Error ? e.message : String(e) };
-        }
-      });
+      seedComplexState(graph, containerIds, decoded ?? DEFAULT_COMPLEX_STATE);
     }
-
     ref.current = graph;
   }
   return ref.current;
@@ -248,20 +296,13 @@ export interface ComplexPanelProps {
 }
 
 /**
- * v1 of the complex-plane panel (part of #20): domain coloring of f(z) as a
- * per-pixel raster, a probe-point evaluator, and an n-th-roots-of-unity
- * overlay demo. Conformal grid mapping (image of a rectangular/polar grid
- * under f) shipped as a follow-up, still part of #20. General zero/pole
- * finding for an arbitrary f(z) and MathLive keyboard entry remain deferred.
- */
-/**
- * Pure re-render of the z-plane canvas (domain coloring + roots-of-unity/
- * zeros/poles overlays + conformal-grid lines), extracted from the draw
- * effect below so `PngExportButton`'s `renderAtScale` (issue #278) can
- * call it against a fresh offscreen canvas at any size. Deliberately
- * always renders at full resolution -- the on-screen effect's live-preview
- * downscale-then-stretch path (`liveViewport` mid-gesture) is a
- * performance optimization for interactive panning, not something an
+ * Pure re-render of one function's own z-plane canvas (domain coloring +
+ * roots-of-unity/zeros/poles overlays + conformal-grid lines), extracted
+ * from the draw effect below so `PngExportButton`'s `renderAtScale` (issue
+ * #278) can call it against a fresh offscreen canvas at any size.
+ * Deliberately always renders at full resolution -- the on-screen effect's
+ * live-preview downscale-then-stretch path (`liveViewport` mid-gesture) is
+ * a performance optimization for interactive panning, not something an
  * export should reproduce.
  */
 export function drawComplexZPlane(
@@ -304,9 +345,13 @@ export function drawComplexZPlane(
 }
 
 /**
- * Pure re-render of the w-plane conformal-grid canvas, extracted from the
- * draw effect below so `PngExportButton`'s `renderAtScale` (issue #278)
- * can call it against a fresh offscreen canvas at any size.
+ * Pure re-render of one function's own w-plane conformal-grid canvas,
+ * extracted from the draw effect below so `PngExportButton`'s
+ * `renderAtScale` (issue #278) can call it against a fresh offscreen
+ * canvas at any size. `color` (#336 item 7, unlimited functions) tints the
+ * mapped grid lines -- replaces the old hardcoded "#2563eb" so each
+ * function's own w-plane reads distinctly when several functions are open
+ * side by side.
  */
 export function drawComplexWPlane(
   ctx: CanvasRenderingContext2D,
@@ -314,18 +359,30 @@ export function drawComplexWPlane(
   height: number,
   showConformalGrid: boolean,
   conformalGridResult: Result<ConformalGridReading>,
+  color = 0x2563eb,
 ): void {
   ctx.clearRect(0, 0, width, height);
   if (!showConformalGrid || !conformalGridResult.ok) return;
   const { wLines, wViewport } = conformalGridResult.value;
+  const hexColor = `#${color.toString(16).padStart(6, "0")}`;
   drawAxes(ctx, wViewport, width, height);
-  for (const line of wLines) drawPolyline(ctx, line, wViewport, width, height, "#2563eb");
+  for (const line of wLines) drawPolyline(ctx, line, wViewport, width, height, hexColor);
 }
 
-export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncUrl = true }: ComplexPanelProps = {}) {
-  const graph = useComplexGraph(cellId, externalGraph);
-  useCellGraphTools(`graphing_complex_${cellId}`, graph);
-  const ids = cellIdsComplex(cellId);
+/**
+ * One function's ENTIRE own UI (#336 item 7, unlimited independent
+ * functions): checkbox+color swatch+remove-button header, the expression
+ * input, free-variable sliders, roots-of-unity/conformal-grid/zeros/poles
+ * overlay controls, probe-point section, pan/zoom gesture handlers, and
+ * its own pair of canvases (z-plane domain coloring + w-plane conformal
+ * grid) -- every one of today's sections scoped to `cellIdsComplex(rowId)`
+ * instead of the panel's own single `cellId`. There's no shared canvas to
+ * overlay functions on (domain coloring is a per-pixel raster of ONE
+ * function) -- each function draws its own canvases independently, gated
+ * entirely by its own `visible`.
+ */
+function ComplexFunction({ graph, rowId, onRemove }: { graph: CellGraph; rowId: string; onRemove?: () => void }) {
+  const ids = cellIdsComplex(rowId);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -350,10 +407,14 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
   const committedViewport = useCell<Viewport>(graph, ids.viewport);
   const liveViewport = useCell<Viewport | null>(graph, ids.liveViewport);
   const viewport = liveViewport ?? committedViewport;
+  const color = useCell<number>(graph, ids.color);
+  const visible = useCell<boolean>(graph, ids.visible);
 
   // Pan/pinch gesture state (issue #53, z-plane only), mirroring
   // FourierPanel (#188). No draggable handle on this canvas, so every
-  // pointerdown is a pinch (2+ pointers) or a pan.
+  // pointerdown is a pinch (2+ pointers) or a pan. Own ref per function
+  // instance (#336 item 7) so concurrent gestures on different functions'
+  // canvases never interfere.
   const gestureRef = useRef<
     | { kind: "pan"; anchorX: number; anchorY: number; spanX: number; spanY: number }
     | { kind: "pinch"; anchorX: number; anchorY: number; spanX: number; spanY: number; startDistancePx: number }
@@ -375,23 +436,11 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, freeVars]);
 
-  const [saveStatus, setSaveStatus] = useState<string | null>(null);
   // Shared global preference (angle-unit.ts) -- also affects Geometry
   // panel's measured-angle labels/rotate input; a change made there is
   // reflected here next render via the subscription, and vice versa.
   const [angleUnit, setAngleUnitState] = useState<AngleUnit>(getAngleUnit());
   useEffect(() => subscribeToAngleUnit(setAngleUnitState), []);
-
-  async function handleSave() {
-    const title = window.prompt("Title for this saved complex-plane setup:", "Untitled");
-    if (title === null) return;
-        try {
-      addLocalSave({ title, kind: "complex", state: getCurrentComplexState(graph, ids) });
-      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
-    } catch (e) {
-      setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
 
   const [exprInput, setExprInput] = useState(exprText);
   const [useMathKeyboard, setUseMathKeyboard] = useState(false);
@@ -408,10 +457,10 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     graph.set(ids.exprText, resolveNaturalLanguageQuery(value, "z") ?? value);
   }
 
-  // ComplexPanel's own parseResult (line ~107) parses via plain
-  // `Symbolic.parse` with no `preprocessImplicitMultiplication` wrapper --
-  // unlike ExpressionRow's toLatexOrEmpty -- so this mirrors that exactly to
-  // keep the LaTeX preview consistent with what f(z) actually evaluates.
+  // ComplexFunction's own parseResult parses via plain `Symbolic.parse`
+  // with no `preprocessImplicitMultiplication` wrapper -- unlike
+  // ExpressionRow's toLatexOrEmpty -- so this mirrors that exactly to keep
+  // the LaTeX preview consistent with what f(z) actually evaluates.
   function toLatexOrEmpty(source: string): string {
     try {
       return Symbolic.toLatex(Symbolic.parse(source));
@@ -434,35 +483,6 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
       // Leave exprInput/the graph's expression at its last good value.
     }
   }
-
-  // subscribeMany (not subscribeAll, issue #235) -- getCurrentComplexState
-  // only reads the fixed cell list below, never ids.viewport/liveViewport
-  // or the per-free-variable slider cells, so a subscribeAll here used to
-  // re-run writeUrl on every mid-gesture pan/zoom tick (ids.liveViewport)
-  // and every slider drag frame, none of which the URL actually encodes.
-  useEffect(() => {
-    if (!syncUrl) return;
-    function writeUrl() {
-      window.history.replaceState(null, "", `#${encodeComplexState(getCurrentComplexState(graph, ids))}`);
-    }
-    writeUrl();
-    return graph.subscribeMany(
-      [
-        ids.exprText,
-        ids.probeRe,
-        ids.probeIm,
-        ids.showRootsOfUnity,
-        ids.rootsN,
-        ids.showConformalGrid,
-        ids.conformalGridType,
-        ids.conformalGridSpacing,
-        ids.showZeros,
-        ids.showPoles,
-      ],
-      writeUrl,
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, syncUrl]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -519,8 +539,8 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
   useEffect(() => {
     const ctx = wCanvasRef.current?.getContext("2d");
     if (!ctx) return;
-    drawComplexWPlane(ctx, WIDTH, HEIGHT, showConformalGrid, conformalGridResult);
-  }, [showConformalGrid, conformalGridResult]);
+    drawComplexWPlane(ctx, WIDTH, HEIGHT, showConformalGrid, conformalGridResult, color);
+  }, [showConformalGrid, conformalGridResult, color]);
 
   useEffect(() => {
     return () => {
@@ -633,8 +653,34 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
     graph.set(ids.viewport, VIEWPORT);
   }
 
+  const header = (
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+      <input type="checkbox" checked={visible} onChange={(e) => graph.set(ids.visible, e.target.checked)} title="Show/hide this function" />
+      <input
+        type="color"
+        value={`#${color.toString(16).padStart(6, "0")}`}
+        onChange={(e) => graph.set(ids.color, Number.parseInt(e.target.value.slice(1), 16))}
+      />
+      {onRemove && (
+        <button type="button" onClick={onRemove} title="Remove this function">
+          ✕
+        </button>
+      )}
+    </div>
+  );
+
+  if (!visible) {
+    return (
+      <div style={{ margin: "0.35rem 0", padding: "0.35rem", border: "1px solid var(--border)" }}>
+        {header}
+        <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>Hidden</span>
+      </div>
+    );
+  }
+
   return (
-    <div>
+    <div style={{ margin: "0.35rem 0", padding: "0.35rem", border: "1px solid var(--border)" }}>
+      {header}
       <h2>Domain coloring of f(z)</h2>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
         Hue = arg(f(z)), lightness = log-scaled |f(z)| (black at zeros, white at poles, mid-gray at |f(z)|=1).
@@ -762,7 +808,7 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
               <PngExportButton
                 getCanvas={() => wCanvasRef.current}
                 label="complex-plane-w"
-                renderAtScale={(ctx, width, height) => drawComplexWPlane(ctx, width, height, showConformalGrid, conformalGridResult)}
+                renderAtScale={(ctx, width, height) => drawComplexWPlane(ctx, width, height, showConformalGrid, conformalGridResult, color)}
                 baseWidth={WIDTH}
                 baseHeight={HEIGHT}
               />{" "}
@@ -770,7 +816,8 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
                 getSvg={() => {
                   if (!conformalGridResult.ok) return null;
                   const { wLines, wViewport } = conformalGridResult.value;
-                  return polylinesToSvgDocument(wLines, wViewport, WIDTH, HEIGHT, "#2563eb");
+                  const hexColor = `#${color.toString(16).padStart(6, "0")}`;
+                  return polylinesToSvgDocument(wLines, wViewport, WIDTH, HEIGHT, hexColor);
                 }}
                 label="complex-plane-w"
               />
@@ -834,7 +881,74 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
       ) : (
         <p style={{ color: "var(--danger)" }}>{probeResult.message}</p>
       )}
+    </div>
+  );
+}
 
+/**
+ * Domain coloring of f(z) as a per-pixel raster, a probe-point evaluator,
+ * n-th-roots-of-unity/conformal-grid/zeros/poles overlays, and pan/zoom
+ * gestures -- over unlimited independent functions (#336 item 7). Unlike
+ * RegressionPanel/OdeSystemPanel's own multi-row ports, there's no natural
+ * shared canvas to overlay functions on here: domain coloring is a
+ * per-pixel raster of ONE function, so each function is its own fully
+ * self-contained copy of the panel's entire state and UI (own expression,
+ * own probe/overlay state, own pan/zoom viewport, own two canvases) --
+ * see `ComplexFunction`. Nothing meaningful stays container-level except
+ * the ordered row-id list itself.
+ */
+export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncUrl = true }: ComplexPanelProps = {}) {
+  const graph = useComplexGraph(cellId, externalGraph);
+  useCellGraphTools(`graphing_complex_${cellId}`, graph);
+  const containerIds = cellIdsComplex(cellId);
+  const rowIds = useCell<string[]>(graph, containerIds.list);
+
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+
+  function addFunction() {
+    const { id, index } = appendRow(graph, containerIds.list);
+    seedComplexRowDefault(graph, id, index);
+  }
+
+  function removeFunction(rowId: string) {
+    removeRow(graph, containerIds.list, rowId, cellIdsComplex(rowId));
+  }
+
+  async function handleSave() {
+    const title = window.prompt("Title for this saved complex-plane setup:", "Untitled");
+    if (title === null) return;
+    try {
+      addLocalSave({ title, kind: "complex", state: getCurrentComplexState(graph, containerIds) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
+    } catch (e) {
+      setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // subscribeAll is fine here (unlike the old single-function version's
+  // subscribeMany, issue #235) since getCurrentComplexState now only reads
+  // containerIds.list plus each row's fixed cell list -- never
+  // viewport/liveViewport or per-free-variable slider cells -- so a write
+  // to any of those never triggers this effect regardless of subscription
+  // shape. Mirrors StatisticsPanel's own container-level sync effect.
+  useEffect(() => {
+    if (!syncUrl) return;
+    function writeUrl() {
+      window.history.replaceState(null, "", `#${encodeComplexState(getCurrentComplexState(graph, containerIds))}`);
+    }
+    writeUrl();
+    return graph.subscribeAll(writeUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, syncUrl]);
+
+  return (
+    <div>
+      {rowIds.map((rowId) => (
+        <ComplexFunction key={rowId} graph={graph} rowId={rowId} onRemove={rowIds.length > 1 ? () => removeFunction(rowId) : undefined} />
+      ))}
+      <button type="button" onClick={addFunction} style={{ margin: "0.35rem 0" }}>
+        + Add function
+      </button>
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>

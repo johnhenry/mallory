@@ -275,7 +275,7 @@ test("decodeNotebookState upgrades a legacy v1 (single-dataset) statistics block
   assert.equal(statisticsBlock.state.rows?.[0]?.visible, true);
 });
 
-test("decodeNotebookState upgrades a legacy v1 complex block's nested state to v3 on decode", () => {
+test("decodeNotebookState upgrades a legacy v1 complex block's nested state to v4 on decode", () => {
   const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
   const legacy = {
     v: 1,
@@ -285,14 +285,19 @@ test("decodeNotebookState upgrades a legacy v1 complex block's nested state to v
   };
   const decoded = decodeNotebookState(legacyFragment(legacy));
   assert.ok(decoded);
-  const complexBlock = decoded!.blocks[0] as { type: "complex"; state: { v: number; exprText: string; showZeros?: boolean; showPoles?: boolean } };
-  assert.equal(complexBlock.state.v, 3, "the nested ComplexState is upgraded to the version seedComplexState/NotebookComplexBlock now expect");
-  assert.equal(complexBlock.state.exprText, "z^2 + 1");
-  assert.equal(complexBlock.state.showZeros, false);
-  assert.equal(complexBlock.state.showPoles, false);
+  const complexBlock = decoded!.blocks[0] as {
+    type: "complex";
+    state: { v: number; rows?: Array<{ exprText: string; showZeros: boolean; showPoles: boolean; visible: boolean }> };
+  };
+  assert.equal(complexBlock.state.v, 4, "the nested ComplexState is upgraded to the version seedComplexState/NotebookComplexBlock now expect");
+  assert.equal(complexBlock.state.rows?.length, 1);
+  assert.equal(complexBlock.state.rows?.[0]?.exprText, "z^2 + 1");
+  assert.equal(complexBlock.state.rows?.[0]?.showZeros, false);
+  assert.equal(complexBlock.state.rows?.[0]?.showPoles, false);
+  assert.equal(complexBlock.state.rows?.[0]?.visible, true);
 });
 
-test("decodeNotebookState upgrades a legacy v2 complex block's nested state to v3 on decode", () => {
+test("decodeNotebookState upgrades a legacy v2 complex block's nested state to v4 on decode", () => {
   const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
   const legacy = {
     v: 1,
@@ -315,9 +320,47 @@ test("decodeNotebookState upgrades a legacy v2 complex block's nested state to v
   };
   const decoded = decodeNotebookState(legacyFragment(legacy));
   assert.ok(decoded);
-  const complexBlock = decoded!.blocks[0] as { type: "complex"; state: { v: number; conformalGridType: string } };
-  assert.equal(complexBlock.state.v, 3, "the nested ComplexState is upgraded to the version seedComplexState/NotebookComplexBlock now expect");
-  assert.equal(complexBlock.state.conformalGridType, "polar", "v2 fields are preserved through the upgrade");
+  const complexBlock = decoded!.blocks[0] as { type: "complex"; state: { v: number; rows?: Array<{ conformalGridType: string }> } };
+  assert.equal(complexBlock.state.v, 4, "the nested ComplexState is upgraded to the version seedComplexState/NotebookComplexBlock now expect");
+  assert.equal(complexBlock.state.rows?.length, 1);
+  assert.equal(complexBlock.state.rows?.[0]?.conformalGridType, "polar", "v2 fields are preserved through the upgrade");
+});
+
+test("decodeNotebookState upgrades a legacy v3 (single-function) complex block's nested state to v4 on decode (#336 item 7)", () => {
+  const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const legacy = {
+    v: 1,
+    blocks: [
+      {
+        type: "complex",
+        state: {
+          v: 3,
+          exprText: "z^3 - 1",
+          probeRe: "1",
+          probeIm: "1",
+          showRootsOfUnity: true,
+          rootsN: "5",
+          showConformalGrid: false,
+          conformalGridType: "rectangular",
+          conformalGridSpacing: "0.5",
+          showZeros: true,
+          showPoles: false,
+        },
+      },
+    ],
+  };
+  const decoded = decodeNotebookState(legacyFragment(legacy));
+  assert.ok(decoded);
+  const complexBlock = decoded!.blocks[0] as {
+    type: "complex";
+    state: { v: number; rows?: Array<{ exprText: string; showZeros: boolean; showPoles: boolean; visible: boolean }> };
+  };
+  assert.equal(complexBlock.state.v, 4, "the nested ComplexState is upgraded to the version seedComplexState/NotebookComplexBlock now expect");
+  assert.equal(complexBlock.state.rows?.length, 1);
+  assert.equal(complexBlock.state.rows?.[0]?.exprText, "z^3 - 1");
+  assert.equal(complexBlock.state.rows?.[0]?.showZeros, true);
+  assert.equal(complexBlock.state.rows?.[0]?.showPoles, false);
+  assert.equal(complexBlock.state.rows?.[0]?.visible, true);
 });
 
 test("decodeNotebookState returns null for garbage input rather than throwing", () => {
