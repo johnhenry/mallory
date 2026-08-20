@@ -6,6 +6,7 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsTiles, TIME_CELL, type CellIdsTiles } from "../lib/cell-ids.ts";
+import { DEFAULT_CORNER_TILES_TEXT, parseCornerTileSetText } from "../lib/corner-tile-set-text.ts";
 import { parseCompoundTileSetText } from "../lib/compound-tile-set-text.ts";
 import { DEFAULT_CUBE_TILES_TEXT, parseCubeTileSetText } from "../lib/cube-tile-set-text.ts";
 import { startTilesExportJob } from "../lib/export-tiles-video.ts";
@@ -19,6 +20,7 @@ import {
   type TilesSolverKind,
   type TilesState,
 } from "../lib/tiles-state.ts";
+import { solveCornerTiles, type CornerGrid, type CornerTile, type CornerTileSet } from "../lib/tiles/corner-tile-model.ts";
 import { solveCube, type CubeDirection, type CubeGrid, type CubeTile, type CubeTileSet } from "../lib/tiles/cube-tile-model.ts";
 import { relaxWangTiling, type RelaxResult } from "../lib/tiles/differentiable-relax.ts";
 import { autocorrelationSurface, diffractionSpectrum, tileIdsPresent } from "../lib/tiles/diffraction.ts";
@@ -125,11 +127,12 @@ function seedState(graph: CellGraph, ids: CellIdsTiles, state: TilesState): void
   graph.set(ids.triTilesText, state.triTilesText);
   graph.set(ids.cubeTilesText, state.cubeTilesText);
   graph.set(ids.depth, state.depth);
+  graph.set(ids.cornerTilesText, state.cornerTilesText);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
   return {
-    v: 4,
+    v: 5,
     tilesText: graph.get<string>(ids.tilesText),
     width: graph.get<number>(ids.width),
     height: graph.get<number>(ids.height),
@@ -141,6 +144,7 @@ function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
     triTilesText: graph.get<string>(ids.triTilesText),
     cubeTilesText: graph.get<string>(ids.cubeTilesText),
     depth: graph.get<number>(ids.depth),
+    cornerTilesText: graph.get<string>(ids.cornerTilesText),
   };
 }
 
@@ -170,6 +174,9 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.set(ids.cubeSolveStatus, "idle" as SolveStatus, { auxiliary: true });
     graph.set(ids.cubeSolveGrid, null as CubeGrid | null, { auxiliary: true });
     graph.set(ids.cubeSolveError, "", { auxiliary: true });
+    graph.set(ids.cornerSolveStatus, "idle" as SolveStatus, { auxiliary: true });
+    graph.set(ids.cornerSolveGrid, null as CornerGrid | null, { auxiliary: true });
+    graph.set(ids.cornerSolveError, "", { auxiliary: true });
     graph.set(ids.relaxSteps, 300, { auxiliary: true });
     graph.set(ids.relaxLr, 0.3, { auxiliary: true });
     graph.set(ids.relaxStatus, "idle" as RelaxStatus, { auxiliary: true });
@@ -229,6 +236,14 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.define(ids.cubeTileSetResult, (): Result<CubeTileSet> => {
       try {
         return { ok: true, value: parseCubeTileSetText(graph.get<string>(ids.cubeTilesText)) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.cornerTileSetResult, (): Result<CornerTileSet> => {
+      try {
+        return { ok: true, value: parseCornerTileSetText(graph.get<string>(ids.cornerTilesText)) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
@@ -669,6 +684,41 @@ function CompoundTilePaletteEntry({ tile }: { tile: CompoundTile }) {
   return <canvas ref={canvasRef} width={canvasWidth} height={canvasHeight} style={{ border: "1px solid var(--border)" }} />;
 }
 
+const PALETTE_CORNER_SIZE = 48;
+const PALETTE_CORNER_DOT_RADIUS = 4;
+
+/** A single corner tile's own shape, apart from the solved grid -- 4 colored dots at its corners (its actual matching locus) instead of `SquareTilePaletteEntry`'s 4 edge segments. */
+function CornerTilePaletteEntry({ tile }: { tile: CornerTile }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, PALETTE_CORNER_SIZE, PALETTE_CORNER_SIZE);
+    ctx.fillStyle = tileColor(tile.id);
+    ctx.fillRect(0, 0, PALETTE_CORNER_SIZE, PALETTE_CORNER_SIZE);
+    const dots: readonly [number, number, string][] = [
+      [0, 0, tile.corners.NW],
+      [PALETTE_CORNER_SIZE, 0, tile.corners.NE],
+      [PALETTE_CORNER_SIZE, PALETTE_CORNER_SIZE, tile.corners.SE],
+      [0, PALETTE_CORNER_SIZE, tile.corners.SW],
+    ];
+    for (const [dx, dy, label] of dots) {
+      ctx.beginPath();
+      ctx.arc(dx, dy, PALETTE_CORNER_DOT_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = edgeLabelColor(label);
+      ctx.fill();
+      ctx.strokeStyle = "#00000055";
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#fff";
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(tile.id, PALETTE_CORNER_SIZE / 2, PALETTE_CORNER_SIZE / 2);
+  }, [tile]);
+  return <canvas ref={canvasRef} width={PALETTE_CORNER_SIZE} height={PALETTE_CORNER_SIZE} style={{ border: "1px solid var(--border)" }} />;
+}
+
 const PALETTE_HEX_SIZE = 26;
 const PALETTE_HEX_CANVAS_SIZE = PALETTE_HEX_SIZE * 2 + 10;
 
@@ -801,6 +851,11 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const cubeSolveStatus = useCell<SolveStatus>(graph, ids.cubeSolveStatus);
   const cubeSolveGrid = useCell<CubeGrid | null>(graph, ids.cubeSolveGrid);
   const cubeSolveError = useCell<string>(graph, ids.cubeSolveError);
+  const cornerTilesText = useCell<string>(graph, ids.cornerTilesText);
+  const cornerTileSetResult = useCell<Result<CornerTileSet>>(graph, ids.cornerTileSetResult);
+  const cornerSolveStatus = useCell<SolveStatus>(graph, ids.cornerSolveStatus);
+  const cornerSolveGrid = useCell<CornerGrid | null>(graph, ids.cornerSolveGrid);
+  const cornerSolveError = useCell<string>(graph, ids.cornerSolveError);
 
   const [textInput, setTextInput] = useState(tilesText);
   useEffect(() => setTextInput(tilesText), [tilesText]);
@@ -810,6 +865,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   useEffect(() => setTriTextInput(triTilesText), [triTilesText]);
   const [cubeTextInput, setCubeTextInput] = useState(cubeTilesText);
   useEffect(() => setCubeTextInput(cubeTilesText), [cubeTilesText]);
+  const [cornerTextInput, setCornerTextInput] = useState(cornerTilesText);
+  useEffect(() => setCornerTextInput(cornerTilesText), [cornerTilesText]);
 
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -1063,6 +1120,42 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, lattice, cubeTileSetResult, width, height, depth]);
+
+  // Corner-tile auto-solve (#388/#394): same shape as the hex/tri effects
+  // above (no step-by-step animation, drained straight to a final grid).
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (lattice !== "corner" || !cornerTileSetResult.ok) {
+        graph.set(ids.cornerSolveStatus, "idle" satisfies SolveStatus);
+        graph.set(ids.cornerSolveGrid, null);
+        graph.set(ids.cornerSolveError, "");
+        return;
+      }
+      if (width < 1 || height < 1 || width * height > MAX_HEX_TRI_CELLS) {
+        graph.set(ids.cornerSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.cornerSolveError, `Grid must be at least 1x1 and at most ${MAX_HEX_TRI_CELLS} cells total.`);
+        return;
+      }
+      graph.set(ids.cornerSolveStatus, "solving" satisfies SolveStatus);
+      try {
+        const grid = await drainSolveToGrid(solveCornerTiles(cornerTileSetResult.value, width, height, { trackSteps: false }));
+        if (cancelled) return;
+        graph.set(ids.cornerSolveGrid, grid);
+        graph.set(ids.cornerSolveError, "");
+        graph.set(ids.cornerSolveStatus, "done" satisfies SolveStatus);
+      } catch (e) {
+        if (cancelled) return;
+        graph.set(ids.cornerSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.cornerSolveError, e instanceof Error ? e.message : String(e));
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, lattice, cornerTileSetResult, width, height]);
 
   // A changed solve restarts the animation from the beginning.
   useEffect(() => {
@@ -1380,6 +1473,58 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [triCanvasWidth, triCanvasHeight, triSolveGrid, triTileSetResult]);
 
+  // Corner canvas (#388/#394): a plain axis-aligned square grid, same
+  // CELL_SIZE as the square lattice's own canvas -- but draws 4 colored
+  // dots at the cell's corners (its actual matching locus) instead of 4
+  // colored side segments.
+  const cornerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cornerCanvasWidth = Math.max(1, width) * CELL_SIZE;
+  const cornerCanvasHeight = Math.max(1, height) * CELL_SIZE;
+  const CORNER_DOT_RADIUS = 5;
+
+  useEffect(() => {
+    const ctx = cornerCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, cornerCanvasWidth, cornerCanvasHeight);
+    if (!cornerSolveGrid) return;
+    const tileMap = new Map(cornerTileSetResult.ok ? cornerTileSetResult.value.tiles.map((t) => [t.id, t]) : []);
+    for (let row = 0; row < cornerSolveGrid.length; row++) {
+      for (let col = 0; col < cornerSolveGrid[row]!.length; col++) {
+        const id = cornerSolveGrid[row]![col]!;
+        const x = col * CELL_SIZE;
+        const y = row * CELL_SIZE;
+        ctx.fillStyle = tileColor(id);
+        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+        const tile = tileMap.get(id);
+        if (tile) {
+          const dots: readonly [number, number, string][] = [
+            [x, y, tile.corners.NW],
+            [x + CELL_SIZE, y, tile.corners.NE],
+            [x + CELL_SIZE, y + CELL_SIZE, tile.corners.SE],
+            [x, y + CELL_SIZE, tile.corners.SW],
+          ];
+          for (const [dx, dy, label] of dots) {
+            ctx.beginPath();
+            ctx.arc(dx, dy, CORNER_DOT_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = edgeLabelColor(label);
+            ctx.fill();
+            ctx.strokeStyle = "#00000055";
+            ctx.stroke();
+          }
+        } else {
+          ctx.strokeStyle = "#00000022";
+          ctx.strokeRect(x, y, CELL_SIZE, CELL_SIZE);
+        }
+        ctx.fillStyle = "#fff";
+        ctx.font = "13px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(id, x + CELL_SIZE / 2, y + CELL_SIZE / 2);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cornerCanvasWidth, cornerCanvasHeight, cornerSolveGrid, cornerTileSetResult]);
+
   const diffractionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autocorrelationCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -1464,7 +1609,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     }
     writeUrl();
     return graph.subscribeMany(
-      [ids.tilesText, ids.width, ids.height, ids.solver, ids.showAnimation, ids.symmetry, ids.lattice, ids.hexTilesText, ids.triTilesText, ids.cubeTilesText, ids.depth],
+      [ids.tilesText, ids.width, ids.height, ids.solver, ids.showAnimation, ids.symmetry, ids.lattice, ids.hexTilesText, ids.triTilesText, ids.cubeTilesText, ids.depth, ids.cornerTilesText],
       writeUrl,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1490,6 +1635,11 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     graph.set(ids.cubeTilesText, value);
   }
 
+  function updateCornerText(value: string) {
+    setCornerTextInput(value);
+    graph.set(ids.cornerTilesText, value);
+  }
+
   return (
     <div>
       <details
@@ -1509,7 +1659,9 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             <strong>Notation</strong> depends on the lattice: square tiles are <code>id N E S W</code> (edge labels
             clockwise from north); hexagonal tiles are <code>id e0 e1 e2 e3 e4 e5</code> (E, NE, NW, W, SW, SE); triangular
             tiles are <code>id left right top bottom</code> (an up- or down-pointing triangle only uses 3 of its 4
-            declared edges); cube tiles are <code>id N S E W U D</code> (the six face labels).
+            declared edges); cube tiles are <code>id N S E W U D</code> (the six face labels); corner-matched square
+            tiles are <code>id NE SE SW NW</code> (4 CORNER labels instead of 4 edges -- two tiles match by agreeing on
+            a shared corner, constraining diagonal neighbors too, not just orthogonal ones; see #388).
           </p>
           <p style={{ margin: "0 0 0.5rem" }}>
             <strong>Solver</strong> (square lattice): "Backtracking" places tiles left-to-right, top-to-bottom, checking
@@ -1539,12 +1691,13 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             <option value="hex">Hexagonal (6 edges)</option>
             <option value="tri">Triangular (4 edges, 3 used per cell)</option>
             <option value="cube">Cube (6 faces, 3D)</option>
+            <option value="corner">Corner-matched square (4 corners, #388)</option>
           </select>
         </label>
         {lattice !== "square" && (
           <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0 0" }}>
             Symmetry, entropy, and diffraction analysis are square-lattice-only for now (issue #92 M3).{" "}
-            {lattice === "hex" ? "Hexagonal" : lattice === "tri" ? "Triangular" : "Cube"} tiling supports editing, solving, and rendering.
+            {lattice === "hex" ? "Hexagonal" : lattice === "tri" ? "Triangular" : lattice === "cube" ? "Cube" : "Corner-matched square"} tiling supports editing, solving, and rendering.
           </p>
         )}
       </div>
@@ -2000,6 +2153,53 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
           {cubeSolveStatus === "done" && (
             <p>{cubeSolveGrid ? "Tiling found." : `No tiling exists for this tile set at ${width}x${height}x${depth} cells.`}</p>
           )}
+        </>
+      )}
+
+      {lattice === "corner" && (
+        <>
+          <div style={{ margin: "0.25rem 0" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Tile set (one per line: <code>id NE SE SW NW</code> -- 4 corner labels, clockwise from northeast; see #388)
+            </label>
+            <textarea
+              value={cornerTextInput}
+              onChange={(e) => updateCornerText(e.target.value)}
+              rows={5}
+              style={{ font: "inherit", fontFamily: "monospace", width: "24ch" }}
+            />
+            <div>
+              <button type="button" onClick={() => updateCornerText(DEFAULT_CORNER_TILES_TEXT)}>
+                Reset to default set
+              </button>
+            </div>
+          </div>
+          {cornerTileSetResult.ok && (
+            <div style={{ margin: "0.5rem 0" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>Tile palette (each tile on its own, apart from the grid)</label>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                {cornerTileSetResult.value.tiles.map((t) => (
+                  <CornerTilePaletteEntry key={t.id} tile={t} />
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              width: <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+            <label>
+              height: <input type="number" min={1} value={height} onChange={(e) => graph.set(ids.height, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+          </div>
+          {!cornerTileSetResult.ok && <p style={{ color: "crimson" }}>{cornerTileSetResult.message}</p>}
+          {cornerSolveStatus === "error" && <p style={{ color: "crimson" }}>{cornerSolveError}</p>}
+          <canvas ref={cornerCanvasRef} width={cornerCanvasWidth} height={cornerCanvasHeight} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => cornerCanvasRef.current} label="tiles-corner" />
+          </div>
+          {cornerSolveStatus === "solving" && <p>Solving…</p>}
+          {cornerSolveStatus === "done" && <p>{cornerSolveGrid ? "Tiling found." : `No tiling exists for this tile set at ${width}x${height} cells.`}</p>}
         </>
       )}
     </div>
