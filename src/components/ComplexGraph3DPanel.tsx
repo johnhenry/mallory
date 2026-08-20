@@ -4,7 +4,10 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsComplexGraph3D, type CellIdsComplexGraph3D } from "../lib/cell-ids.ts";
 import {
+  ALL_COMPONENTS,
   COMPONENT_LABELS,
+  droppedComponent,
+  isValidAxisTriple,
   isValidCurveAxisAssignment,
   sampleComplexGraphCurve,
   type ComplexComponent,
@@ -31,13 +34,8 @@ const TUBE_RADIUS = 0.05;
 const TUBE_RADIAL_SEGMENTS = 8;
 const CURVE_COLOR = 0x9333ea;
 
-const ALL_COMPONENTS: ComplexComponent[] = ["reX", "imX", "reY", "imY"];
-/** Only Re(x)/Im(x) are valid drop choices in this panel -- dropping a range component (Re(y)/Im(y)) produces a surface, issue #345's own documented follow-up, not this panel's job. */
-const DROPPABLE_COMPONENTS: ComplexComponent[] = ["reX", "imX"];
-
 function seedComplexGraphState(graph: CellGraph, ids: CellIdsComplexGraph3D, state: ComplexGraphState): void {
   graph.set(ids.yExpr, state.yExpr);
-  graph.set(ids.drop, state.drop);
   graph.set(ids.axisX, state.axisX);
   graph.set(ids.axisY, state.axisY);
   graph.set(ids.axisZ, state.axisZ);
@@ -49,7 +47,6 @@ function getCurrentComplexGraphState(graph: CellGraph, ids: CellIdsComplexGraph3
   return {
     v: 1,
     yExpr: graph.get<string>(ids.yExpr),
-    drop: graph.get<ComplexComponent>(ids.drop),
     axisX: graph.get<ComplexComponent>(ids.axisX),
     axisY: graph.get<ComplexComponent>(ids.axisY),
     axisZ: graph.get<ComplexComponent>(ids.axisZ),
@@ -69,13 +66,12 @@ function useComplexGraphGraph(cellId: string): { graph: CellGraph; ids: CellIdsC
     graph.define(ids.points, (): Result<SpaceCurvePoint[]> => {
       try {
         const assignment = {
-          drop: graph.get<ComplexComponent>(ids.drop),
           x: graph.get<ComplexComponent>(ids.axisX),
           y: graph.get<ComplexComponent>(ids.axisY),
           z: graph.get<ComplexComponent>(ids.axisZ),
         };
         if (!isValidCurveAxisAssignment(assignment)) {
-          throw new Error("Every one of Re(x)/Im(x)/Re(y)/Im(y) must be assigned to exactly one of Drop/X/Y/Z, and Drop must be Re(x) or Im(x).");
+          throw new Error("Every one of Re(x)/Im(x)/Re(y)/Im(y) must be assigned to exactly one of X/Y/Z, leaving Re(x) or Im(x) as the one dropped.");
         }
         const tMin = Number(graph.get<string>(ids.tMin));
         const tMax = Number(graph.get<string>(ids.tMax));
@@ -95,29 +91,30 @@ function useComplexGraphGraph(cellId: string): { graph: CellGraph; ids: CellIdsC
 }
 
 /**
- * A dropdown restricted to whichever components AREN'T already used
- * elsewhere in the assignment (plus its own current value, so it doesn't
- * disappear from its own list) -- this is what keeps "Drop + X + Y + Z" a
- * valid bijection onto the 4 components by construction, rather than
- * needing a separate validation-error path the user has to notice and fix.
+ * All 4 components are always listed (never removed from the list) -- an
+ * option is `disabled` when picking it here, alongside whatever the OTHER
+ * two axis dropdowns currently show, would fail `isValidAxisTriple` (a
+ * duplicate, or leaving 0/2 domain components used instead of exactly 1).
+ * This is what replaced the earlier separate "Drop" selector: with no
+ * independent drop control, the only way to keep every reachable state
+ * valid is graying out choices that would break it, rather than a
+ * validation error the user has to notice after the fact.
  */
-function ComponentSelect({
+function AxisSelect({
   value,
-  usedElsewhere,
-  restrictToDroppable,
+  otherA,
+  otherB,
   onChange,
 }: {
   value: ComplexComponent;
-  usedElsewhere: Set<ComplexComponent>;
-  restrictToDroppable?: boolean;
+  otherA: ComplexComponent;
+  otherB: ComplexComponent;
   onChange: (next: ComplexComponent) => void;
 }) {
-  const pool = restrictToDroppable ? DROPPABLE_COMPONENTS : ALL_COMPONENTS;
-  const options = pool.filter((c) => c === value || !usedElsewhere.has(c));
   return (
     <select value={value} onChange={(e) => onChange(e.target.value as ComplexComponent)}>
-      {options.map((c) => (
-        <option key={c} value={c}>
+      {ALL_COMPONENTS.map((c) => (
+        <option key={c} value={c} disabled={c !== value && !isValidAxisTriple(otherA, otherB, c)}>
           {COMPONENT_LABELS[c]}
         </option>
       ))}
@@ -128,18 +125,22 @@ function ComponentSelect({
 /**
  * y = f(x) with x, y both complex (issue #345): a complex "graph" has 4
  * real degrees of freedom (Re(x), Im(x), Re(y), Im(y)), and a 3D plot can
- * only show 3 -- so one is always dropped (held fixed at 0). Dropping a
- * DOMAIN component (Re(x) or Im(x), this panel's only supported case)
- * leaves the other domain component as a single free real parameter `t`
- * tracing a CURVE, up to 2 of whose remaining axes come from Re(y)/Im(y).
- * The classic example: drop Im(x), axes {Re(x), Re(y), Im(y)} -- `e^(i*x)`
- * traces a spiral (a unit circle in the Re(y)/Im(y) plane while Re(x) runs
- * along the third axis).
+ * only show 3 -- so one is always dropped (held fixed at 0), implicitly
+ * whichever component isn't assigned to X/Y/Z (see sample-complex-graph.ts's
+ * `droppedComponent`). This panel only supports the case where the dropped
+ * one is a DOMAIN component (Re(x) or Im(x)): the other domain component
+ * becomes a single free real parameter `t` tracing a CURVE, with the
+ * remaining 2 axes free to come from Re(y)/Im(y). The classic example:
+ * axes {Re(x), Re(y), Im(y)} (dropping Im(x)) -- `e^(i*x)` traces a spiral
+ * (a unit circle in the Re(y)/Im(y) plane while Re(x) runs along the third
+ * axis).
  *
  * Dropping a RANGE component instead (Re(y) or Im(y)) would leave BOTH
  * domain components free, sweeping a 2D surface -- a well-defined, separate
- * follow-up (see #345), not implemented here; this panel only accepts a
- * domain-component drop.
+ * follow-up (see #345), not implemented here; each axis dropdown disables
+ * whichever choice would produce that case (see `AxisSelect`'s own doc
+ * comment), so the UI can't reach an invalid combination in the first
+ * place rather than needing a validation-error path.
  *
  * Reuses SpaceCurvePanel's exact Three.js tube-rendering approach
  * (CatmullRomCurve3 + TubeGeometry) unmodified -- the only new code is the
@@ -158,7 +159,6 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
   const yExpr = useCell<string>(graph, ids.yExpr);
-  const drop = useCell<ComplexComponent>(graph, ids.drop);
   const axisX = useCell<ComplexComponent>(graph, ids.axisX);
   const axisY = useCell<ComplexComponent>(graph, ids.axisY);
   const axisZ = useCell<ComplexComponent>(graph, ids.axisZ);
@@ -258,12 +258,7 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
     return graph.subscribeAll(rebuild);
   }, [graph, ids]);
 
-  const used = new Set<ComplexComponent>([drop, axisX, axisY, axisZ]);
-  function usedElsewhere(current: ComplexComponent): Set<ComplexComponent> {
-    const s = new Set(used);
-    s.delete(current);
-    return s;
-  }
+  const drop = droppedComponent({ x: axisX, y: axisY, z: axisZ });
 
   return (
     <div>
@@ -274,17 +269,14 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
         </label>
       </div>
       <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-        <label title="Held fixed at 0 -- must be Re(x) or Im(x); dropping Re(y)/Im(y) would produce a surface, a separate follow-up (issue #345).">
-          Drop: <ComponentSelect value={drop} usedElsewhere={usedElsewhere(drop)} restrictToDroppable onChange={(v) => graph.set(ids.drop, v)} />
+        <label>
+          Axis X: <AxisSelect value={axisX} otherA={axisY} otherB={axisZ} onChange={(v) => graph.set(ids.axisX, v)} />
         </label>
         <label>
-          Axis X: <ComponentSelect value={axisX} usedElsewhere={usedElsewhere(axisX)} onChange={(v) => graph.set(ids.axisX, v)} />
+          Axis Y: <AxisSelect value={axisY} otherA={axisX} otherB={axisZ} onChange={(v) => graph.set(ids.axisY, v)} />
         </label>
         <label>
-          Axis Y: <ComponentSelect value={axisY} usedElsewhere={usedElsewhere(axisY)} onChange={(v) => graph.set(ids.axisY, v)} />
-        </label>
-        <label>
-          Axis Z: <ComponentSelect value={axisZ} usedElsewhere={usedElsewhere(axisZ)} onChange={(v) => graph.set(ids.axisZ, v)} />
+          Axis Z: <AxisSelect value={axisZ} otherA={axisX} otherB={axisY} onChange={(v) => graph.set(ids.axisZ, v)} />
         </label>
       </div>
       <div style={{ margin: "0.25rem 0" }}>
@@ -294,7 +286,7 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
         </label>
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
-        {COMPONENT_LABELS[drop]} is held fixed at 0; {COMPONENT_LABELS[axisX]} sweeps t from {tMin} to {tMax}.
+        {drop ? `${COMPONENT_LABELS[drop]} is held fixed at 0.` : ""} The non-dropped Re(x)/Im(x) sweeps t from {tMin} to {tMax}.
       </p>
       {!pointsResult.ok && <p style={{ color: "var(--danger)", fontSize: "0.8rem" }}>{pointsResult.message}</p>}
       <div ref={containerRef} style={{ position: "relative", maxWidth: WIDTH, border: "1px solid var(--border)" }} />

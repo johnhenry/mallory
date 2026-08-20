@@ -15,6 +15,8 @@ import type { Domain1D, SpaceCurvePoint } from "./sample-space-curve.ts";
  */
 export type ComplexComponent = "reX" | "imX" | "reY" | "imY";
 
+export const ALL_COMPONENTS: ComplexComponent[] = ["reX", "imX", "reY", "imY"];
+
 export const COMPONENT_LABELS: Record<ComplexComponent, string> = {
   reX: "Re(x)",
   imX: "Im(x)",
@@ -22,19 +24,54 @@ export const COMPONENT_LABELS: Record<ComplexComponent, string> = {
   imY: "Im(y)",
 };
 
+function isDomainComponent(c: ComplexComponent): boolean {
+  return c === "reX" || c === "imX";
+}
+
+/**
+ * The screen-axis assignment: which of the 4 real components maps to X/Y/Z.
+ * The 4th (unassigned) component is implicitly the dropped one, held fixed
+ * at 0 -- there's no separate `drop` field to keep in sync with x/y/z (a
+ * UI iteration on #345: the first version had one, which meant two
+ * different controls could disagree about which component was excluded;
+ * deriving it from whichever component ISN'T one of x/y/z removes that
+ * whole class of inconsistency by construction).
+ */
 export interface ComplexGraphAxisAssignment {
-  /** Held fixed at 0. Must be "reX" or "imX" for the curve case -- dropping a range component produces a surface instead (issue #345's own follow-up). */
-  drop: ComplexComponent;
   x: ComplexComponent;
   y: ComplexComponent;
   z: ComplexComponent;
 }
 
-/** True iff `assignment` is internally consistent: `drop` is a domain component, and {drop, x, y, z} is exactly the 4 components with no repeats. */
+/** The one component not assigned to any screen axis -- null if `assignment` isn't even a valid 3-of-4 selection (see `isValidCurveAxisAssignment`) yet, e.g. mid-edit with a duplicate. */
+export function droppedComponent(assignment: ComplexGraphAxisAssignment): ComplexComponent | null {
+  const used = new Set([assignment.x, assignment.y, assignment.z]);
+  if (used.size !== 3) return null;
+  return ALL_COMPONENTS.find((c) => !used.has(c)) ?? null;
+}
+
+/**
+ * True iff `x`/`y`/`z` are 3 distinct components AND exactly one of them is
+ * a domain component (Re(x) or Im(x)) -- equivalently, both Re(y) and
+ * Im(y) are assigned somewhere, since the dropped 4th component must be a
+ * domain one for this to be a curve (dropping a range component would be
+ * the surface case instead, issue #345's own follow-up, not built here).
+ * There are only 12 valid assignments total (2 choices of which domain
+ * component survives x 3! orderings across X/Y/Z) -- small enough that
+ * `isValidAxisTriple` (used by the UI's own per-option disabling) can just
+ * brute-force-check every candidate rather than reasoning about it
+ * case-by-case.
+ */
 export function isValidCurveAxisAssignment(assignment: ComplexGraphAxisAssignment): boolean {
-  if (assignment.drop !== "reX" && assignment.drop !== "imX") return false;
-  const all = [assignment.drop, assignment.x, assignment.y, assignment.z];
-  return new Set(all).size === 4;
+  return isValidAxisTriple(assignment.x, assignment.y, assignment.z);
+}
+
+/** Order-independent: true iff `a`, `b`, `c` are 3 distinct components with exactly one domain component among them. Exported so the UI can ask "would choosing `c` here, alongside whatever the other two dropdowns already show, produce a valid assignment?" for its own per-option disabling, without duplicating this rule. */
+export function isValidAxisTriple(a: ComplexComponent, b: ComplexComponent, c: ComplexComponent): boolean {
+  const set = new Set([a, b, c]);
+  if (set.size !== 3) return false;
+  const domainCount = [a, b, c].filter(isDomainComponent).length;
+  return domainCount === 1;
 }
 
 /**
@@ -61,15 +98,16 @@ export function sampleComplexGraphCurve(
   tDomain: Domain1D,
   resolution = 300,
 ): SpaceCurvePoint[] {
-  if (!isValidCurveAxisAssignment(assignment)) {
-    throw new Error('Curve mode needs "drop" to be Re(x) or Im(x), and every one of Re(x)/Im(x)/Re(y)/Im(y) assigned to exactly one of drop/x/y/z.');
+  const drop = droppedComponent(assignment);
+  if (drop === null || !isValidCurveAxisAssignment(assignment)) {
+    throw new Error("Every one of Re(x)/Im(x)/Re(y)/Im(y) must be assigned to exactly one of X/Y/Z, leaving Re(x) or Im(x) as the one dropped.");
   }
   const expr = Symbolic.parse(preprocessImplicitMultiplication(yExprSource));
   const points: SpaceCurvePoint[] = [];
   for (let i = 0; i <= resolution; i++) {
     const t = tDomain.min + (i / resolution) * (tDomain.max - tDomain.min);
-    const reX = assignment.drop === "reX" ? 0 : t;
-    const imX = assignment.drop === "imX" ? 0 : t;
+    const reX = drop === "reX" ? 0 : t;
+    const imX = drop === "imX" ? 0 : t;
     let y: ComplexNumber;
     try {
       // evaluateComplex's own constant table only has pi/e -- "i" (the

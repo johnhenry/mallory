@@ -10,11 +10,18 @@ import type { ComplexComponent } from "./sample-complex-graph.ts";
  * domain component) for now, and multi-curve overlay is a natural but
  * separate follow-up once the surface case (the other #345 follow-up)
  * clarifies what "another row" even means here.
+ *
+ * No separate `drop` field -- the dropped component is derived from
+ * whichever of Re(x)/Im(x)/Re(y)/Im(y) ISN'T one of axisX/axisY/axisZ (see
+ * sample-complex-graph.ts's `droppedComponent`). A very early version of
+ * this schema had an explicit `drop` field; removed before this ever
+ * shipped anywhere reachable, so no migration is needed -- a stray `drop`
+ * key in an old fragment is simply ignored (extra keys don't fail
+ * validation), so nothing breaks either way.
  */
 export interface ComplexGraphStateV1 {
   v: 1;
   yExpr: string;
-  drop: ComplexComponent;
   axisX: ComplexComponent;
   axisY: ComplexComponent;
   axisZ: ComplexComponent;
@@ -28,7 +35,6 @@ export type ComplexGraphState = ComplexGraphStateV1;
 export const DEFAULT_COMPLEX_GRAPH_STATE: ComplexGraphState = {
   v: 1,
   yExpr: "exp(i*x)",
-  drop: "imX",
   axisX: "reX",
   axisY: "reY",
   axisZ: "imY",
@@ -60,7 +66,6 @@ export function isComplexGraphStateV1(value: unknown): value is ComplexGraphStat
   return (
     v.v === 1 &&
     typeof v.yExpr === "string" &&
-    isComplexComponent(v.drop) &&
     isComplexComponent(v.axisX) &&
     isComplexComponent(v.axisY) &&
     isComplexComponent(v.axisZ) &&
