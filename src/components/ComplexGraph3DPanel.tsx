@@ -6,6 +6,7 @@ import { cellIdsComplexGraph3D } from "../lib/cell-ids.ts";
 import {
   ALL_COMPONENTS,
   COMPONENT_LABELS,
+  hiddenRangeComponent,
   isValidComplexAxisAssignment,
   sampleComplexGraph,
   usedDomainComponents,
@@ -35,6 +36,29 @@ const RESOLUTION = 300;
 const TUBE_RADIUS = 0.05;
 const TUBE_RADIAL_SEGMENTS = 8;
 const POINT_SIZE = 0.06;
+// Near-real highlight (#367): a fixed accent distinct from every row's own
+// palette color (rather than e.g. lightening the row color), so it reads
+// consistently regardless of which color a given function happens to be,
+// plus a larger sphere so it's findable at a glance among the rest of the
+// scatter.
+const NEAR_REAL_COLOR = 0xfbbf24;
+const NEAR_REAL_POINT_SIZE = POINT_SIZE * 1.8;
+
+/** Adds one InstancedMesh of small spheres, one per point at the given indices, to `group` -- shared by the plain scatter render and the near-real-highlight split below so the sphere-building logic isn't duplicated. No-ops on an empty index list (an InstancedMesh of count 0 is invalid). */
+function addScatterMesh(group: THREE.Group, points: { x: number; y: number; z: number }[], indices: number[], color: number, size: number): void {
+  if (indices.length === 0) return;
+  const geometry = new THREE.SphereGeometry(size, 6, 6);
+  const material = new THREE.MeshStandardMaterial({ color });
+  const mesh = new THREE.InstancedMesh(geometry, material, indices.length);
+  const dummy = new THREE.Object3D();
+  indices.forEach((pointIndex, i) => {
+    const p = points[pointIndex] as { x: number; y: number; z: number };
+    dummy.position.set(p.x, p.y, p.z);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  });
+  group.add(mesh);
+}
 
 type SharedAxisIds = { axisX: string; axisY: string; axisZ: string; sweepReX: string; sweepImX: string };
 
@@ -87,6 +111,7 @@ function useComplexGraphGraph(containerId: string): { graph: CellGraph; containe
     graph.set(containerIds.axisZ, state.axisZ);
     graph.set(containerIds.sweepReX, state.sweepReX);
     graph.set(containerIds.sweepImX, state.sweepImX);
+    graph.set(containerIds.highlightNearReal, state.highlightNearReal);
 
     const rowIds = state.rows.map(() => crypto.randomUUID());
     rowIds.forEach((id, i) => seedComplexGraphRow(graph, id, containerIds, state.rows[i] as ComplexGraphRowState));
@@ -221,6 +246,7 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
   const axisZ = useCell<AxisChoice>(graph, containerIds.axisZ);
   const sweepReX = useCell<boolean>(graph, containerIds.sweepReX);
   const sweepImX = useCell<boolean>(graph, containerIds.sweepImX);
+  const highlightNearReal = useCell<boolean>(graph, containerIds.highlightNearReal);
 
   function addFunction() {
     const { id, index } = appendRow(graph, containerIds.list);
@@ -234,12 +260,13 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
   useEffect(() => {
     function writeUrl() {
       const state: ComplexGraphState = {
-        v: 3,
+        v: 4,
         axisX: graph.get<AxisChoice>(containerIds.axisX),
         axisY: graph.get<AxisChoice>(containerIds.axisY),
         axisZ: graph.get<AxisChoice>(containerIds.axisZ),
         sweepReX: graph.get<boolean>(containerIds.sweepReX),
         sweepImX: graph.get<boolean>(containerIds.sweepImX),
+        highlightNearReal: graph.get<boolean>(containerIds.highlightNearReal),
         rows: graph.get<string[]>(containerIds.list).map((rowId) => {
           const ids = cellIdsComplexGraph3D(rowId);
           return {
@@ -331,6 +358,7 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
           (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
         }
       }
+      const highlightNearReal = graph.get<boolean>(containerIds.highlightNearReal);
       for (const rowId of graph.get<string[]>(containerIds.list)) {
         const ids = cellIdsComplexGraph3D(rowId);
         try {
@@ -351,17 +379,27 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
             // scatter: 0 or 2 domain components used (see
             // sampleComplexGraph's own doc comment) -- no single parameter
             // order to draw a tube through, so render each sample as its
-            // own small sphere instead.
-            const geometry = new THREE.SphereGeometry(POINT_SIZE, 6, 6);
-            const material = new THREE.MeshStandardMaterial({ color });
-            const mesh = new THREE.InstancedMesh(geometry, material, points.length);
-            const dummy = new THREE.Object3D();
-            points.forEach((p, i) => {
-              dummy.position.set(p.x, p.y, p.z);
-              dummy.updateMatrix();
-              mesh.setMatrixAt(i, dummy.matrix);
-            });
-            group.add(mesh);
+            // own small sphere instead. When the near-real highlight (#367)
+            // is on and applicable (result.value.nearReal present -- see
+            // hiddenRangeComponent), split into two instanced meshes: the
+            // near-real subset in a fixed accent color/larger size, the
+            // rest in this row's own color/normal size.
+            const nearReal = highlightNearReal ? result.value.nearReal : undefined;
+            if (nearReal) {
+              const normal: number[] = [];
+              const highlighted: number[] = [];
+              points.forEach((_, i) => (nearReal[i] ? highlighted : normal).push(i));
+              addScatterMesh(group, points, normal, color, POINT_SIZE);
+              addScatterMesh(group, points, highlighted, NEAR_REAL_COLOR, NEAR_REAL_POINT_SIZE);
+            } else {
+              addScatterMesh(
+                group,
+                points,
+                points.map((_, i) => i),
+                color,
+                POINT_SIZE,
+              );
+            }
           }
         } catch {
           // A row whose cells haven't registered yet -- skip it this pass.
@@ -379,6 +417,11 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
       : domainUsed.length === 2
         ? "Both Re(x) and Im(x) sweep t (a grid). Scatter."
         : "Neither Re(x) nor Im(x) is assigned to an axis -- x is fixed at 0. A single point.";
+  // The near-real highlight (#367) only makes sense in scatter mode
+  // (domainUsed.length !== 1) with exactly one hidden range component --
+  // see hiddenRangeComponent's own doc comment for why both/neither hidden
+  // don't apply.
+  const hiddenComponent = domainUsed.length !== 1 ? hiddenRangeComponent({ x: axisX, y: axisY, z: axisZ }) : null;
 
   return (
     <div>
@@ -407,6 +450,15 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
         </label>
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{modeHint}</p>
+      {hiddenComponent && (
+        <label
+          style={{ display: "block", margin: "0.25rem 0" }}
+          title={`Highlights scatter points where the hidden ${COMPONENT_LABELS[hiddenComponent]} is close to 0 (relative to its own peak sampled magnitude), approximating where the function is real-valued (#367).`}
+        >
+          <input type="checkbox" checked={highlightNearReal} onChange={(e) => graph.set(containerIds.highlightNearReal, e.target.checked)} /> Highlight
+          near-real points ({COMPONENT_LABELS[hiddenComponent]} ≈ 0)
+        </label>
+      )}
       {rowIds.map((rowId) => (
         <ComplexGraphRow key={rowId} graph={graph} rowId={rowId} onRemove={rowIds.length > 1 ? () => removeFunction(rowId) : undefined} />
       ))}

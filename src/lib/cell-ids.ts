@@ -178,6 +178,9 @@ export function cellIdsComplexGraph3D(cellId: string) {
     // complex-graph-state.ts's ComplexGraphStateV3 doc comment for why.
     sweepReX: `complexGraph3dSweepReX:${cellId}`,
     sweepImX: `complexGraph3dSweepImX:${cellId}`,
+    // Near-real scatter-point highlight toggle (#367) -- container-level,
+    // same reasoning as sweepReX/sweepImX above.
+    highlightNearReal: `complexGraph3dHighlightNearReal:${cellId}`,
     list: `complexGraph3dList:${cellId}`,
   };
 }

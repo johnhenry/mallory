@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  hiddenRangeComponent,
   isAxisChoice,
   isComplexComponent,
   isValidComplexAxisAssignment,
@@ -147,4 +148,62 @@ test("sampleComplexGraph (#365): forcing Im(x) to sweep turns an otherwise-clean
   for (const p of withForce.points) {
     assert.equal(p.z, 0, "z is still 'none' -- forcing a sweep doesn't change what's shown, only what's swept");
   }
+});
+
+test("hiddenRangeComponent (#367): null when both Re(y)/Im(y) are shown -- nothing hidden to highlight against", () => {
+  assert.equal(hiddenRangeComponent({ x: "reX", y: "reY", z: "imY" }), null);
+});
+
+test("hiddenRangeComponent (#367): null when NEITHER Re(y)/Im(y) is shown -- ambiguous which one 'near real' means", () => {
+  assert.equal(hiddenRangeComponent({ x: "reX", y: "imX", z: "none" }), null);
+});
+
+test("hiddenRangeComponent (#367): returns the one hidden range component when exactly one is shown", () => {
+  assert.equal(hiddenRangeComponent({ x: "reX", y: "imX", z: "reY" }), "imY");
+  assert.equal(hiddenRangeComponent({ x: "reX", y: "reY", z: "none" }), "imY");
+  assert.equal(hiddenRangeComponent({ x: "reX", y: "imY", z: "none" }), "reY");
+});
+
+test("sampleComplexGraph (#367): nearReal is undefined when both range components are shown -- nothing to highlight", () => {
+  const { nearReal } = sampleComplexGraph("exp(i*x)", { x: "reX", y: "reY", z: "imY" }, { min: 0, max: Math.PI }, 20);
+  assert.equal(nearReal, undefined);
+});
+
+test("sampleComplexGraph (#367): every point is near-real when the hidden component is identically 0 (a genuinely always-real function)", () => {
+  // y = 1 (a real constant): Im(y) is exactly 0 for every sample, so the
+  // maxAbs === 0 fallback in computeNearReal marks the whole set true --
+  // correct, since the function really is always real here.
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "imX", z: "reY" };
+  const { mode, points, nearReal } = sampleComplexGraph("1", assignment, { min: -1, max: 1 }, 10);
+  assert.equal(mode, "scatter");
+  assert.ok(nearReal, "expected nearReal to be defined -- imY is the one hidden component");
+  assert.equal(nearReal!.length, points.length);
+  assert.ok(nearReal!.every(Boolean), "every sample should count as near-real when Im(y) is always exactly 0");
+});
+
+test("sampleComplexGraph (#367): only the grid row where the hidden component is exactly 0 is marked near-real for y = i*x", () => {
+  // y = i*x = -Im(x) + i*Re(x): Im(y) = Re(x), hidden here (axes show
+  // Re(x), Im(x), Re(y)). A symmetric [-1, 1] domain with an even grid
+  // resolution (10) puts a sample row exactly at Re(x) = 0 (i = 5 of 10);
+  // the tolerance (5% of the peak |Re(x)| = 1, i.e. 0.05) is too tight for
+  // any adjacent row (Re(x) = +/-0.2) to also qualify.
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "imX", z: "reY" };
+  const { points, nearReal } = sampleComplexGraph("i*x", assignment, { min: -1, max: 1 }, 10);
+  assert.ok(nearReal);
+  const nearRealPoints = points.filter((_, i) => nearReal![i]);
+  assert.ok(nearRealPoints.length > 0, "expects at least the Re(x) = 0 row to qualify");
+  for (const p of nearRealPoints) {
+    assert.ok(Math.abs(p.x - 0) < 1e-9, `expected every near-real point to have Re(x) (shown as the X axis) exactly 0, got ${p.x}`);
+  }
+  // Every OTHER row (Re(x) != 0) should be excluded -- confirms the
+  // tolerance isn't so loose it accidentally includes neighboring rows.
+  const excludedPoints = points.filter((_, i) => !nearReal![i]);
+  assert.ok(excludedPoints.every((p) => Math.abs(p.x) > 1e-9));
+});
+
+test("sampleComplexGraph (#367): nearReal is still computed in curve mode when a hidden range component exists, even though the panel only surfaces the highlight in scatter mode", () => {
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "reY", z: "none" };
+  const { mode, nearReal } = sampleComplexGraph("exp(i*x)", assignment, { min: 0, max: 2 * Math.PI }, 20);
+  assert.equal(mode, "curve");
+  assert.ok(nearReal, "imY is hidden (Z is 'none'), so nearReal should still be computed here");
 });

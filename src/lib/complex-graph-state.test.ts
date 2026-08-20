@@ -6,6 +6,7 @@ import {
   encodeComplexGraphState,
   type ComplexGraphStateV1,
   type ComplexGraphStateV2,
+  type ComplexGraphStateV3,
 } from "./complex-graph-state.ts";
 
 test("round-trips the default state (issue #345's own spiral example)", () => {
@@ -15,12 +16,13 @@ test("round-trips the default state (issue #345's own spiral example)", () => {
 
 test("round-trips a state with multiple function rows sharing one set of axes", () => {
   const state = {
-    v: 3 as const,
+    v: 4 as const,
     axisX: "reX" as const,
     axisY: "reY" as const,
     axisZ: "imY" as const,
     sweepReX: false,
     sweepImX: false,
+    highlightNearReal: false,
     rows: [
       { yExpr: "exp(i*x)", tMin: "0", tMax: "6.28", color: 0x9333ea, visible: true },
       { yExpr: "x^2", tMin: "-2", tMax: "2", color: 0x2563eb, visible: false },
@@ -32,34 +34,51 @@ test("round-trips a state with multiple function rows sharing one set of axes", 
 
 test("round-trips a state with the domain-sweep toggles on (#365)", () => {
   const state = {
-    v: 3 as const,
+    v: 4 as const,
     axisX: "reX" as const,
     axisY: "reY" as const,
     axisZ: "none" as const,
     sweepReX: false,
     sweepImX: true,
+    highlightNearReal: false,
     rows: [{ yExpr: "exp(i*x)", tMin: "0", tMax: "6.28", color: 0x9333ea, visible: true }],
   };
   const fragment = encodeComplexGraphState(state);
   assert.deepEqual(decodeComplexGraphState(fragment), state);
 });
 
-test("decodeComplexGraphState upgrades a v1 (single-curve) fragment into a one-row v3 state, sweep toggles defaulted off", () => {
+test("round-trips a state with the near-real highlight on (#367)", () => {
+  const state = {
+    v: 4 as const,
+    axisX: "reX" as const,
+    axisY: "reY" as const,
+    axisZ: "none" as const,
+    sweepReX: false,
+    sweepImX: true,
+    highlightNearReal: true,
+    rows: [{ yExpr: "exp(i*x)", tMin: "0", tMax: "6.28", color: 0x9333ea, visible: true }],
+  };
+  const fragment = encodeComplexGraphState(state);
+  assert.deepEqual(decodeComplexGraphState(fragment), state);
+});
+
+test("decodeComplexGraphState upgrades a v1 (single-curve) fragment all the way to v4, newer fields defaulted off", () => {
   const v1: ComplexGraphStateV1 = { v: 1, yExpr: "x^2", axisX: "imX", axisY: "reY", axisZ: "imY", tMin: "-2", tMax: "2" };
   const encodeV1 = encodeComplexGraphState as unknown as (s: unknown) => string;
   const decoded = decodeComplexGraphState(encodeV1(v1));
   assert.deepEqual(decoded, {
-    v: 3,
+    v: 4,
     axisX: "imX",
     axisY: "reY",
     axisZ: "imY",
     sweepReX: false,
     sweepImX: false,
+    highlightNearReal: false,
     rows: [{ yExpr: "x^2", tMin: "-2", tMax: "2", color: 0x9333ea, visible: true }],
   });
 });
 
-test("decodeComplexGraphState upgrades a v2 (pre-#365) fragment into v3, sweep toggles defaulted off", () => {
+test("decodeComplexGraphState upgrades a v2 (pre-#365) fragment all the way to v4, newer fields defaulted off", () => {
   const v2: ComplexGraphStateV2 = {
     v: 2,
     axisX: "reX",
@@ -69,7 +88,22 @@ test("decodeComplexGraphState upgrades a v2 (pre-#365) fragment into v3, sweep t
   };
   const encodeV2 = encodeComplexGraphState as unknown as (s: unknown) => string;
   const decoded = decodeComplexGraphState(encodeV2(v2));
-  assert.deepEqual(decoded, { ...v2, v: 3, sweepReX: false, sweepImX: false });
+  assert.deepEqual(decoded, { ...v2, v: 4, sweepReX: false, sweepImX: false, highlightNearReal: false });
+});
+
+test("decodeComplexGraphState upgrades a v3 (pre-#367) fragment to v4, highlight defaulted off", () => {
+  const v3: ComplexGraphStateV3 = {
+    v: 3,
+    axisX: "reX",
+    axisY: "reY",
+    axisZ: "imY",
+    sweepReX: false,
+    sweepImX: true,
+    rows: [{ yExpr: "exp(i*x)", tMin: "0", tMax: "6.28", color: 0x9333ea, visible: true }],
+  };
+  const encodeV3 = encodeComplexGraphState as unknown as (s: unknown) => string;
+  const decoded = decodeComplexGraphState(encodeV3(v3));
+  assert.deepEqual(decoded, { ...v3, v: 4, highlightNearReal: false });
 });
 
 test("decodeComplexGraphState returns null for garbage input rather than throwing", () => {
@@ -83,6 +117,7 @@ test("decodeComplexGraphState rejects a well-formed but wrong-shape payload", ()
   assert.equal(decodeComplexGraphState(encodeGarbage({ ...DEFAULT_COMPLEX_GRAPH_STATE, axisX: "notAComponent" })), null);
   assert.equal(decodeComplexGraphState(encodeGarbage({ ...DEFAULT_COMPLEX_GRAPH_STATE, rows: "not-an-array" })), null);
   assert.equal(decodeComplexGraphState(encodeGarbage({ ...DEFAULT_COMPLEX_GRAPH_STATE, sweepReX: "not-a-boolean" })), null);
+  assert.equal(decodeComplexGraphState(encodeGarbage({ ...DEFAULT_COMPLEX_GRAPH_STATE, highlightNearReal: "not-a-boolean" })), null);
 });
 
 test("decodeComplexGraphState ignores a stray extra key -- extra keys don't fail validation", () => {
@@ -93,12 +128,13 @@ test("decodeComplexGraphState ignores a stray extra key -- extra keys don't fail
 
 test("round-trips a state with an axis left unassigned ('none') -- an axis dropdown can be freely reset", () => {
   const state = {
-    v: 3 as const,
+    v: 4 as const,
     axisX: "none" as const,
     axisY: "reY" as const,
     axisZ: "imY" as const,
     sweepReX: false,
     sweepImX: false,
+    highlightNearReal: false,
     rows: [{ yExpr: "x^2", tMin: "-2", tMax: "2", color: 0x9333ea, visible: true }],
   };
   const fragment = encodeComplexGraphState(state);
