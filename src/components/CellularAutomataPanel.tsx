@@ -635,7 +635,15 @@ function RulePicker1D({ ruleNumber, onChange }: { ruleNumber: number; onChange: 
               onClick={() => onChange(toggleRuleBit(ruleNumber, i))}
               aria-label={`Neighborhood ${left}${center}${right} maps to ${outcome === 1 ? "alive" : "dead"} -- click to toggle`}
               title={`${left}${center}${right} -> ${outcome}`}
-              style={{ ...cellStyle(outcome === 1), width: RULE_PICKER_CELL_SIZE * 3, cursor: "pointer", padding: 0, marginTop: 2 }}
+              // #377: this used to be 3 cells wide (spanning the full row
+              // above), which read as an odd wide bar rather than the
+              // single resulting cell it represents. One cell wide, centered
+              // under the row via the parent's own textAlign: "center" (the
+              // button is inline-block by default), draws the standard
+              // "T" shape every published elementary-CA rule diagram uses --
+              // 3-cell neighborhood above, single next-state cell below the
+              // middle one.
+              style={{ ...cellStyle(outcome === 1), cursor: "pointer", padding: 0, marginTop: 2 }}
             />
           </div>
         );
@@ -645,15 +653,125 @@ function RulePicker1D({ ruleNumber, onChange }: { ruleNumber: number; onChange: 
 }
 
 /**
+ * Neighbor positions for one totalistic-count icon (issue #377), in a fixed
+ * canonical fill order -- the self/center cell excluded, every OTHER cell
+ * of the real 3x3 (2D, 8 neighbors) or 3x3x3 (3D, 26 neighbors) Moore
+ * neighborhood, row-major within each z-layer (z-layers outer for 3D).
+ * `NeighborCountIcon` fills the first `count` of these to depict that many
+ * live neighbors -- an actual (not merely decorative) neighborhood
+ * geometry, same spatial meaning `RulePicker1D`'s 3-cell row has for 1D.
+ */
+function neighborPositions(maxCount: 8 | 26): Array<{ x: number; y: number; z: number }> {
+  const positions: Array<{ x: number; y: number; z: number }> = [];
+  const zRange = maxCount === 26 ? [0, 1, 2] : [0];
+  for (const z of zRange) {
+    for (let y = 0; y < 3; y++) {
+      for (let x = 0; x < 3; x++) {
+        if (x === 1 && y === 1 && (maxCount === 8 || z === 1)) continue; // self
+        positions.push({ x, y, z });
+      }
+    }
+  }
+  return positions;
+}
+
+const NEIGHBOR_ICON_CELL_2D = 6;
+const NEIGHBOR_ICON_CELL_3D = 5;
+const NEIGHBOR_ICON_GAP = 1;
+
+/**
+ * One totalistic-count's neighborhood diagram (issue #377): a real 3x3 grid
+ * (2D) or three side-by-side 3x3 z-layers (3D, left-to-right = z=0,1,2),
+ * self cell always shown as a small dim dot, with the first `count`
+ * neighbor cells (`neighborPositions`'s own canonical order) filled --
+ * replaces a bare checkbox with the actual shape of "this many neighbors
+ * are alive", the same spirit `RulePicker1D`'s row-of-3-plus-1 diagram
+ * already has for 1D. `active` (this count is currently in the birth/
+ * survival set) shows as a colored ring around the whole icon, since the
+ * fill pattern itself is already spoken for (encoding the count, not
+ * membership) -- clicking anywhere on the icon toggles membership, same
+ * interaction as the checkbox it replaces.
+ */
+function NeighborCountIcon({
+  count,
+  maxCount,
+  active,
+  onToggle,
+}: {
+  count: number;
+  maxCount: 8 | 26;
+  active: boolean;
+  onToggle: () => void;
+}) {
+  const theme = getThemeColors();
+  const positions = neighborPositions(maxCount);
+  const filled = new Set(positions.slice(0, count).map((p) => `${p.x},${p.y},${p.z}`));
+  const cell = maxCount === 26 ? NEIGHBOR_ICON_CELL_3D : NEIGHBOR_ICON_CELL_2D;
+  const zLayers = maxCount === 26 ? [0, 1, 2] : [0];
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={active}
+      aria-label={`${count} neighbor${count === 1 ? "" : "s"}${active ? " (selected)" : ""} -- click to toggle`}
+      title={`${count} neighbor${count === 1 ? "" : "s"}`}
+      style={{
+        display: "flex",
+        gap: NEIGHBOR_ICON_GAP * 2,
+        padding: 2,
+        cursor: "pointer",
+        background: "none",
+        border: active ? "2px solid var(--accent, #2563eb)" : "2px solid transparent",
+        borderRadius: 3,
+      }}
+    >
+      {zLayers.map((z) => (
+        <div
+          key={z}
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(3, ${cell}px)`,
+            gridTemplateRows: `repeat(3, ${cell}px)`,
+            gap: NEIGHBOR_ICON_GAP,
+          }}
+        >
+          {Array.from({ length: 9 }, (_, i) => {
+            const x = i % 3;
+            const y = Math.floor(i / 3);
+            const isSelf = x === 1 && y === 1 && (maxCount === 8 || z === 1);
+            const isFilled = filled.has(`${x},${y},${z}`);
+            return (
+              <div
+                key={i}
+                style={{
+                  width: cell,
+                  height: cell,
+                  background: isSelf ? theme.muted : isFilled ? theme.ink : theme.surface,
+                  border: "1px solid var(--border, #999)",
+                  borderRadius: isSelf ? "50%" : 0,
+                  boxSizing: "border-box",
+                }}
+              />
+            );
+          })}
+        </div>
+      ))}
+    </button>
+  );
+}
+
+/**
  * Visual rule picker for totalistic B/S rules by neighbor count (issue #260
- * item 2/3): the practical equivalent of the issue's own "3x3 plane + 10th
- * square below" idea for 2D life-like rules -- 2^9 = 512 distinct
- * neighborhoods makes a literal one-diagram-per-neighborhood enumeration
- * intractable the way 1D's 8-entry `RulePicker1D` is (and 2^26 for 3D is
- * far worse), so this shows checkboxes for each possible NEIGHBOR COUNT
- * instead -- exactly what B/S notation itself already encodes, just made
- * clickable. Reused as-is for 2D (`maxCount=8`) and 3D (`maxCount=26`,
- * item 3's minimal 3D extension).
+ * item 2/3, redesigned as an actual neighborhood-shaped icon per #377): the
+ * practical equivalent of the issue's own "3x3 plane + 10th square below"
+ * idea for 2D life-like rules -- 2^9 = 512 distinct neighborhoods makes a
+ * literal one-diagram-per-neighborhood enumeration intractable the way 1D's
+ * 8-entry `RulePicker1D` is (and 2^26 for 3D is far worse), so this shows
+ * one `NeighborCountIcon` per possible NEIGHBOR COUNT instead of per exact
+ * neighborhood -- exactly what B/S notation itself already encodes, just
+ * made clickable and, per #377, shaped like the neighborhood it counts
+ * rather than a bare checkbox. Reused as-is for 2D (`maxCount=8`) and 3D
+ * (`maxCount=26`, item 3's minimal 3D extension).
  */
 function BirthSurvivalPicker({
   birth,
@@ -664,7 +782,7 @@ function BirthSurvivalPicker({
 }: {
   birth: ReadonlySet<number>;
   survival: ReadonlySet<number>;
-  maxCount: number;
+  maxCount: 8 | 26;
   onToggleBirth: (count: number) => void;
   onToggleSurvival: (count: number) => void;
 }) {
@@ -673,10 +791,7 @@ function BirthSurvivalPicker({
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.35rem", margin: "0.15rem 0" }}>
       <span style={{ width: "4.5rem", flex: "0 0 auto" }}>{label}:</span>
       {counts.map((count) => (
-        <label key={count} style={{ display: "flex", flexDirection: "column", alignItems: "center", fontSize: "0.7rem" }}>
-          {count}
-          <input type="checkbox" checked={active.has(count)} onChange={() => onToggle(count)} />
-        </label>
+        <NeighborCountIcon key={count} count={count} maxCount={maxCount} active={active.has(count)} onToggle={() => onToggle(count)} />
       ))}
     </div>
   );
