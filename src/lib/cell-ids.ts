@@ -253,10 +253,20 @@ export function cellIdsOde(cellId: string) {
 
 /**
  * Cell-id namespacing for the coupled-ODE-system/phase-portrait panel
- * (OdeSystemPanel.tsx) -- a fixed 2-equation/2-variable system (dx/dt,
- * dy/dt) plus an initial condition, a t-domain, and a phase-plane viewport.
- * Fixed at 2 equations/2 variables for v1, the same scope cut
- * SystemSolverPanel (its algebraic-system counterpart) already made.
+ * (OdeSystemPanel.tsx) -- a fixed 2-equation/2-variable system per row
+ * (dx/dt, dy/dt) plus an initial condition and a t-domain. Fixed at 2
+ * equations/2 variables PER SYSTEM, the same scope cut SystemSolverPanel
+ * (its algebraic-system counterpart) already made.
+ *
+ * Unlimited overlaid systems (same port as cellIdsOde/cellIdsSpaceCurve):
+ * xMin/xMax/yMin/yMax/list are container-level (called with the panel's own
+ * container id, shared by every row) -- the phase-plane viewport is a
+ * shared "view" every system's trajectory is plotted against, same
+ * reasoning as why VectorField3DPanel's domain bounds stay container-level
+ * while its expressions go per-row. exprX/exprY/t0/x0/y0/tMin/tMax/color/
+ * visible/trajectory/vectorField/fixedPoints are all per-row (called with a
+ * row id) -- one coupled system per row, each with its own f(x,y)/g(x,y),
+ * initial condition, and t-domain.
  */
 export function cellIdsOdeSystem(cellId: string) {
   return {
@@ -276,6 +286,9 @@ export function cellIdsOdeSystem(cellId: string) {
     // Fixed-point classification (issue #29) -- derived from the same
     // exprX/exprY/xMin..yMax/t0 cells above, no new inputs needed.
     fixedPoints: `odeSysFixedPoints:${cellId}`,
+    color: `odeSysColor:${cellId}`,
+    visible: `odeSysVisible:${cellId}`,
+    list: `odeSysList:${cellId}`,
   };
 }
 

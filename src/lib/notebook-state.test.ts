@@ -159,6 +159,42 @@ test("decodeNotebookState upgrades a legacy v1 (single-equation) ode block's nes
   assert.equal(odeBlock.state.rows?.[0]?.expr, "x - y");
 });
 
+test("decodeNotebookState upgrades a legacy v1 (single-system) ode-system block's nested state to v2 on decode", () => {
+  const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const legacy = {
+    v: 1,
+    blocks: [
+      {
+        type: "ode-system",
+        state: {
+          v: 1,
+          exprX: "x*(1-y)",
+          exprY: "y*(x-1)",
+          t0: "0",
+          x0: "2",
+          y0: "1",
+          tMin: "0",
+          tMax: "15",
+          xMin: "0",
+          xMax: "3",
+          yMin: "0",
+          yMax: "3",
+        },
+      },
+    ],
+  };
+  const decoded = decodeNotebookState(legacyFragment(legacy));
+  assert.ok(decoded);
+  const odeSystemBlock = decoded!.blocks[0] as { type: "ode-system"; state: { v: number; rows?: Array<{ exprX: string; exprY: string }> } };
+  assert.equal(
+    odeSystemBlock.state.v,
+    2,
+    "the nested OdeSystemState is upgraded to the version seedOdeSystemState/NotebookOdeSystemBlock now expect",
+  );
+  assert.equal(odeSystemBlock.state.rows?.[0]?.exprX, "x*(1-y)");
+  assert.equal(odeSystemBlock.state.rows?.[0]?.exprY, "y*(x-1)");
+});
+
 test("decodeNotebookState upgrades a legacy v1 complex block's nested state to v3 on decode", () => {
   const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
   const legacy = {
