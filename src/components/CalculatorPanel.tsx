@@ -179,7 +179,7 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
           <label title="Interval arithmetic: every result comes with mathematically guaranteed lower/upper bounds instead of a single float.">
             <input type="radio" name="calc-mode" checked={mode === "interval"} onChange={() => setMode("interval")} /> Interval
           </label>{" "}
-          <label title='Complex arithmetic (+, -, *, / and integer powers) using "i" as the imaginary unit.'>
+          <label title='Complex arithmetic (+, -, *, /, ^, and elementary functions like sqrt/sin/exp) using "i" as the imaginary unit.'>
             <input type="radio" name="calc-mode" checked={mode === "complex"} onChange={() => setMode("complex")} /> Complex
           </label>
         </div>
@@ -202,10 +202,12 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
       )}
       {mode === "complex" && modulus === null && (
         <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
-          <strong>Complex</strong> supports <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, and
-          integer powers over complex numbers, with <code>i</code> as the imaginary unit -- e.g. <code>i^2</code>,{" "}
-          <code>(3+4i)*(1-2i)</code>, <code>1/(2+i)</code>. Functions like <code>sqrt</code>/<code>sin</code> of a
-          complex argument aren't supported yet, and only real-valued results can be stored into a variable.
+          <strong>Complex</strong> supports <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>,{" "}
+          <code>^</code>, and elementary functions (<code>sqrt</code>, <code>sin</code>/<code>cos</code>/
+          <code>tan</code>, <code>exp</code>, <code>ln</code>, hyperbolic and inverse variants, ...) over complex
+          numbers, with <code>i</code> as the imaginary unit -- e.g. <code>i^2</code>, <code>(3+4i)*(1-2i)</code>,{" "}
+          <code>sqrt(-1)</code>, <code>exp(i*pi)</code>. Two-argument functions (like <code>atan2</code>) aren't
+          supported, and only real-valued results can be stored into a variable.
         </p>
       )}
 
@@ -229,7 +231,7 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
         }}
       >
         {state.history.length === 0 && (
-          <p style={{ color: "#888", margin: 0 }}>
+          <p style={{ color: "var(--muted)", margin: 0 }}>
             Type an expression below, or "name = expr" (or "expr -&gt; name" / "name &lt;- expr") to save a value.
           </p>
         )}
@@ -238,7 +240,7 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
             key={i}
             style={{ display: "flex", justifyContent: "space-between", gap: "1rem", padding: "0.15rem 0" }}
           >
-            <span style={{ color: "#555" }}>{entry.input}</span>
+            <span style={{ color: "var(--ink-soft)" }}>{entry.input}</span>
             <span style={{ color: entry.isError ? "var(--danger)" : entry.isAssignment ? "#2563eb" : "inherit", fontWeight: entry.isAssignment ? 600 : 400 }}>
               {/* Explicit "error:" prefix (mallory-graph#305): a failed
                   line's message previously differed from a result only by
@@ -277,7 +279,7 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
       </div>
 
       {variableNames.length > 0 && (
-        <p style={{ fontSize: "0.8rem", color: "#888", marginTop: "0.5rem" }}>
+        <p style={{ fontSize: "0.8rem", color: "var(--muted)", marginTop: "0.5rem" }}>
           Defined: {variableNames.map((name) => `${name} = ${state.variables[name]}`).join(", ")}
         </p>
       )}

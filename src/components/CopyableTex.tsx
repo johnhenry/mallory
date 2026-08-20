@@ -34,7 +34,7 @@ export function CopyableTex({ tex, className }: { tex: string; className?: strin
           font: "inherit",
           fontSize: "0.72rem",
           padding: "0 0.3rem",
-          border: "1px solid #d7dfef",
+          border: "1px solid var(--border)",
           borderRadius: "3px",
           background: "transparent",
           color: "var(--muted)",

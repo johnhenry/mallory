@@ -59,7 +59,7 @@ export function KeyframeSliderControl({ graph, ids, name }: { graph: CellGraph; 
   return (
     <div
       className="timeline-control"
-      style={{ display: "flex", flexDirection: "column", fontSize: "0.85rem", border: "1px solid #eee", padding: "0.4rem" }}
+      style={{ display: "flex", flexDirection: "column", fontSize: "0.85rem", border: "1px solid var(--border)", padding: "0.4rem" }}
     >
       <label style={{ display: "flex", flexDirection: "column" }}>
         {name} = {value.toFixed(2)}

@@ -19,7 +19,10 @@ export function evaluateComplex(expr: Expr, env: ComplexEnv): ComplexNumber {
       const constant = CONSTANTS[expr.name];
       if (constant) return constant;
       const bound = env[expr.name];
-      if (!bound) throw new Error(`"${expr.name}" is not bound -- only "z" and constants (pi, e) are available here.`);
+      if (!bound) {
+        const available = [...Object.keys(env), ...Object.keys(CONSTANTS)].join(", ");
+        throw new Error(`"${expr.name}" is not bound -- available names here: ${available}.`);
+      }
       return bound;
     }
     case "add":

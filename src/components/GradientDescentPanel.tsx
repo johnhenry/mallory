@@ -241,7 +241,7 @@ export function drawGradientDescentContour(
   const sx = Number(startX);
   const sy = Number(startY);
   if (Number.isFinite(sx) && Number.isFinite(sy)) {
-    drawPoint(ctx, { x: sx, y: sy }, VIEWPORT, width, height, 6, "#111827");
+    drawPoint(ctx, { x: sx, y: sy }, VIEWPORT, width, height, 6, getThemeColors().ink);
   }
 }
 

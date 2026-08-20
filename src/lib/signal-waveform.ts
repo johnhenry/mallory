@@ -4,6 +4,7 @@ import { findPeaks, hannWindow, stft } from "mallory-signal";
 import { Tensor } from "mallory-tensor-core";
 import { finiteRange, heatCellColor } from "./heatmap.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
+import { getThemeColors } from "./theme-colors.ts";
 
 export interface Waveform {
   t: number[];
@@ -220,7 +221,9 @@ export function drawSpectrogram(ctx: CanvasRenderingContext2D, spectrogram: Spec
 
   const TICK_COUNT = 5;
   ctx.save();
-  ctx.fillStyle = "#374151";
+  // getThemeColors(), not a fixed hex -- invisible against the dark theme's
+  // dark background otherwise (the #374151/var(--x) bug class, issue #314).
+  ctx.fillStyle = getThemeColors().ink;
   ctx.font = "10px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "top";

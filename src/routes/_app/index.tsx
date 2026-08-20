@@ -58,7 +58,7 @@ function DashboardPage() {
     <div>
       <div className="page-head">
         <p className="page-eyebrow">mallory-graph</p>
-        <h1>{CARDS.length} tools, one reactive core.</h1>
+        <h1>Every tool, one reactive core.</h1>
         <p className="lede">
           Plot, construct, solve, and animate — every tool below shares the same underlying math engine, so a curve
           you build in Graphing can drive a surface in 3D or a slope field in Calculus.

@@ -150,8 +150,21 @@ test("evaluateCalculatorExpr in complex mode: a previously-defined real variable
   assert.equal(result.display, "3+i");
 });
 
-test("evaluateCalculatorExpr in complex mode: a transcendental function has no meaning over the field and surfaces as an error, not a throw", () => {
+test("evaluateCalculatorExpr in complex mode: elementary functions of a complex argument now work (previously unsupported)", () => {
   const result = evaluateCalculatorExpr("sqrt(i)", {}, "complex", null);
+  assert.equal(result.isError, false);
+  assert.equal(result.display, "0.7071067812+0.7071067812*i");
+  assert.equal(result.value, null); // genuinely complex -- not storable as a plain number
+});
+
+test("evaluateCalculatorExpr in complex mode: exp(i*pi) is Euler's identity (-1, a real result)", () => {
+  const result = evaluateCalculatorExpr("exp(i*pi)", {}, "complex", null);
+  assert.equal(result.isError, false);
+  assert.ok(result.value !== null && Math.abs(result.value - -1) < 1e-9);
+});
+
+test("evaluateCalculatorExpr in complex mode: a two-argument function still has no meaning here and surfaces as an error, not a throw", () => {
+  const result = evaluateCalculatorExpr("atan2(1, i)", {}, "complex", null);
   assert.equal(result.isError, true);
   assert.equal(result.value, null);
 });

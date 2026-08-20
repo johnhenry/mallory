@@ -10,7 +10,8 @@
  * numbers, else Z/nZ via `integersModuloStructure`) are the same two knobs
  * GraphCanvas exposes, just without a curve attached to them.
  */
-import { ComplexNumber, Interval, Rational, Structure, Symbolic } from "mallory-math";
+import { ComplexNumber, Interval, Rational, Symbolic } from "mallory-math";
+import { evaluateComplex } from "./complex-eval.ts";
 import { integersModuloStructure } from "./finite-structure.ts";
 import { evaluateInterval } from "./interval-eval.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
@@ -105,20 +106,21 @@ export function evaluateCalculatorExpr(
       return { display: result.toString(), isError: false, value: result.midpoint };
     }
     if (mode === "complex") {
-      // Routed through the same `Symbolic.evaluateOverStructure` generic
-      // evaluator the Z/nZ modulus path above uses, with `Structure.
-      // complexField()` in place of `integersModuloStructure` -- `i` is
-      // seeded into the environment as `ComplexNumber.I` (stored variables
-      // can still shadow it by reassigning `i`, same as any other name).
-      // `evaluateOverStructure` throws on any `func`/`call2` node, so
-      // transcendental functions (sqrt/exp/sin/...) of a complex argument
-      // aren't supported yet -- only +, -, *, /, and ^ with a literal
-      // integer exponent, which is enough for e.g. `(3+4i)*(1-2i)` or
-      // `i^2`. A stated v1 limitation, not a hidden gap.
+      // Routed through complex-eval.ts's dedicated AST walker (the same one
+      // ComplexPanel.tsx uses for domain coloring) rather than the generic
+      // `Symbolic.evaluateOverStructure` the Z/nZ modulus path above uses --
+      // that generic evaluator throws on any `func`/`call2` node even given
+      // `Structure.complexField()`, so it could only ever handle +, -, *, /,
+      // and ^ with a literal integer exponent. evaluateComplex additionally
+      // dispatches transcendental functions (sqrt/exp/sin/ln/...) to
+      // ComplexNumber's own methods. `i` is seeded into the environment as
+      // `ComplexNumber.I` (stored variables can still shadow it by
+      // reassigning `i`, same as any other name); `pi`/`e` resolve via
+      // evaluateComplex's own constant table.
       const expr = Symbolic.parse(preprocessImplicitMultiplication(source));
       const env: Record<string, ComplexNumber> = { i: ComplexNumber.I };
       for (const [name, v] of Object.entries(variables)) env[name] = ComplexNumber.fromNumber(v);
-      const result = Symbolic.evaluateOverStructure(expr, Structure.complexField(), env);
+      const result = evaluateComplex(expr, env);
       if (Number.isNaN(result.re) || Number.isNaN(result.im)) return { display: "undefined", isError: true, value: null };
       // `CalculatorState.variables` is a plain `Record<string, number>`
       // shared across every mode (float/exact/units/interval all store a
