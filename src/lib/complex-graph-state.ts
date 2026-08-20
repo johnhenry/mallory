@@ -1,5 +1,5 @@
 import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
-import type { ComplexComponent } from "./sample-complex-graph.ts";
+import { isAxisChoice, type AxisChoice } from "./sample-complex-graph.ts";
 
 /**
  * URL-state schema for ComplexGraph3DPanel (issue #345) -- a flat dump of
@@ -18,13 +18,25 @@ import type { ComplexComponent } from "./sample-complex-graph.ts";
  * shipped anywhere reachable, so no migration is needed -- a stray `drop`
  * key in an old fragment is simply ignored (extra keys don't fail
  * validation), so nothing breaks either way.
+ *
+ * Each axis is `AxisChoice` (a real component, or `"none"`) rather than
+ * always-assigned `ComplexComponent` -- a follow-up UI fix: the first
+ * version's dropdowns disabled any choice that would violate the "exactly
+ * one domain component" curve-validity rule directly at the UI layer, on
+ * the theory that an unreachable state is better than a confusing one. In
+ * practice that made a perfectly fine reassignment (moving Im(x) from
+ * Axis Z to Axis X, say) look stuck, since the OLD value briefly didn't
+ * free up until the intermediate state passed the same strict check.
+ * Axes now freely take any of the 4 components (duplicates still blocked)
+ * or "none"; the domain-count rule moved to be a plain error message at
+ * the sampling layer instead of a UI gate (see ComplexGraph3DPanel.tsx).
  */
 export interface ComplexGraphStateV1 {
   v: 1;
   yExpr: string;
-  axisX: ComplexComponent;
-  axisY: ComplexComponent;
-  axisZ: ComplexComponent;
+  axisX: AxisChoice;
+  axisY: AxisChoice;
+  axisZ: AxisChoice;
   tMin: string;
   tMax: string;
 }
@@ -56,19 +68,15 @@ export function decodeComplexGraphState(fragment: string): ComplexGraphState | n
   }
 }
 
-function isComplexComponent(v: unknown): v is ComplexComponent {
-  return v === "reX" || v === "imX" || v === "reY" || v === "imY";
-}
-
 export function isComplexGraphStateV1(value: unknown): value is ComplexGraphStateV1 {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
     v.v === 1 &&
     typeof v.yExpr === "string" &&
-    isComplexComponent(v.axisX) &&
-    isComplexComponent(v.axisY) &&
-    isComplexComponent(v.axisZ) &&
+    isAxisChoice(v.axisX) &&
+    isAxisChoice(v.axisY) &&
+    isAxisChoice(v.axisZ) &&
     typeof v.tMin === "string" &&
     typeof v.tMax === "string"
   );

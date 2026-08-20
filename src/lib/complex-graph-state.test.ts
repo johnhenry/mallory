@@ -30,3 +30,9 @@ test("decodeComplexGraphState ignores a stray 'drop' key from a pre-launch schem
   const withStrayDrop = { ...DEFAULT_COMPLEX_GRAPH_STATE, drop: "imX" };
   assert.deepEqual(decodeComplexGraphState(encodeLegacyShape(withStrayDrop)), withStrayDrop);
 });
+
+test("round-trips a state with an axis left unassigned ('none') -- an axis dropdown can be freely reset (#345 follow-up)", () => {
+  const state = { v: 1 as const, yExpr: "x^2", axisX: "none" as const, axisY: "reY" as const, axisZ: "imY" as const, tMin: "-2", tMax: "2" };
+  const fragment = encodeComplexGraphState(state);
+  assert.deepEqual(decodeComplexGraphState(fragment), state);
+});

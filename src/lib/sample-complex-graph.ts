@@ -15,6 +15,9 @@ import type { Domain1D, SpaceCurvePoint } from "./sample-space-curve.ts";
  */
 export type ComplexComponent = "reX" | "imX" | "reY" | "imY";
 
+/** An axis dropdown's full choice set: one of the 4 real components, or explicitly unassigned. Distinct from `ComplexComponent` (which every math function in this module still requires all 3 axes to be) since "none" only has meaning at the UI edge, before a curve can even be attempted. */
+export type AxisChoice = ComplexComponent | "none";
+
 export const ALL_COMPONENTS: ComplexComponent[] = ["reX", "imX", "reY", "imY"];
 
 export const COMPONENT_LABELS: Record<ComplexComponent, string> = {
@@ -23,6 +26,14 @@ export const COMPONENT_LABELS: Record<ComplexComponent, string> = {
   reY: "Re(y)",
   imY: "Im(y)",
 };
+
+export function isComplexComponent(v: unknown): v is ComplexComponent {
+  return v === "reX" || v === "imX" || v === "reY" || v === "imY";
+}
+
+export function isAxisChoice(v: unknown): v is AxisChoice {
+  return v === "none" || isComplexComponent(v);
+}
 
 function isDomainComponent(c: ComplexComponent): boolean {
   return c === "reX" || c === "imX";
