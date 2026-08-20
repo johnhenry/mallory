@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 export type CaDimension = "1d" | "2d" | "3d";
 export type Boundary1D = "zero" | "wrap";
 export type Boundary2D = "dead" | "wrap";
@@ -79,13 +80,13 @@ export const DEFAULT_CA_STATE: CaState = {
 };
 
 export function encodeCaState(state: CaState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. */
 export function decodeCaState(fragment: string): CaState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     return isCaStateV1(parsed) ? parsed : null;
   } catch {
     return null;
@@ -139,16 +140,3 @@ export function isCaStateV1(value: unknown): value is CaStateV1 {
   );
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

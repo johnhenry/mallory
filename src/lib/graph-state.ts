@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for mallory-graph — the graph's source of truth,
  * serialized into a compact base64url fragment (Desmos-style: no server
@@ -55,13 +56,13 @@ export const DEFAULT_GRAPH_STATE: GraphState = {
 };
 
 export function encodeGraphState(state: GraphState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades v1/v2 payloads to v3 with defaults. */
 export function decodeGraphState(fragment: string): GraphState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     if (isGraphStateV3(parsed)) return parsed;
     if (isGraphStateV2(parsed)) return upgradeV2ToV3(parsed);
     if (isGraphStateV1(parsed)) return upgradeV2ToV3(upgradeV1ToV2(parsed));
@@ -132,16 +133,3 @@ function isGraphStateV3(value: unknown): value is GraphStateV3 {
   });
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

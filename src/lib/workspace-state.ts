@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for the `/workspace` inspector page (issue #42) -- a
  * bare, variable-length list of named workspace variables. Unlike every
@@ -19,13 +20,13 @@ export type WorkspaceState = WorkspaceStateV1;
 export const DEFAULT_WORKSPACE_STATE: WorkspaceState = { v: 1, variables: [] };
 
 export function encodeWorkspaceState(state: WorkspaceState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. */
 export function decodeWorkspaceState(fragment: string): WorkspaceState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     return isWorkspaceStateV1(parsed) ? parsed : null;
   } catch {
     return null;
@@ -43,16 +44,3 @@ export function isWorkspaceStateV1(value: unknown): value is WorkspaceStateV1 {
   });
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

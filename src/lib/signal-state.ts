@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * A single term of the sum-of-sinusoids builder (issue #31's remaining
  * "alternative to the raw expression input" item). No `id` field -- row
@@ -117,13 +118,13 @@ export const DEFAULT_SIGNAL_STATE: SignalState = {
 };
 
 export function encodeSignalState(state: SignalState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades a v1 payload to v2 with the spectrogram fields defaulted. */
 export function decodeSignalState(fragment: string): SignalState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     if (isSignalStateV2(parsed)) return parsed;
     if (isSignalStateV1(parsed)) return upgradeV1ToV2(parsed);
     return null;
@@ -182,16 +183,3 @@ function isSinusoidTermArray(value: unknown): value is SinusoidTerm[] {
   });
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

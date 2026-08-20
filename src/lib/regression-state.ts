@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for RegressionPanel -- a flat dump of its free cells (see
  * cell-ids.ts's cellIdsRegression). Rows carry no `id` in the serialized
@@ -35,13 +36,13 @@ export const DEFAULT_REGRESSION_STATE: RegressionState = {
 };
 
 export function encodeRegressionState(state: RegressionState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. */
 export function decodeRegressionState(fragment: string): RegressionState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     return isRegressionStateV1(parsed) ? parsed : null;
   } catch {
     return null;
@@ -62,16 +63,3 @@ export function isRegressionStateV1(value: unknown): value is RegressionStateV1 
   });
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

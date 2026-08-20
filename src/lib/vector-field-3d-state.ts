@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for VectorField3DPanel -- a flat dump of its free string
  * cells (see cell-ids.ts's cellIdsVectorField3D). Same shape/convention as
@@ -82,13 +83,13 @@ function upgradeV1ToV2(v1: VectorField3DStateV1): VectorField3DStateV2 {
 }
 
 export function encodeVectorField3DState(state: VectorField3DState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. */
 export function decodeVectorField3DState(fragment: string): VectorField3DState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     if (isVectorField3DStateV2(parsed)) return parsed;
     if (isVectorField3DStateV1(parsed)) return upgradeV1ToV2(parsed);
     return null;
@@ -117,16 +118,3 @@ export function isVectorField3DStateV2(value: unknown): value is VectorField3DSt
   });
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

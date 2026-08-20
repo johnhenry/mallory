@@ -1,4 +1,5 @@
 import { DEFAULT_CUBE_TILES_TEXT } from "./cube-tile-set-text.ts";
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 import { DEFAULT_HEX_TILES_TEXT } from "./hex-tile-set-text.ts";
 import { DEFAULT_TRI_TILES_TEXT } from "./tri-tile-set-text.ts";
 import type { SymmetryGroup } from "./tiles/symmetry.ts";
@@ -75,13 +76,13 @@ export const DEFAULT_TILES_STATE: TilesState = {
 };
 
 export function encodeTilesState(state: TilesState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades v1/v2/v3 payloads up to v4 with lattice defaulted to "square" and hex/tri/cube text and depth defaulted. */
 export function decodeTilesState(fragment: string): TilesState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     if (isTilesStateV4(parsed)) return parsed;
     if (isTilesStateV3(parsed)) return upgradeV3ToV4(parsed);
     if (isTilesStateV2(parsed)) return upgradeV3ToV4(upgradeV2ToV3(parsed));
@@ -150,16 +151,3 @@ export function isTilesStateV4(value: unknown): value is TilesStateV4 {
   return typeof v.hexTilesText === "string" && typeof v.triTilesText === "string" && typeof v.cubeTilesText === "string" && typeof v.depth === "number";
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

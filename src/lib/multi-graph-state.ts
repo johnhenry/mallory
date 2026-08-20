@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for GraphCanvasMulti, parallel to graph-state.ts's
  * single-pane schema (not layered onto its V1-V4 lineage, since the shape
@@ -36,13 +37,13 @@ export const DEFAULT_MULTI_GRAPH_STATE: MultiGraphState = {
 };
 
 export function encodeMultiGraphState(state: MultiGraphState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. */
 export function decodeMultiGraphState(fragment: string): MultiGraphState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     return isMultiGraphStateV1(parsed) ? parsed : null;
   } catch {
     return null;
@@ -76,16 +77,3 @@ function isMultiGraphStateV1(value: unknown): value is MultiGraphStateV1 {
   });
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
