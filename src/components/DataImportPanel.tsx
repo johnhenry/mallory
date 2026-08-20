@@ -82,9 +82,12 @@ export function DataImportPanel() {
   function openInRegression() {
     if (!parsed.ok) return;
     const { pairs } = pairedNumericColumns(parsed.value, xColumn, yColumn);
-    const rows = pairs.slice(0, MAX_REGRESSION_PAIRS).map((p) => ({ x: String(p.x), y: String(p.y) }));
-    if (rows.length === 0) return;
-    const encoded = encodeRegressionState({ ...DEFAULT_REGRESSION_STATE, rows });
+    const points = pairs.slice(0, MAX_REGRESSION_PAIRS).map((p) => ({ x: String(p.x), y: String(p.y) }));
+    if (points.length === 0) return;
+    const encoded = encodeRegressionState({
+      ...DEFAULT_REGRESSION_STATE,
+      datasets: DEFAULT_REGRESSION_STATE.datasets.map((dataset) => ({ ...dataset, points })),
+    });
     window.location.assign(`/data?tab=regression#${encoded}`);
   }
 

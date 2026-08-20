@@ -133,17 +133,23 @@ export const GALLERY_SEEDS: GallerySeed[] = [
     kind: "regression",
     createdAt: 1700000006000,
     state: {
-      v: 1,
-      rows: [
-        { x: "1", y: "2.1" },
-        { x: "2", y: "3.9" },
-        { x: "3", y: "6.2" },
-        { x: "4", y: "7.8" },
-        { x: "5", y: "10.1" },
+      v: 2,
+      datasets: [
+        {
+          points: [
+            { x: "1", y: "2.1" },
+            { x: "2", y: "3.9" },
+            { x: "3", y: "6.2" },
+            { x: "4", y: "7.8" },
+            { x: "5", y: "10.1" },
+          ],
+          fitType: "linear",
+          modelExpr: "a*exp(b*x)",
+          paramGuesses: { a: "1", b: "0.1" },
+          color: 0x2563eb,
+          visible: true,
+        },
       ],
-      fitType: "linear",
-      modelExpr: "a*exp(b*x)",
-      paramGuesses: { a: "1", b: "0.1" },
     },
   },
   {

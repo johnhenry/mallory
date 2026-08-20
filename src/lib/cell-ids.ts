@@ -869,13 +869,27 @@ export type CellIdsParametric = ReturnType<typeof cellIdsParametric>;
 
 /**
  * Cell-id namespacing for the regression panel (RegressionPanel.tsx) -- one
- * ordered row list (each row a spreadsheet-style {id, x, y}), a fit-type
- * toggle, and (for the nonlinear fit) a model expression plus a map of
- * per-parameter initial guesses -- distinct from every other panel's shape.
+ * ordered dataset list, each dataset its own spreadsheet-style row of (x, y)
+ * points, a fit-type toggle, and (for the nonlinear fit) a model expression
+ * plus a map of per-parameter initial guesses -- distinct from every other
+ * panel's shape.
+ *
+ * Unlimited overlaid datasets (#336 item 7, same port as
+ * cellIdsOde/cellIdsSpaceCurve): `list` is container-level (called with the
+ * panel's own container id, shared by every dataset) -- the ordered list of
+ * dataset ids every dataset lives under. `points`/`fitType`/`modelExpr`/
+ * `paramGuesses`/`fit`/`linearLossMode`/`showOutliers`/`huberFitting`/
+ * `huberFitResult`/`color`/`visible` are all per-dataset (called with a
+ * dataset id) -- one (x, y) point list and fit per dataset, each with its
+ * own fit-type/model/loss-mode/outlier/Huber state and its own color/
+ * visibility. Named `points` (not `rows`) to avoid colliding with the
+ * "dataset" vocabulary this port introduces at the panel level -- the
+ * pre-existing "row" name already meant one spreadsheet (x, y) data point,
+ * one level BELOW a dataset.
  */
 export function cellIdsRegression(cellId: string) {
   return {
-    rows: `regressionRows:${cellId}`,
+    points: `regressionPoints:${cellId}`,
     fitType: `regressionFitType:${cellId}`,
     modelExpr: `regressionModelExpr:${cellId}`,
     paramGuesses: `regressionParamGuesses:${cellId}`,
@@ -889,6 +903,9 @@ export function cellIdsRegression(cellId: string) {
     showOutliers: `regressionShowOutliers:${cellId}`,
     huberFitting: `regressionHuberFitting:${cellId}`,
     huberFitResult: `regressionHuberFitResult:${cellId}`,
+    color: `regressionColor:${cellId}`,
+    visible: `regressionVisible:${cellId}`,
+    list: `regressionList:${cellId}`,
   };
 }
 

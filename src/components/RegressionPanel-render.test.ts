@@ -68,14 +68,22 @@ async function mount(element: ReturnType<typeof createElement>) {
 test("RegressionPanel: an unrelated cell change does not re-invoke the curve-sampling work, but a real regressionPlot input does", async () => {
   // GraphUtils.vectorToCurve is called exactly once per regressionPlot()
   // invocation for the default (linear, 2-endpoint) fit -- a clean, easily
-  // spied proxy for "did regressionPlot actually recompute".
+  // spied proxy for "did regressionPlot actually recompute". #336 item 7's
+  // unlimited-datasets port replaced the single top-level `useMemo` this
+  // used to check with a per-dataset memo cache inside
+  // `collectRegressionDrawState` (see RegressionPanel.tsx's own doc
+  // comment) -- same guarantee, now keyed by dataset id instead of being
+  // the only dataset there is.
   const curveSpy = mock.method(GraphUtils, "vectorToCurve");
 
   const graph = new CellGraph();
-  const ids = cellIdsRegression("render-test-1");
+  const containerIds = cellIdsRegression("render-test-1");
   const { update, unmount } = await mount(
     createElement(RegressionPanel, { cellId: "render-test-1", graph, syncUrl: false }),
   );
+  const [datasetId] = graph.get<string[]>(containerIds.list);
+  const ids = cellIdsRegression(datasetId as string);
+
   const afterMount = curveSpy.mock.callCount();
   assert.equal(afterMount, 1, "expected exactly one curve computation on mount");
 

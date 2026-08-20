@@ -4,7 +4,7 @@ import { isGeometryStateV1, type GeometryState } from "./geometry-state.ts";
 import { TENSOR_OP_LABELS, type TensorOpType } from "./tensor-block.ts";
 import { isOdeStateV1, isOdeStateV2, upgradeOdeV1ToV2, type OdeState } from "./ode-state.ts";
 import { isOdeSystemStateV1, isOdeSystemStateV2, upgradeOdeSystemV1ToV2, type OdeSystemState } from "./ode-system-state.ts";
-import { isRegressionStateV1, type RegressionState } from "./regression-state.ts";
+import { isRegressionStateV1, isRegressionStateV2, upgradeRegressionV1ToV2, type RegressionState } from "./regression-state.ts";
 import { isStatisticsStateV1, type StatisticsState } from "./statistics-state.ts";
 import { isSystemStateV1, type SystemState } from "./system-state.ts";
 
@@ -196,6 +196,7 @@ export function decodeNotebookState(fragment: string): NotebookState | null {
 function upgradeNotebookBlock(block: NotebookBlockStateV1): NotebookBlockStateV1 {
   if (block.type === "ode" && isOdeStateV1(block.state)) return { ...block, state: upgradeOdeV1ToV2(block.state) };
   if (block.type === "ode-system" && isOdeSystemStateV1(block.state)) return { ...block, state: upgradeOdeSystemV1ToV2(block.state) };
+  if (block.type === "regression" && isRegressionStateV1(block.state)) return { ...block, state: upgradeRegressionV1ToV2(block.state) };
   if (block.type === "complex") {
     if (isComplexStateV1(block.state)) return { ...block, state: upgradeComplexV2ToV3(upgradeComplexV1ToV2(block.state)) };
     if (isComplexStateV2(block.state)) return { ...block, state: upgradeComplexV2ToV3(block.state) };
@@ -241,7 +242,11 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
   // decodes (upgraded to v2 by upgradeNotebookBlock before
   // NotebookOdeSystemBlock hands it to seedOdeSystemState).
   if (b.type === "ode-system") return isOdeSystemStateV1(b.state) || isOdeSystemStateV2(b.state);
-  if (b.type === "regression") return isRegressionStateV1(b.state);
+  // Unlimited overlaid datasets: RegressionState is now v2 (unlimited
+  // datasets) -- v1 stays accepted so a regression block saved before this
+  // change still decodes (upgraded to v2 by upgradeNotebookBlock before
+  // NotebookRegressionBlock hands it to seedRegressionState).
+  if (b.type === "regression") return isRegressionStateV1(b.state) || isRegressionStateV2(b.state);
   if (b.type === "statistics") return isStatisticsStateV1(b.state);
   if (b.type === "systems") return isSystemStateV1(b.state);
   if (b.type === "geometry") return isGeometryStateV1(b.state);
