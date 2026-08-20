@@ -36,7 +36,7 @@ export const Route = createFileRoute("/_app/gallery")({
 const KIND_CHIP_STYLE = {
   fontSize: "0.75rem",
   color: "#5b6b8c",
-  border: "1px solid #d7dfef",
+  border: "1px solid var(--border)",
   borderRadius: "3px",
   padding: "0 0.35rem",
 } as const;

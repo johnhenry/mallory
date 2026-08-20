@@ -811,7 +811,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         const pa = graph.get<PointRecord>(pointCellId(a));
         const pb = graph.get<PointRecord>(pointCellId(b));
         const length = graph.get<number>(lengthCellId(id));
-        layers.push({ kind: "polyline", points: [pa, pb], color: length < DEGENERATE_EPSILON ? DEGENERATE_COLOR : "#142033", strokeWidth: 2 });
+        layers.push({ kind: "polyline", points: [pa, pb], color: length < DEGENERATE_EPSILON ? DEGENERATE_COLOR : getThemeColors().ink, strokeWidth: 2 });
       } else if (graph.has(circleCellId(id))) {
         const { center, radiusPoint } = graph.get<CircleRecord>(circleCellId(id));
         const pc = graph.get<PointRecord>(pointCellId(center));
@@ -979,7 +979,7 @@ function drawDot(ctx: CanvasRenderingContext2D, x: number, y: number, color: str
 
 function drawLine(ctx: CanvasRenderingContext2D, a: PointRecord, b: PointRecord, degenerate = false): void {
   ctx.save();
-  ctx.strokeStyle = degenerate ? DEGENERATE_COLOR : "#142033";
+  ctx.strokeStyle = degenerate ? DEGENERATE_COLOR : getThemeColors().ink;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(toScreenX(a.x, VIEWPORT, WIDTH), toScreenY(a.y, VIEWPORT, HEIGHT));
@@ -1095,7 +1095,7 @@ function drawPolygon(ctx: CanvasRenderingContext2D, points: PointRecord[], area:
   ctx.closePath();
   ctx.stroke();
   const centroid = polygonCentroid(points);
-  ctx.fillStyle = selfIntersecting ? DEGENERATE_COLOR : "var(--muted)";
+  ctx.fillStyle = selfIntersecting ? DEGENERATE_COLOR : getThemeColors().muted;
   ctx.font = "12px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";

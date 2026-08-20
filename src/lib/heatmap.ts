@@ -7,6 +7,8 @@
  * edge) works.
  */
 
+import { getThemeColors } from "./theme-colors.ts";
+
 /** The finite-valued range of a matrix, ignoring `Infinity`/`-Infinity`/`NaN` cells -- those are "absent", not extreme values, and would otherwise blow out the color scale. `{ min: 0, max: 0 }` when there are no finite cells at all. */
 export function finiteRange(matrix: readonly (readonly number[])[]): { min: number; max: number } {
   let min = Infinity;
@@ -93,7 +95,11 @@ export function drawHeatmap(
   ctx.restore();
 
   ctx.save();
-  ctx.fillStyle = "#374151";
+  // getThemeColors(), not a literal hex/var() -- canvas fillStyle can't
+  // resolve CSS custom properties, and a fixed dark hex here would be
+  // invisible against the dark theme's own dark page background (the
+  // same #374151/var(--x) bug class fixed elsewhere per issue #314).
+  ctx.fillStyle = getThemeColors().ink;
   ctx.font = "10px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
