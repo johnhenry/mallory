@@ -208,7 +208,7 @@ export function PracticePanel() {
           <option value="hard">Hard</option>
         </select>
       </label>
-      <span>
+      <span title="Consecutive correct answers. Resets to 0 on a wrong answer; switching modes/difficulty, skipping to a new problem, or revealing the answer leaves it untouched. Not saved -- leaving the page starts over.">
         Streak: <strong>{streak}</strong>
       </span>
       <button type="button" onClick={() => newProblem(mode, difficulty)}>

@@ -171,7 +171,7 @@ function AppShell() {
             type="button"
             className="agent-mode-toggle"
             aria-pressed={agentMode}
-            title="Let an MCP-speaking AI agent (Claude Code, Claude Desktop, Cursor, ...) call tools against this page, via the WebMCP local relay running on your own machine."
+            title="Let an MCP-speaking AI agent (Claude Code, Claude Desktop, Cursor, ...) call tools against this page, via the WebMCP local relay running on your own machine. When on, an agent can also read/write the shared Workspace variables from any page -- full explanation on the Workspace page."
             onClick={() => setAgentModeEnabled(!agentMode)}
           >
             <span aria-hidden="true">{"\u{1F916}"}</span> Agent access: {agentMode ? "On" : "Off"}

@@ -19,7 +19,12 @@ body {
 }
 
 code {
-  background: #f0f0f0;
+  /* Theme-aware (issue #319): the old hardcoded #f0f0f0 chip made dark
+     theme's near-white ink unreadable wherever a code span sat in a
+     default-ink paragraph (the Streaming intro box was the reported
+     sighting). A translucent gray works over both themes' surfaces and
+     the text simply inherits the surrounding ink. */
+  background: rgba(127, 140, 160, 0.16);
   padding: 0.15rem 0.35rem;
   border-radius: 4px;
 }
