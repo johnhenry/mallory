@@ -1,7 +1,7 @@
 import { ComplexNumber, Symbolic, type Expr } from "mallory-math";
 import { type AngleUnit, formatAngle, getAngleUnit, setAngleUnit, subscribeToAngleUnit } from "../lib/angle-unit.ts";
 import { addLocalSave } from "../lib/local-saves.ts";
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsComplex, type CellIdsComplex } from "../lib/cell-ids.ts";
 import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";
@@ -26,6 +26,7 @@ import { SvgExportButton } from "./SvgExportButton.tsx";
 import { polylinesToSvgDocument } from "../lib/svg-export.ts";
 import { drawAxes, drawPolyline, drawScatter } from "../lib/render-path.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
+import { useNonPassiveWheel } from "../hooks/use-non-passive-wheel.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewport.ts";
 import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
@@ -626,11 +627,18 @@ function ComplexFunction({ graph, rowId, onRemove }: { graph: CellGraph; rowId: 
     e.currentTarget.releasePointerCapture(e.pointerId);
   }
 
-  /** Wheel-to-zoom, anchored on the cursor's data point; the real commit is debounced (no pointerup to trigger it). */
-  function handleWheel(e: ReactWheelEvent<HTMLCanvasElement>) {
+  /**
+   * Wheel-to-zoom, anchored on the cursor's data point; the real commit is
+   * debounced (no pointerup to trigger it). Attached via `useNonPassiveWheel`
+   * below, NOT the React `onWheel` prop -- see that hook's own doc comment
+   * for why `preventDefault()` here only actually stops the page from also
+   * scrolling when the listener itself is non-passive.
+   */
+  function handleWheel(e: WheelEvent) {
+    if (!canvasRef.current) return;
     e.preventDefault();
     const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
-    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    const { sx, sy } = canvasEventPoint(e, canvasRef.current, WIDTH, HEIGHT);
     const anchorX = toDataX(sx, vp, WIDTH);
     const anchorY = toDataY(sy, vp, HEIGHT);
     const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
@@ -643,6 +651,7 @@ function ComplexFunction({ graph, rowId, onRemove }: { graph: CellGraph; rowId: 
       commitLiveViewport();
     }, ZOOM_COMMIT_DEBOUNCE_MS);
   }
+  useNonPassiveWheel(canvasRef, handleWheel);
 
   function resetView() {
     if (zoomCommitTimerRef.current) {
@@ -796,7 +805,6 @@ function ComplexFunction({ graph, rowId, onRemove }: { graph: CellGraph; rowId: 
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-          onWheel={handleWheel}
         />
         {showConformalGrid && (
           <div>

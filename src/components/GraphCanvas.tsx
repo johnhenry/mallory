@@ -1,5 +1,5 @@
 import { Symbolic, type DifferentiationStep, type Expr, type Path2D } from "mallory-math";
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
@@ -28,6 +28,7 @@ import { pathsToSvgDocument, scatterPointsToSvgDocument } from "../lib/svg-expor
 import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useDebouncedSubscribeAll } from "../hooks/use-debounced-subscribe-all.ts";
+import { useNonPassiveWheel } from "../hooks/use-non-passive-wheel.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
 import { CopyableTex } from "./CopyableTex.tsx";
@@ -891,11 +892,17 @@ export function GraphCanvas({
    * commit (the resample) is debounced instead -- fires
    * `ZOOM_COMMIT_DEBOUNCE_MS` after the last wheel event, reset on every
    * new one, matching GraphCanvasMulti's own handleCanvasWheel exactly.
+   *
+   * Attached via `useNonPassiveWheel` below, NOT the React `onWheel` prop --
+   * see that hook's own doc comment for why `preventDefault()` here only
+   * actually stops the page from also scrolling when the listener itself is
+   * non-passive.
    */
-  function handleWheel(e: WheelEvent<HTMLCanvasElement>) {
+  function handleWheel(e: WheelEvent) {
+    if (!canvasRef.current) return;
     e.preventDefault();
     const vp = graph.get<Viewport | null>(ids.liveViewport) ?? graph.get<Viewport>(ids.viewport);
-    const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+    const { sx, sy } = canvasEventPoint(e, canvasRef.current, WIDTH, HEIGHT);
     const anchorX = toDataX(sx, vp, WIDTH);
     const anchorY = toDataY(sy, vp, HEIGHT);
     const factor = wheelZoomFactor(e.deltaY, ZOOM_STEP);
@@ -908,6 +915,7 @@ export function GraphCanvas({
       commitLiveViewport();
     }, ZOOM_COMMIT_DEBOUNCE_MS);
   }
+  useNonPassiveWheel(canvasRef, handleWheel);
 
   useEffect(() => {
     return () => {
@@ -1094,7 +1102,6 @@ export function GraphCanvas({
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-          onWheel={handleWheel}
         />
       </div>
       <div style={{ margin: "0.25rem 0" }}>
