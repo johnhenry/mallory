@@ -1,3 +1,4 @@
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -6,6 +7,7 @@ import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsTiles, TIME_CELL, type CellIdsTiles } from "../lib/cell-ids.ts";
 import { DEFAULT_CUBE_TILES_TEXT, parseCubeTileSetText } from "../lib/cube-tile-set-text.ts";
+import { startTilesExportJob } from "../lib/export-tiles-video.ts";
 import { DEFAULT_HEX_TILES_TEXT, parseHexTileSetText } from "../lib/hex-tile-set-text.ts";
 import { DEFAULT_TILES_TEXT, parseTileSetText } from "../lib/tile-set-text.ts";
 import {
@@ -36,6 +38,7 @@ import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
 import type { Viewport } from "../lib/viewport.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
+import { VideoExportControls } from "./VideoExportControls.tsx";
 import { triOrientation, type TriDirection, type TriOrientation } from "mallory-math";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
@@ -677,6 +680,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const relaxResult = useCell<RelaxResult | null>(graph, ids.relaxResult);
   const relaxError = useCell<string>(graph, ids.relaxError);
   const time = useCell<number>(graph, TIME_CELL);
+  const startTilesExportJobFn = useServerFn(startTilesExportJob);
 
   const lattice = useCell<TilesLattice>(graph, ids.lattice);
   const hexTilesText = useCell<string>(graph, ids.hexTilesText);
@@ -1404,6 +1408,22 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                   {stepLabel(currentStep)}
                 </p>
               )}
+              <VideoExportControls
+                filenameStem="mallory-graph-tiles"
+                start={(format, videoDuration) =>
+                  startTilesExportJobFn({
+                    data: {
+                      tilesText,
+                      width,
+                      height,
+                      symmetry,
+                      solver: solver as "wang" | "torus",
+                      duration: videoDuration,
+                      format,
+                    },
+                  })
+                }
+              />
             </>
           )}
 
