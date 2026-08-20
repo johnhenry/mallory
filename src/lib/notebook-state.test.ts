@@ -235,6 +235,46 @@ test("decodeNotebookState upgrades a legacy v1 (single-dataset) regression block
   assert.equal(regressionBlock.state.datasets?.[0]?.visible, true);
 });
 
+test("decodeNotebookState upgrades a legacy v1 (single-dataset) statistics block's nested state to v2 on decode (#336 item 7)", () => {
+  const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const legacy = {
+    v: 1,
+    blocks: [
+      {
+        type: "statistics",
+        state: {
+          v: 1,
+          data: "2, 4, 4, 4, 5, 5, 7, 9",
+          distType: "normal",
+          distMean: "0",
+          distSd: "1",
+          distN: "10",
+          distP: "0.5",
+          distLambda: "4",
+          distDf: "5",
+          queryLower: "-1",
+          queryUpper: "1",
+        },
+      },
+    ],
+  };
+  const decoded = decodeNotebookState(legacyFragment(legacy));
+  assert.ok(decoded);
+  const statisticsBlock = decoded!.blocks[0] as {
+    type: "statistics";
+    state: { v: number; rows?: Array<{ data: string; distType: string; color: number; visible: boolean }> };
+  };
+  assert.equal(
+    statisticsBlock.state.v,
+    2,
+    "the nested StatisticsState is upgraded to the version seedStatisticsState/NotebookStatisticsBlock now expect",
+  );
+  assert.equal(statisticsBlock.state.rows?.length, 1);
+  assert.equal(statisticsBlock.state.rows?.[0]?.data, "2, 4, 4, 4, 5, 5, 7, 9");
+  assert.equal(statisticsBlock.state.rows?.[0]?.distType, "normal");
+  assert.equal(statisticsBlock.state.rows?.[0]?.visible, true);
+});
+
 test("decodeNotebookState upgrades a legacy v1 complex block's nested state to v3 on decode", () => {
   const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
   const legacy = {

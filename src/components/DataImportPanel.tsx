@@ -95,7 +95,11 @@ export function DataImportPanel() {
     if (!parsed.ok) return;
     const { values } = numericColumn(parsed.value, sampleColumn);
     if (values.length === 0) return;
-    const encoded = encodeStatisticsState({ ...DEFAULT_STATISTICS_STATE, data: values.slice(0, MAX_STATISTICS_VALUES).join(", ") });
+    const data = values.slice(0, MAX_STATISTICS_VALUES).join(", ");
+    const encoded = encodeStatisticsState({
+      ...DEFAULT_STATISTICS_STATE,
+      rows: DEFAULT_STATISTICS_STATE.rows.map((row) => ({ ...row, data })),
+    });
     window.location.assign(`/data?tab=statistics#${encoded}`);
   }
 

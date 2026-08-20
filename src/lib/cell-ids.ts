@@ -183,6 +183,18 @@ export type CellIdsSystem = ReturnType<typeof cellIdsSystem>;
  * (StatisticsPanel.tsx) -- another different input shape (a raw data-value
  * list plus separate distribution-query parameters), so like
  * `cellIdsSystem` it gets its own small, purpose-specific set.
+ *
+ * Unlimited independent datasets (#336 item 7): unlike every other
+ * multi-row panel's own port, StatisticsPanel has no natural "shared
+ * viewport/canvas to overlay N rows on" -- summary stats, distribution
+ * query, hypothesis test, and kernel smoothing are each a small text/canvas
+ * output tied to ONE dataset. So `list` is the ONLY container-level field
+ * (called with the panel's own container id, the ordered list of dataset
+ * ids every dataset lives under) -- every other field below, including the
+ * inference/smoothing fields that are deliberately NOT part of the
+ * persisted schema (see their own note just below), is per-dataset (called
+ * with a dataset id): each dataset gets its own data string, distribution
+ * params, query, hypothesis test, smoothing state, color, and visibility.
  */
 export function cellIdsStatistics(cellId: string) {
   return {
@@ -199,10 +211,11 @@ export function cellIdsStatistics(cellId: string) {
     queryUpper: `statsQueryUpper:${cellId}`,
     query: `statsQuery:${cellId}`,
     // Inference section (issue #37) -- deliberately NOT part of the
-    // persisted StatisticsState/URL-hash schema (v1, unchanged) since
-    // these are additive fields; they reset to sane defaults on reload
-    // rather than forcing a schema version bump. Still full CellGraph
-    // cells, so they're agent-visible via useCellGraphTools regardless.
+    // persisted StatisticsState/URL-hash schema (v2, unchanged by the
+    // unlimited-datasets port) since these are additive fields; they reset
+    // to sane defaults on reload rather than forcing a schema version bump.
+    // Still full CellGraph cells, so they're agent-visible via
+    // useCellGraphTools regardless.
     testType: `statsTestType:${cellId}`,
     testMu0: `statsTestMu0:${cellId}`,
     testDataB: `statsTestDataB:${cellId}`,
@@ -215,6 +228,12 @@ export function cellIdsStatistics(cellId: string) {
     smoothingWidth: `statsSmoothingWidth:${cellId}`,
     smoothingShowResidual: `statsSmoothingShowResidual:${cellId}`,
     smoothingResult: `statsSmoothingResult:${cellId}`,
+    // Unlimited independent datasets (#336 item 7): color/visible are
+    // per-dataset; list is container-level (see this function's own doc
+    // comment).
+    color: `statsColor:${cellId}`,
+    visible: `statsVisible:${cellId}`,
+    list: `statsList:${cellId}`,
   };
 }
 
