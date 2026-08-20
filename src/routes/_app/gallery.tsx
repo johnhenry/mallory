@@ -119,6 +119,14 @@ export function GalleryPage() {
           item's own encoded URL can get very long. This gallery is one list shared by everyone who uses this app
           (not private to your browser); entries marked "Curated" are built-in examples that can't be deleted.
         </p>
+        <p className="lede" style={{ fontSize: "0.9rem" }}>
+          <strong>Two honest caveats:</strong> saving here is <em>publishing</em> -- anything you save is
+          immediately visible to (and deletable by) every visitor, so don't save anything you'd rather keep to
+          yourself. And shared entries (plus their short links) are <em>ephemeral</em>: they're stored on the
+          app server and cleared whenever the app is redeployed, which can happen often -- don't rely on this
+          gallery to preserve work. For durable state, keep the panel's own URL (bookmark or copy it); it encodes
+          everything and never expires.
+        </p>
       </div>
       {error && <p style={{ color: "crimson" }}>{error}</p>}
       {entries === null && !error && <p>Loading…</p>}
