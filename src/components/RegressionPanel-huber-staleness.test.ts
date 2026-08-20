@@ -38,33 +38,42 @@ async function waitFor(predicate: () => boolean, update: (fn: () => unknown) => 
   }
 }
 
-test("RegressionPanel: editing a row while a Huber fit is in flight discards the stale result instead of applying it", async () => {
+/** Every "Fit (Huber)" button on the page, in DOM order -- one per dataset once linearLossMode is huber for that dataset. */
+function fitHuberButtons(container: Element): Element[] {
+  return Array.from(container.querySelectorAll("button")).filter((b) => b.textContent?.includes("Fit (Huber)"));
+}
+
+test("RegressionPanel: editing a dataset's points while its own Huber fit is in flight discards the stale result instead of applying it", async () => {
   const graph = new CellGraph();
-  const ids = cellIdsRegression("regression-huber-stale");
+  const containerIds = cellIdsRegression("regression-huber-stale");
 
   const { container, update } = await mount(createElement(RegressionPanel, { cellId: "regression-huber-stale", graph, syncUrl: false }));
 
+  const [datasetId] = graph.get<string[]>(containerIds.list);
+  assert.ok(datasetId, "expected the default single dataset to have been seeded");
+  const ids = cellIdsRegression(datasetId as string);
+
   await update(() => graph.set(ids.linearLossMode, "huber"));
-  const fitButton = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Fit (Huber)"));
-  assert.ok(fitButton, "expected a \"Fit (Huber)\" button once linearLossMode is huber");
+  const fitButton = fitHuberButtons(container)[0];
+  assert.ok(fitButton, 'expected a "Fit (Huber)" button once linearLossMode is huber');
 
   // Deliberately NOT wrapped in `update`/`act`: handleFitHuber runs
   // synchronously up to its first `await fitRobustLinear(...)`, and act's
   // own flushing loop would otherwise keep pumping microtasks until that
   // real (if fast) async training run has already finished -- which would
-  // make it impossible to land a row edit inside the "in flight" window at
-  // all. Firing both the click and the row edit as raw, back-to-back
-  // synchronous DOM/graph operations reproduces the actual browser
-  // race the row `<input>`s (never disabled during a fit, per issue #237)
-  // allow: click "Fit (Huber)", then edit a row before the fit resolves.
-  clickButton(fitButton!);
+  // make it impossible to land a point edit inside the "in flight" window
+  // at all. Firing both the click and the point edit as raw, back-to-back
+  // synchronous DOM/graph operations reproduces the actual browser race the
+  // point <input>s (never disabled during a fit, per issue #237) allow:
+  // click "Fit (Huber)", then edit a point before the fit resolves.
+  clickButton(fitButton);
   assert.equal(graph.get<boolean>(ids.huberFitting), true, "expected the fit to be in flight immediately after clicking");
   assert.equal(graph.get<HuberFitResult>(ids.huberFitResult), null);
 
-  const originalRows = graph.get<{ id: string; x: string; y: string }[]>(ids.rows);
+  const originalPoints = graph.get<{ id: string; x: string; y: string }[]>(ids.points);
   graph.set(
-    ids.rows,
-    originalRows.map((row, i) => (i === 0 ? { ...row, y: "999" } : row)),
+    ids.points,
+    originalPoints.map((p, i) => (i === 0 ? { ...p, y: "999" } : p)),
   );
 
   await waitFor(() => graph.get<boolean>(ids.huberFitting) === false, update);
@@ -72,21 +81,69 @@ test("RegressionPanel: editing a row while a Huber fit is in flight discards the
   assert.equal(
     graph.get<HuberFitResult>(ids.huberFitResult),
     null,
-    "a Huber fit computed from the OLD (pre-edit) points must not be applied once rows changed mid-flight",
+    "a Huber fit computed from the OLD (pre-edit) points must not be applied once this dataset's points changed mid-flight",
   );
 });
 
-test("RegressionPanel: happy path -- a Huber fit with no row edits during flight applies normally", async () => {
+test("RegressionPanel: editing dataset A's points does not discard dataset B's own in-flight Huber fit (per-dataset staleness, #336 item 7)", async () => {
   const graph = new CellGraph();
-  const ids = cellIdsRegression("regression-huber-happy");
+  const containerIds = cellIdsRegression("regression-huber-cross-dataset");
+
+  const { container, update } = await mount(
+    createElement(RegressionPanel, { cellId: "regression-huber-cross-dataset", graph, syncUrl: false }),
+  );
+
+  // Add a second dataset so there are two independent Huber generation counters.
+  const addButton = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Add dataset"));
+  assert.ok(addButton, 'expected a "+ Add dataset" button');
+  await update(() => clickButton(addButton!));
+
+  const [datasetAId, datasetBId] = graph.get<string[]>(containerIds.list);
+  assert.ok(datasetAId && datasetBId, "expected two datasets after clicking + Add dataset");
+  const idsA = cellIdsRegression(datasetAId as string);
+  const idsB = cellIdsRegression(datasetBId as string);
+
+  await update(() => graph.set(idsB.linearLossMode, "huber"));
+  const fitButtonB = fitHuberButtons(container)[0];
+  assert.ok(fitButtonB, 'expected a "Fit (Huber)" button for dataset B once its linearLossMode is huber');
+
+  // Same raw, non-`act`-wrapped click as the single-dataset test above, so
+  // dataset B's fit is genuinely still in flight when dataset A's points
+  // are edited immediately after.
+  clickButton(fitButtonB);
+  assert.equal(graph.get<boolean>(idsB.huberFitting), true, "expected dataset B's fit to be in flight immediately after clicking");
+
+  // Edit dataset A's own points -- must bump ONLY dataset A's own
+  // generation counter, not dataset B's.
+  const pointsA = graph.get<{ id: string; x: string; y: string }[]>(idsA.points);
+  graph.set(
+    idsA.points,
+    pointsA.map((p, i) => (i === 0 ? { ...p, y: "999" } : p)),
+  );
+
+  await waitFor(() => graph.get<boolean>(idsB.huberFitting) === false, update);
+
+  const resultB = graph.get<HuberFitResult>(idsB.huberFitResult);
+  assert.ok(
+    resultB?.ok,
+    `editing dataset A's points must not discard dataset B's own in-flight Huber fit, got ${JSON.stringify(resultB)}`,
+  );
+});
+
+test("RegressionPanel: happy path -- a Huber fit with no point edits during flight applies normally", async () => {
+  const graph = new CellGraph();
+  const containerIds = cellIdsRegression("regression-huber-happy");
 
   const { container, update } = await mount(createElement(RegressionPanel, { cellId: "regression-huber-happy", graph, syncUrl: false }));
 
+  const [datasetId] = graph.get<string[]>(containerIds.list);
+  const ids = cellIdsRegression(datasetId as string);
+
   await update(() => graph.set(ids.linearLossMode, "huber"));
-  const fitButton = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Fit (Huber)"));
+  const fitButton = fitHuberButtons(container)[0];
   assert.ok(fitButton);
 
-  await update(() => clickButton(fitButton!));
+  await update(() => clickButton(fitButton));
   await waitFor(() => graph.get<boolean>(ids.huberFitting) === false, update);
 
   const result = graph.get<HuberFitResult>(ids.huberFitResult);

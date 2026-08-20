@@ -195,6 +195,46 @@ test("decodeNotebookState upgrades a legacy v1 (single-system) ode-system block'
   assert.equal(odeSystemBlock.state.rows?.[0]?.exprY, "y*(x-1)");
 });
 
+test("decodeNotebookState upgrades a legacy v1 (single-dataset) regression block's nested state to v2 on decode (#336 item 7)", () => {
+  const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const legacy = {
+    v: 1,
+    blocks: [
+      {
+        type: "regression",
+        state: {
+          v: 1,
+          rows: [
+            { x: "1", y: "2.1" },
+            { x: "2", y: "3.9" },
+          ],
+          fitType: "linear",
+          modelExpr: "a*exp(b*x)",
+          paramGuesses: { a: "1", b: "0.1" },
+        },
+      },
+    ],
+  };
+  const decoded = decodeNotebookState(legacyFragment(legacy));
+  assert.ok(decoded);
+  const regressionBlock = decoded!.blocks[0] as {
+    type: "regression";
+    state: { v: number; datasets?: Array<{ points: Array<{ x: string; y: string }>; fitType: string; color: number; visible: boolean }> };
+  };
+  assert.equal(
+    regressionBlock.state.v,
+    2,
+    "the nested RegressionState is upgraded to the version seedRegressionState/NotebookRegressionBlock now expect",
+  );
+  assert.equal(regressionBlock.state.datasets?.length, 1);
+  assert.deepEqual(regressionBlock.state.datasets?.[0]?.points, [
+    { x: "1", y: "2.1" },
+    { x: "2", y: "3.9" },
+  ]);
+  assert.equal(regressionBlock.state.datasets?.[0]?.fitType, "linear");
+  assert.equal(regressionBlock.state.datasets?.[0]?.visible, true);
+});
+
 test("decodeNotebookState upgrades a legacy v1 complex block's nested state to v3 on decode", () => {
   const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
   const legacy = {
