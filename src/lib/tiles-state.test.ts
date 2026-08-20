@@ -4,15 +4,44 @@ import { test } from "node:test";
 import { DEFAULT_CUBE_TILES_TEXT } from "./cube-tile-set-text.ts";
 import { DEFAULT_HEX_TILES_TEXT } from "./hex-tile-set-text.ts";
 import { DEFAULT_TRI_TILES_TEXT } from "./tri-tile-set-text.ts";
-import { DEFAULT_TILES_STATE, decodeTilesState, encodeTilesState, isTilesStateV1, isTilesStateV2, isTilesStateV3, isTilesStateV4 } from "./tiles-state.ts";
+import { DEFAULT_CORNER_TILES_TEXT } from "./corner-tile-set-text.ts";
+import {
+  DEFAULT_TILES_STATE,
+  decodeTilesState,
+  encodeTilesState,
+  isTilesStateV1,
+  isTilesStateV2,
+  isTilesStateV3,
+  isTilesStateV4,
+  isTilesStateV5,
+} from "./tiles-state.ts";
 
 test("round-trips the default tiles state through encode/decode", () => {
   const encoded = encodeTilesState(DEFAULT_TILES_STATE);
   assert.deepEqual(decodeTilesState(encoded), DEFAULT_TILES_STATE);
 });
 
-test("round-trips a v4 state with a custom tile set, size, solver, symmetry, lattice, and cube fields", () => {
+test("round-trips a v5 state with a custom tile set, size, solver, symmetry, lattice, cube, and corner fields", () => {
   const state = {
+    v: 5 as const,
+    tilesText: "A 1 2 3 4",
+    width: 6,
+    height: 2,
+    solver: "torus" as const,
+    showAnimation: false,
+    symmetry: "rotations-reflections" as const,
+    lattice: "hex" as const,
+    hexTilesText: "A 1 2 3 4 5 6",
+    triTilesText: "B 1 2 3 4",
+    cubeTilesText: "C 1 2 3 4 5 6",
+    depth: 5,
+    cornerTilesText: "D 1 2 3 4",
+  };
+  assert.deepEqual(decodeTilesState(encodeTilesState(state)), state);
+});
+
+test("decodeTilesState upgrades a v4 payload to v5 with cornerTilesText defaulted", () => {
+  const v4 = {
     v: 4 as const,
     tilesText: "A 1 2 3 4",
     width: 6,
@@ -26,10 +55,15 @@ test("round-trips a v4 state with a custom tile set, size, solver, symmetry, lat
     cubeTilesText: "C 1 2 3 4 5 6",
     depth: 5,
   };
-  assert.deepEqual(decodeTilesState(encodeTilesState(state)), state);
+  const fragment = encodeStateFragment(v4);
+  assert.deepEqual(decodeTilesState(fragment), {
+    ...v4,
+    v: 5,
+    cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
+  });
 });
 
-test("decodeTilesState upgrades a v3 payload to v4 with cubeTilesText/depth defaulted", () => {
+test("decodeTilesState upgrades a v3 payload all the way to v5", () => {
   const v3 = {
     v: 3 as const,
     tilesText: "A 1 2 3 4",
@@ -45,13 +79,14 @@ test("decodeTilesState upgrades a v3 payload to v4 with cubeTilesText/depth defa
   const fragment = encodeStateFragment(v3);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v3,
-    v: 4,
+    v: 5,
     cubeTilesText: DEFAULT_CUBE_TILES_TEXT,
     depth: 3,
+    cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
   });
 });
 
-test("decodeTilesState upgrades a v2 payload all the way to v4", () => {
+test("decodeTilesState upgrades a v2 payload all the way to v5", () => {
   const v2 = {
     v: 2 as const,
     tilesText: "A 1 2 3 4",
@@ -64,27 +99,29 @@ test("decodeTilesState upgrades a v2 payload all the way to v4", () => {
   const fragment = encodeStateFragment(v2);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v2,
-    v: 4,
+    v: 5,
     lattice: "square",
     hexTilesText: DEFAULT_HEX_TILES_TEXT,
     triTilesText: DEFAULT_TRI_TILES_TEXT,
     cubeTilesText: DEFAULT_CUBE_TILES_TEXT,
     depth: 3,
+    cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
   });
 });
 
-test("decodeTilesState upgrades a v1 payload all the way to v4", () => {
+test("decodeTilesState upgrades a v1 payload all the way to v5", () => {
   const v1 = { v: 1 as const, tilesText: "A 1 2 3 4", width: 6, height: 2, solver: "torus" as const, showAnimation: false };
   const fragment = encodeStateFragment(v1);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v1,
-    v: 4,
+    v: 5,
     symmetry: "none",
     lattice: "square",
     hexTilesText: DEFAULT_HEX_TILES_TEXT,
     triTilesText: DEFAULT_TRI_TILES_TEXT,
     cubeTilesText: DEFAULT_CUBE_TILES_TEXT,
     depth: 3,
+    cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
   });
 });
 
@@ -172,6 +209,65 @@ test("isTilesStateV4 rejects a wrong-typed depth", () => {
       triTilesText: "",
       cubeTilesText: "",
       depth: "3",
+    }),
+    false,
+  );
+});
+
+test("isTilesStateV5 rejects a v4-shaped payload (missing cornerTilesText)", () => {
+  assert.equal(
+    isTilesStateV5({
+      v: 5,
+      tilesText: "x",
+      width: 1,
+      height: 1,
+      solver: "wang",
+      showAnimation: true,
+      symmetry: "none",
+      lattice: "square",
+      hexTilesText: "",
+      triTilesText: "",
+      cubeTilesText: "",
+      depth: 3,
+    }),
+    false,
+  );
+});
+
+test("isTilesStateV5 accepts lattice: 'corner' and rejects a wrong-typed cornerTilesText", () => {
+  assert.equal(
+    isTilesStateV5({
+      v: 5,
+      tilesText: "x",
+      width: 1,
+      height: 1,
+      solver: "wang",
+      showAnimation: true,
+      symmetry: "none",
+      lattice: "corner",
+      hexTilesText: "",
+      triTilesText: "",
+      cubeTilesText: "",
+      depth: 3,
+      cornerTilesText: "A 1 2 3 4",
+    }),
+    true,
+  );
+  assert.equal(
+    isTilesStateV5({
+      v: 5,
+      tilesText: "x",
+      width: 1,
+      height: 1,
+      solver: "wang",
+      showAnimation: true,
+      symmetry: "none",
+      lattice: "corner",
+      hexTilesText: "",
+      triTilesText: "",
+      cubeTilesText: "",
+      depth: 3,
+      cornerTilesText: 42,
     }),
     false,
   );

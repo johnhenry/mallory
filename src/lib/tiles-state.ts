@@ -2,11 +2,12 @@ import { DEFAULT_CUBE_TILES_TEXT } from "./cube-tile-set-text.ts";
 import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 import { DEFAULT_HEX_TILES_TEXT } from "./hex-tile-set-text.ts";
 import { DEFAULT_TRI_TILES_TEXT } from "./tri-tile-set-text.ts";
+import { DEFAULT_CORNER_TILES_TEXT } from "./corner-tile-set-text.ts";
 import type { SymmetryGroup } from "./tiles/symmetry.ts";
 import { DEFAULT_TILES_TEXT } from "./tile-set-text.ts";
 
 export type TilesSolverKind = "wang" | "torus" | "sat";
-export type TilesLattice = "square" | "hex" | "tri" | "cube";
+export type TilesLattice = "square" | "hex" | "tri" | "cube" | "corner";
 
 export interface TilesStateV1 {
   v: 1;
@@ -58,10 +59,27 @@ export interface TilesStateV4 {
   depth: number;
 }
 
-export type TilesState = TilesStateV4;
+export interface TilesStateV5 {
+  v: 5;
+  tilesText: string;
+  width: number;
+  height: number;
+  solver: TilesSolverKind;
+  showAnimation: boolean;
+  symmetry: SymmetryGroup;
+  lattice: TilesLattice;
+  hexTilesText: string;
+  triTilesText: string;
+  cubeTilesText: string;
+  depth: number;
+  /** Corner-tile matching locus (#388/#394) -- own text field, same shape as hex/tri/cube. */
+  cornerTilesText: string;
+}
+
+export type TilesState = TilesStateV5;
 
 export const DEFAULT_TILES_STATE: TilesState = {
-  v: 4,
+  v: 5,
   tilesText: DEFAULT_TILES_TEXT,
   width: 4,
   height: 3,
@@ -73,20 +91,22 @@ export const DEFAULT_TILES_STATE: TilesState = {
   triTilesText: DEFAULT_TRI_TILES_TEXT,
   cubeTilesText: DEFAULT_CUBE_TILES_TEXT,
   depth: 3,
+  cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
 };
 
 export function encodeTilesState(state: TilesState): string {
   return encodeStateFragment(state);
 }
 
-/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades v1/v2/v3 payloads up to v4 with lattice defaulted to "square" and hex/tri/cube text and depth defaulted. */
+/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades v1/v2/v3/v4 payloads up to v5 with lattice defaulted to "square" and hex/tri/cube/corner text and depth defaulted. */
 export function decodeTilesState(fragment: string): TilesState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
-    if (isTilesStateV4(parsed)) return parsed;
-    if (isTilesStateV3(parsed)) return upgradeV3ToV4(parsed);
-    if (isTilesStateV2(parsed)) return upgradeV3ToV4(upgradeV2ToV3(parsed));
-    if (isTilesStateV1(parsed)) return upgradeV3ToV4(upgradeV2ToV3({ ...parsed, v: 2, symmetry: "none" }));
+    if (isTilesStateV5(parsed)) return parsed;
+    if (isTilesStateV4(parsed)) return upgradeV4ToV5(parsed);
+    if (isTilesStateV3(parsed)) return upgradeV4ToV5(upgradeV3ToV4(parsed));
+    if (isTilesStateV2(parsed)) return upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(parsed)));
+    if (isTilesStateV1(parsed)) return upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3({ ...parsed, v: 2, symmetry: "none" })));
     return null;
   } catch {
     return null;
@@ -101,9 +121,13 @@ function upgradeV3ToV4(v3: TilesStateV3): TilesStateV4 {
   return { ...v3, v: 4, cubeTilesText: DEFAULT_CUBE_TILES_TEXT, depth: 3 };
 }
 
+function upgradeV4ToV5(v4: TilesStateV4): TilesStateV5 {
+  return { ...v4, v: 5, cornerTilesText: DEFAULT_CORNER_TILES_TEXT };
+}
+
 const SOLVER_KINDS: TilesSolverKind[] = ["wang", "torus", "sat"];
 const SYMMETRY_GROUPS: SymmetryGroup[] = ["none", "rotations", "rotations-reflections"];
-const LATTICES: TilesLattice[] = ["square", "hex", "tri", "cube"];
+const LATTICES: TilesLattice[] = ["square", "hex", "tri", "cube", "corner"];
 
 function hasCommonFields(v: Record<string, unknown>): boolean {
   return (
@@ -149,5 +173,15 @@ export function isTilesStateV4(value: unknown): value is TilesStateV4 {
   if (!(typeof v.symmetry === "string" && SYMMETRY_GROUPS.includes(v.symmetry as SymmetryGroup))) return false;
   if (!(typeof v.lattice === "string" && LATTICES.includes(v.lattice as TilesLattice))) return false;
   return typeof v.hexTilesText === "string" && typeof v.triTilesText === "string" && typeof v.cubeTilesText === "string" && typeof v.depth === "number";
+}
+
+export function isTilesStateV5(value: unknown): value is TilesStateV5 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.v !== 5 || !hasCommonFields(v)) return false;
+  if (!(typeof v.symmetry === "string" && SYMMETRY_GROUPS.includes(v.symmetry as SymmetryGroup))) return false;
+  if (!(typeof v.lattice === "string" && LATTICES.includes(v.lattice as TilesLattice))) return false;
+  if (!(typeof v.hexTilesText === "string" && typeof v.triTilesText === "string" && typeof v.cubeTilesText === "string" && typeof v.depth === "number")) return false;
+  return typeof v.cornerTilesText === "string";
 }
 

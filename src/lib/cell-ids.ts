@@ -1100,6 +1100,13 @@ export function cellIdsTiles(cellId: string) {
     compoundSolveSteps: `tilesCompoundSolveSteps:${cellId}`,
     compoundSolveGrid: `tilesCompoundSolveGrid:${cellId}`,
     compoundSolveError: `tilesCompoundSolveError:${cellId}`,
+    // Corner-tile matching locus (#388/#394) -- same "own text/result/solve
+    // status/grid/error cells, no step animation" shape as hex/tri.
+    cornerTilesText: `tilesCornerTilesText:${cellId}`,
+    cornerTileSetResult: `tilesCornerTileSetResult:${cellId}`,
+    cornerSolveStatus: `tilesCornerSolveStatus:${cellId}`,
+    cornerSolveGrid: `tilesCornerSolveGrid:${cellId}`,
+    cornerSolveError: `tilesCornerSolveError:${cellId}`,
   };
 }
 
