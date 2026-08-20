@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   buildCompatibilityDigraph,
   encodeWangSat,
+  pruneToSccSustainable,
   solveSat,
   solveTorus,
   solveWang,
@@ -191,4 +192,40 @@ test("solveTorus: trackSteps: false yields grid: null on every step but doesn't 
   assert.deepEqual(result, [["L", "R"]]);
   assert.ok(steps.length > 0);
   for (const step of steps) assert.equal(step.grid, null);
+});
+
+test("pruneToSccSustainable: a tile self-compatible in both directions survives (trivial self-loop in both digraphs)", () => {
+  const a: Tile = { id: "a", edges: { N: "x", E: "x", S: "x", W: "x" } };
+  const pruned = pruneToSccSustainable({ tiles: [a] });
+  assert.deepEqual(pruned.tiles, [a]);
+});
+
+test("pruneToSccSustainable: a genuine 2-tile mutual cycle (L/R alternate horizontally, both self-compatible vertically) survives entirely -- the same fixture solveTorus's own 'genuinely periodic' test uses", () => {
+  const l: Tile = { id: "L", edges: { N: "v", E: "a", S: "v", W: "b" } };
+  const r: Tile = { id: "R", edges: { N: "v", E: "b", S: "v", W: "a" } };
+  const pruned = pruneToSccSustainable({ tiles: [l, r] });
+  assert.deepEqual(new Set(pruned.tiles.map((t) => t.id)), new Set(["L", "R"]));
+});
+
+test("pruneToSccSustainable: a horizontal dead end (reachable going east, but nothing can follow it -- not even itself) is dropped even though it's vertically self-sustaining", () => {
+  // loop: self-compatible in both E (h===h) and S (v===v).
+  const loop: Tile = { id: "loop", edges: { N: "v", E: "h", S: "v", W: "h" } };
+  // deadend: loop can sit to ITS west (loop.E=h matches deadend.W=h), but
+  // deadend.E="z" matches no tile's W (including its own, "h" != "z") --
+  // an E-digraph in-edge with no out-edge, the textbook SCC dead end.
+  // Vertically it's self-compatible (S=v=N), so it'd survive alone on the
+  // vertical pass -- pruning still drops it because it fails horizontally.
+  const deadend: Tile = { id: "deadend", edges: { N: "v", E: "z", S: "v", W: "h" } };
+  const pruned = pruneToSccSustainable({ tiles: [loop, deadend] });
+  assert.deepEqual(pruned.tiles.map((t) => t.id), ["loop"]);
+});
+
+test("pruneToSccSustainable: never changes whether solveTorus finds a periodic tiling -- pruning a genuine dead-end distractor tile out of the candidate set doesn't block the real periodic pair from being found", async () => {
+  const l: Tile = { id: "L", edges: { N: "v", E: "a", S: "v", W: "b" } };
+  const r: Tile = { id: "R", edges: { N: "v", E: "b", S: "v", W: "a" } };
+  const deadend: Tile = { id: "deadend", edges: { N: "v", E: "z", S: "v", W: "a" } }; // L can place deadend to its east, but deadend leads nowhere further east
+  const unpruned = await drain(solveTorus({ tiles: [l, r, deadend] }, 2, 1));
+  const pruned = await drain(solveTorus({ tiles: [l, r, deadend] }, 2, 1, { pruneUnsustainable: true }));
+  assert.deepEqual(unpruned.result, [["L", "R"]]);
+  assert.deepEqual(pruned.result, [["L", "R"]], "pruning must find the same periodic tiling, just over a smaller (dead-end-free) candidate set");
 });

@@ -14,6 +14,8 @@
  * "Matching locus" axis).
  */
 
+import { Graph } from "mallory-math";
+
 export type Direction = "N" | "E" | "S" | "W";
 
 /** The direction you'd travel to look back at the tile you came from. */
@@ -58,6 +60,53 @@ export function buildCompatibilityDigraph(tiles: readonly Tile[], direction: Dir
     digraph.set(a.id, compatible);
   }
   return digraph;
+}
+
+/**
+ * The subset of `digraph`'s vertices that can appear in a bi-infinite
+ * tiling in this ONE direction -- issue #386's "SCC-based pruning" solver,
+ * finally unblocked by `mallory-math`'s `Graph.stronglyConnectedComponents`
+ * (Tarjan's algorithm). A tile survives when it either sits in a
+ * nontrivial SCC (size >= 2 -- it can be left and re-entered via some
+ * cycle through other tiles) or has a direct self-loop (compatible with
+ * itself in this direction, a trivial 1-cycle) -- every other tile is a
+ * dead end: reachable, perhaps, but with no way back, so an infinite
+ * sequence can pass through it at most once.
+ */
+function sccSustainableIds(digraph: ReadonlyMap<string, ReadonlySet<string>>): Set<string> {
+  const graph = new Graph<string>(true);
+  for (const id of digraph.keys()) graph.addVertex(id);
+  for (const [from, tos] of digraph) for (const to of tos) graph.addEdge(from, to);
+  const sustainable = new Set<string>();
+  for (const component of graph.stronglyConnectedComponents()) {
+    if (component.length > 1) {
+      for (const id of component) sustainable.add(id);
+    } else if (digraph.get(component[0]!)?.has(component[0]!)) {
+      sustainable.add(component[0]!);
+    }
+  }
+  return sustainable;
+}
+
+/**
+ * `tileSet` pruned down to only the tiles that can sustain a bi-infinite
+ * tiling -- issue #386. Only 2 of the 4 per-direction digraphs need their
+ * own SCC pass: `tilesCompatible(a,b,E) === tilesCompatible(b,a,W)` (E's
+ * digraph and W's digraph are exact reverses of each other), and reversing
+ * every edge of a directed graph never changes its strongly connected
+ * components -- so E and W always agree on which tiles survive, and
+ * likewise N and S. A pruned tile set never changes whether a FINITE grid
+ * is solvable (a pruned tile could still legally appear once, at a
+ * boundary) -- this is specifically for periodicity search
+ * ({@link solveTorus}) and as a pre-analysis "can this tile set even
+ * sustain an infinite tiling" verdict, not a replacement for
+ * {@link solveWang}'s own per-cell candidate filtering.
+ */
+export function pruneToSccSustainable(tileSet: TileSet): TileSet {
+  const tiles = tileSet.tiles;
+  const horizontallySustainable = sccSustainableIds(buildCompatibilityDigraph(tiles, "E"));
+  const verticallySustainable = sccSustainableIds(buildCompatibilityDigraph(tiles, "S"));
+  return { tiles: tiles.filter((t) => horizontallySustainable.has(t.id) && verticallySustainable.has(t.id)) };
 }
 
 export type WangGrid = ReadonlyArray<ReadonlyArray<string>>;
@@ -189,16 +238,21 @@ function isPeriodic(byId: ReadonlyMap<string, Tile>, grid: WangGrid, width: numb
  * other candidates for the cells nearest the wrap boundary.
  *
  * `options.trackSteps` (default `true`), same escape hatch as `solveWang`'s
- * own.
+ * own. `options.pruneUnsustainable` (default `false`, issue #386) runs
+ * {@link pruneToSccSustainable} first -- safe here specifically (unlike
+ * for {@link solveWang}) because periodicity requires every tile in the
+ * solved grid to already be part of a sustainable cycle; a smaller
+ * candidate set can only shrink the search, never change whether a
+ * periodic tiling exists.
  */
 export async function* solveTorus(
   tileSet: TileSet,
   width: number,
   height: number,
-  options: { trackSteps?: boolean } = {},
+  options: { trackSteps?: boolean; pruneUnsustainable?: boolean } = {},
 ): AsyncGenerator<SolveStep, WangGrid | null> {
   const trackSteps = options.trackSteps ?? true;
-  const tiles = tileSet.tiles;
+  const tiles = (options.pruneUnsustainable ? pruneToSccSustainable(tileSet) : tileSet).tiles;
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const grid: (string | null)[][] = Array.from({ length: height }, () => Array<string | null>(width).fill(null));
 

@@ -36,7 +36,7 @@ import {
   type CompoundWangGrid,
   solveWangCompound,
 } from "../lib/tiles/compound-tile-model.ts";
-import { solveTorus, solveWang, solveWangViaSat, type Direction, type SolveStep, type Tile, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
+import { pruneToSccSustainable, solveTorus, solveWang, solveWangViaSat, type Direction, type SolveStep, type Tile, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
 import { triCenterX, triCorners, triEdgeSegment } from "../lib/tiles/tri-geometry.ts";
 import { solveTri, type TriGrid, type TriTile, type TriTileSet } from "../lib/tiles/tri-tile-model.ts";
 import { DEFAULT_TRI_TILES_TEXT, parseTriTileSetText } from "../lib/tri-tile-set-text.ts";
@@ -1632,6 +1632,19 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
               {expandedTileSetResult.value.tiles.length} oriented variant{expandedTileSetResult.value.tiles.length === 1 ? "" : "s"} used for solving.
             </p>
           )}
+          {expandedTileSetResult.ok &&
+            expandedTileSetResult.value.tiles.length > 0 &&
+            (() => {
+              const total = expandedTileSetResult.value.tiles.length;
+              const sustainable = pruneToSccSustainable(expandedTileSetResult.value).tiles.length;
+              const unsustainable = total - sustainable;
+              if (unsustainable === 0) return null;
+              return (
+                <p style={{ fontSize: "0.8rem", color: "var(--muted)" }} title="A tile is a dead end for an infinite/periodic tiling when it can be entered but never re-entered -- see #386. A finite grid can still legally use it once, e.g. at a boundary.">
+                  Sustainability (#386): {unsustainable} of {total} tile{total === 1 ? "" : "s"} can never appear in an infinite/periodic tiling with this direction set.
+                </p>
+              );
+            })()}
           {!isCompound && solveStatus === "error" && <p style={{ color: "crimson" }}>{solveError}</p>}
           {isCompound && compoundSolveStatus === "error" && <p style={{ color: "crimson" }}>{compoundSolveError}</p>}
 
