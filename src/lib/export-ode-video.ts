@@ -31,9 +31,10 @@
  * `data` through as `params`.
  */
 import { createServerFn } from "@tanstack/react-start";
-import { completeExportJob, createExportJob, failExportJob } from "./export-jobs.ts";
+import { renderStill } from "ecmanim/node";
+import { completeExportJob, createExportJob, failExportJob, type ExportVideoResult } from "./export-jobs.ts";
 import { renderExportToBuffer } from "./export-render.ts";
-import type { OdeSceneParams } from "./scenes/ode-scene.ts";
+import { construct, type OdeSceneParams } from "./scenes/ode-scene.ts";
 
 export type OdeExportInput = OdeSceneParams & { format: "mp4" | "gif" };
 
@@ -60,4 +61,43 @@ export const startOdeExportJob = createServerFn({ method: "POST" })
     // export-video.ts's getExportVideoJob (one shared store/poll endpoint).
     void runOdeExportJob(jobId, data);
     return { jobId };
+  });
+
+/**
+ * One PNG frame of the ODE export at `time` seconds, for a scrub preview
+ * (issue #337's own "video export with no on-page animation preview" gap --
+ * `VideoExportControls` had a `duration`/`onDurationChange` controlled-prop
+ * escape hatch since Graph3DCanvas's surface export needed it, but OdePanel
+ * originally left both unset). Mirrors `export-surface-video.ts`'s
+ * `renderSurfacePreviewFrame` exactly, except `construct` here is a bare
+ * function (ode-scene.ts's own shape, matching expression-2d-scene.ts's)
+ * rather than a `ThreeDScene` subclass, so `renderStill` is called with the
+ * function directly -- the same distinction `export-video.ts`'s own
+ * `renderExportPreviewFrame` already draws for the 2D expression scene.
+ */
+export const renderOdePreviewFrame = createServerFn({ method: "POST" })
+  .validator((data: OdeExportInput & { time: number }) => data)
+  .handler(async ({ data }): Promise<ExportVideoResult> => {
+    const { format: _format, time, ...params } = data;
+
+    const { promises: fs } = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-graph-ode-preview-"));
+    const outPath = path.join(dir, "preview.png");
+    try {
+      await renderStill(construct, {
+        output: outPath,
+        time: Math.max(0, time),
+        pixelWidth: 320,
+        pixelHeight: 320,
+        background: "#ffffff",
+        verbose: false,
+        params,
+      });
+      const buffer = await fs.readFile(outPath);
+      return { data: buffer.toString("base64"), mimeType: "image/png" };
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });

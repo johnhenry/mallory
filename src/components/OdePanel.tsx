@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { useServerFn } from "@tanstack/react-start";
 import { cellIdsOde, type CellIdsOde } from "../lib/cell-ids.ts";
-import { startOdeExportJob } from "../lib/export-ode-video.ts";
+import { renderOdePreviewFrame, startOdeExportJob } from "../lib/export-ode-video.ts";
+import { ExportPreviewScrubber } from "./ExportPreviewScrubber.tsx";
 import { VideoExportControls } from "./VideoExportControls.tsx";
 import { drawAxes, drawPath, drawSlopeField, type Viewport } from "../lib/render-path.ts";
 import { attemptOdeClosedForm, type OdeClosedFormAttempt, sampleOdeSolution, sampleSlopeField, type SlopeFieldPoint } from "../lib/sample-ode.ts";
@@ -312,6 +313,13 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
 
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const startOdeExportJobFn = useServerFn(startOdeExportJob);
+  const renderOdePreviewFrameFn = useServerFn(renderOdePreviewFrame);
+  // Lifted out of VideoExportControls (as a controlled prop) so the preview
+  // scrubber below can size its range to the same clip length the Export
+  // button will actually render -- mirrors Graph3DCanvas's identical
+  // `exportDuration` state (mallory-graph#9), added here to close #337's
+  // "video export with no on-page animation preview" gap.
+  const [exportDuration, setExportDuration] = useState(4);
 
   async function handleSave() {
     const title = window.prompt("Title for this saved ODE setup:", "Untitled");
@@ -419,6 +427,8 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
       )}
       <VideoExportControls
         filenameStem="mallory-graph-ode"
+        duration={exportDuration}
+        onDurationChange={setExportDuration}
         start={(format, duration) =>
           startOdeExportJobFn({
             data: {
@@ -431,6 +441,19 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
             },
           })
         }
+      />
+      {/* Scrub preview (#337): shares the exact same source/x0/y0/viewport
+          the Export button above uses, so it can never drift from the real
+          render -- mirrors Graph3DCanvas's surface-export preview
+          (mallory-graph#9). */}
+      <ExportPreviewScrubber
+        maxTime={exportDuration}
+        fetchFrame={async (time) => {
+          const frame = await renderOdePreviewFrameFn({
+            data: { source: primaryExpr, x0: primaryX0, y0: primaryY0, viewport, duration: exportDuration, format: "mp4", time },
+          });
+          return frame;
+        }}
       />
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
