@@ -6,7 +6,7 @@ import { useSymbolicTools } from "../hooks/use-symbolic-tools.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { NAV_SECTIONS, SECTION_PATHS } from "../lib/nav-sections.ts";
 import { getWorkspaceGraph } from "../lib/workspace-graph.ts";
-import { CalculatorPanel } from "../components/CalculatorPanel.tsx";
+import { CALCULATOR_STORAGE_KEY, CalculatorPanel } from "../components/CalculatorPanel.tsx";
 
 export const Route = createFileRoute("/_app")({
   component: AppShell,
@@ -207,12 +207,16 @@ function AppShell() {
               ✕
             </button>
           </div>
-          {/* `instanceId="floating"` (the same scoping mechanism issue #255's
-              notebook calculator block already uses) gives this its own
-              independent localStorage history and WebMCP tool names,
-              distinct from the standalone /calculator route's instance --
-              no changes to CalculatorPanel itself needed. */}
-          <CalculatorPanel instanceId="floating" />
+          {/* Deliberately mirrors the standalone /calculator route's own
+              instance (issue #340 follow-up): `storageKey={CALCULATOR_STORAGE_KEY}`
+              makes this share that instance's live state (same input line,
+              history, mode) via calculator-store.ts's shared reactive
+              store, while `instanceId="floating"` still keeps its WebMCP
+              tool names distinct (calculator_floating_evaluate, etc.) --
+              avoiding the exact tool-registration collision issue #255
+              found, without reintroducing the state-drift bug two
+              independent instances had before this. */}
+          <CalculatorPanel instanceId="floating" storageKey={CALCULATOR_STORAGE_KEY} />
         </div>
       )}
       <button

@@ -1,13 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useSyncExternalStore } from "react";
+import type { CalculatorMode } from "../lib/calculator-eval.ts";
 import {
-  EMPTY_CALCULATOR_STATE,
-  submitCalculatorLine,
-  type CalculatorMode,
-  type CalculatorState,
-} from "../lib/calculator-eval.ts";
+  applyCalculatorState,
+  clearCalculatorHistory,
+  getCalculatorLiveState,
+  setCalculatorInput,
+  setCalculatorMode,
+  setCalculatorModulus,
+  submitCalculatorInput,
+  subscribeToCalculator,
+} from "../lib/calculator-store.ts";
+import { submitCalculatorLine } from "../lib/calculator-eval.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 
-const STORAGE_KEY = "mallory-graph:calculator";
+/** Exported so a second CalculatorPanel instance can be told to mirror the standalone route's own state (issue #340's floating calculator) via the `storageKey` prop below, without needing to know this literal. */
+export const CALCULATOR_STORAGE_KEY = "mallory-graph:calculator";
 
 const STRUCTURE_OPTIONS: Array<{ label: string; modulus: number | null }> = [
   { label: "Real numbers", modulus: null },
@@ -16,20 +23,6 @@ const STRUCTURE_OPTIONS: Array<{ label: string; modulus: number | null }> = [
   { label: "Z/7Z (GF(7))", modulus: 7 },
   { label: "Z/11Z", modulus: 11 },
 ];
-
-function loadStoredState(storageKey: string): CalculatorState {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return EMPTY_CALCULATOR_STATE;
-    const parsed = JSON.parse(raw);
-    return {
-      history: Array.isArray(parsed.history) ? parsed.history : [],
-      variables: parsed.variables && typeof parsed.variables === "object" ? parsed.variables : {},
-    };
-  } catch {
-    return EMPTY_CALCULATOR_STATE;
-  }
-}
 
 /**
  * A REPL-style "just an answer" tool: type an expression, get a result, or
@@ -40,50 +33,62 @@ function loadStoredState(storageKey: string): CalculatorState {
  * hash or the server-backed Gallery, since a scratch calculation isn't the
  * kind of thing worth a shareable link (mallory-graph's SPA-shell pass).
  *
- * `instanceId` (issue #255's notebook calculator block) scopes both the
- * `localStorage` key and the two WebMCP tool names below it -- omitted
- * (the standalone `/calculator` route's own call site) preserves the
- * original fixed key/names exactly, so existing saved history and any
- * external tooling built against `calculator_evaluate` keep working
- * unchanged. Passed (a notebook block's own `blockId`) gives each block its
- * own independent scratch history and its own uniquely-named tools -- the
- * same `${prefix}_${cellId}`-scoping convention every *other* embeddable
- * panel already uses (see e.g. `useCellGraphTools`'s callers), which this
- * panel had never needed before because it was never embeddable. Without
- * this, two calculator blocks in one notebook (or a block alongside the
- * standalone page) would silently share one history and collide on tool
- * registration -- confirmed a real gap during the issue #255 audit, not a
- * hypothetical.
+ * State lives in `calculator-store.ts`, a module-level store keyed by
+ * `storageKey` (not local `useState`) -- issue #340's floating calculator
+ * needs to genuinely mirror the standalone `/calculator` route's own
+ * instance live (same typed-but-not-submitted input, same history, same
+ * mode), not just share a localStorage key that only syncs on the next
+ * page load. `useSyncExternalStore` subscribes this component to whichever
+ * store entry `storageKey` resolves to.
+ *
+ * `instanceId` (issue #255's notebook calculator block) scopes the WebMCP
+ * tool names AND (unless `storageKey` is explicitly overridden) the store
+ * key too -- omitted (the standalone `/calculator` route's own call site)
+ * preserves the original fixed key/names exactly. Passed (a notebook
+ * block's own `blockId`, or the floating dock's `"floating"`) gives that
+ * instance its own uniquely-named WebMCP tools, avoiding the registration
+ * collision issue #255 found; without `storageKey` also passed, it gets
+ * its own independent state too, same as before. The floating dock passes
+ * BOTH `instanceId="floating"` (for distinct tool names) AND
+ * `storageKey={CALCULATOR_STORAGE_KEY}` (to mirror the standalone page's
+ * state) -- the two concerns are deliberately independent props.
  */
-export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
-  const storageKey = instanceId ? `${STORAGE_KEY}:${instanceId}` : STORAGE_KEY;
+export function CalculatorPanel({ instanceId, storageKey: storageKeyOverride }: { instanceId?: string; storageKey?: string } = {}) {
   const toolPrefix = instanceId ? `calculator_${instanceId}` : "calculator";
-  const [state, setState] = useState<CalculatorState>(() => loadStoredState(storageKey));
-  const [mode, setMode] = useState<CalculatorMode>("float");
-  const [modulus, setModulus] = useState<number | null>(null);
-  const [input, setInput] = useState("");
-  const historyRef = useRef<HTMLDivElement>(null);
+  const storageKey = storageKeyOverride ?? (instanceId ? `${CALCULATOR_STORAGE_KEY}:${instanceId}` : CALCULATOR_STORAGE_KEY);
+  // A per-RENDERED-INSTANCE unique id for the mode radio group's `name`
+  // attribute -- deliberately NOT derived from `storageKey`/`instanceId`.
+  // Two CalculatorPanel instances sharing a `storageKey` still each mount
+  // their own separate <input type="radio"> DOM elements; without a
+  // per-instance-unique `name`, the browser's own native single-selection-
+  // per-name-group enforcement fights React's controlled `checked` prop
+  // across the two separate trees (confirmed live: this is what caused the
+  // floating calculator to visibly interfere with the standalone page's
+  // radio buttons before this fix) -- independent of whether the
+  // underlying state is shared, which only needs to be right so both
+  // instances compute the same `checked` values, not so the DOM elements
+  // themselves share an identity.
+  const radioGroupName = `calc-mode-${useId()}`;
 
-  useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [state, storageKey]);
+  const live = useSyncExternalStore(
+    useCallback((onChange) => subscribeToCalculator(storageKey, onChange), [storageKey]),
+    () => getCalculatorLiveState(storageKey),
+    () => getCalculatorLiveState(storageKey),
+  );
+  const { data: state, mode, modulus, input } = live;
+  const historyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = historyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [state.history.length]);
 
-  function handleSubmit() {
-    if (!input.trim()) return;
-    setState((s) => submitCalculatorLine(input, s, mode, modulus));
-    setInput("");
-  }
-
   const variableNames = Object.keys(state.variables);
 
   // Wraps the same submitCalculatorLine the Enter key uses -- an agent's
   // evaluation is indistinguishable from one typed in the UI, including
-  // being appended to the same persisted history.
+  // being appended to the same persisted history (and, now, visible in a
+  // mirrored instance too, if one is mounted).
   useModelContextTool({
     name: `${toolPrefix}_evaluate`,
     description:
@@ -96,21 +101,13 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
       },
       required: ["expression"],
     },
-    // Reads `state` directly and computes `next` before calling `setState`,
-    // rather than extracting values from inside a setState *updater*
-    // function -- a WebMCP tool's `execute` runs outside any React event
-    // handler, so (confirmed live: state persisted correctly to
-    // localStorage, but a value captured *inside* the updater read back as
-    // still-undefined immediately after the setState call) the updater
-    // isn't guaranteed to run synchronously in that context the way it does
-    // from a DOM event handler. Computing `next` up front sidesteps the
-    // question entirely.
     handler: (input: Record<string, unknown>) => {
       const expression = String(input.expression ?? "");
-      const next = submitCalculatorLine(expression, state, mode, modulus);
+      const current = getCalculatorLiveState(storageKey);
+      const next = submitCalculatorLine(expression, current.data, current.mode, current.modulus);
       const entry = next.history[next.history.length - 1];
       if (!entry) throw new Error("Empty expression.");
-      setState(next);
+      applyCalculatorState(storageKey, next);
       if (entry.isError) throw new Error(entry.display);
       return { result: entry.display, isAssignment: entry.isAssignment, variables: next.variables };
     },
@@ -131,12 +128,12 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
       if (input.modulus !== undefined && input.modulus !== null) {
         const m = Number(input.modulus);
         if (![2, 5, 7, 11].includes(m)) throw new Error("modulus must be one of 2, 5, 7, 11.");
-        setModulus(m);
+        setCalculatorModulus(storageKey, m);
       } else if (input.modulus === null) {
-        setModulus(null);
+        setCalculatorModulus(storageKey, null);
       }
       if (input.mode === "float" || input.mode === "exact" || input.mode === "units" || input.mode === "interval" || input.mode === "complex")
-        setMode(input.mode);
+        setCalculatorMode(storageKey, input.mode as CalculatorMode);
       return { ok: true };
     },
   });
@@ -149,7 +146,7 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
           value={modulus === null ? "real" : String(modulus)}
           onChange={(e) => {
             const v = e.target.value;
-            setModulus(v === "real" ? null : Number(v));
+            setCalculatorModulus(storageKey, v === "real" ? null : Number(v));
           }}
         >
           {STRUCTURE_OPTIONS.map((opt) => (
@@ -168,19 +165,19 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
       {modulus === null && (
         <div role="radiogroup" aria-label="Arithmetic mode" style={{ margin: "0.5rem 0" }}>
           <label title="Ordinary rounded decimal arithmetic.">
-            <input type="radio" name="calc-mode" checked={mode === "float"} onChange={() => setMode("float")} /> Float
+            <input type="radio" name={radioGroupName} checked={mode === "float"} onChange={() => setCalculatorMode(storageKey, "float")} /> Float
           </label>{" "}
           <label title="Keeps results as exact fractions instead of rounding to a decimal.">
-            <input type="radio" name="calc-mode" checked={mode === "exact"} onChange={() => setMode("exact")} /> Exact
+            <input type="radio" name={radioGroupName} checked={mode === "exact"} onChange={() => setCalculatorMode(storageKey, "exact")} /> Exact
           </label>{" "}
           <label title="Dimensional analysis: numbers carry physical units (m, s, kg, ...) and convert between compatible units.">
-            <input type="radio" name="calc-mode" checked={mode === "units"} onChange={() => setMode("units")} /> Units
+            <input type="radio" name={radioGroupName} checked={mode === "units"} onChange={() => setCalculatorMode(storageKey, "units")} /> Units
           </label>{" "}
           <label title="Interval arithmetic: every result comes with mathematically guaranteed lower/upper bounds instead of a single float.">
-            <input type="radio" name="calc-mode" checked={mode === "interval"} onChange={() => setMode("interval")} /> Interval
+            <input type="radio" name={radioGroupName} checked={mode === "interval"} onChange={() => setCalculatorMode(storageKey, "interval")} /> Interval
           </label>{" "}
           <label title='Complex arithmetic (+, -, *, /, ^, and elementary functions like sqrt/sin/exp) using "i" as the imaginary unit.'>
-            <input type="radio" name="calc-mode" checked={mode === "complex"} onChange={() => setMode("complex")} /> Complex
+            <input type="radio" name={radioGroupName} checked={mode === "complex"} onChange={() => setCalculatorMode(storageKey, "complex")} /> Complex
           </label>
         </div>
       )}
@@ -258,7 +255,7 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
               history persists to localStorage and previously grew without
               any way to drop it (a stale error line from a past session
               could sit at the top of a "fresh" calculator forever). */}
-          <button type="button" onClick={() => setState((s) => ({ history: [], variables: s.variables }))} style={{ fontSize: "0.8rem" }}>
+          <button type="button" onClick={() => clearCalculatorHistory(storageKey)} style={{ fontSize: "0.8rem" }}>
             Clear history
           </button>
         </div>
@@ -268,9 +265,9 @@ export function CalculatorPanel({ instanceId }: { instanceId?: string } = {}) {
         <span style={{ color: "#2563eb" }}>{"›"}</span>
         <input
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => setCalculatorInput(storageKey, e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleSubmit();
+            if (e.key === "Enter") submitCalculatorInput(storageKey);
           }}
           placeholder='log(100) + r, or  k = 3*r, or 3*r -> k'
           style={{ flex: 1, font: "inherit", padding: "0.3rem 0.4rem" }}
