@@ -1,4 +1,6 @@
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
+import { startStreamingExportJob } from "../lib/export-streaming-video.ts";
 import { drawAxes, drawPolyline, type Viewport } from "../lib/render-path.ts";
 import {
   computeWindowedAverage,
@@ -9,6 +11,7 @@ import {
   simulateTeeConsumers,
 } from "../lib/streaming-dataset-demo.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { VideoExportControls } from "./VideoExportControls.tsx";
 
 const SWATCH_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#db2777", "#65a30d", "#4f46e5", "#ea580c"];
 function swatchColor(originalIndex: number): string {
@@ -134,6 +137,7 @@ export function StreamingDatasetPanel() {
   const [shufflePlaying, setShufflePlaying] = useState(false);
   const [shuffleRunning, setShuffleRunning] = useState(false);
   const [shuffleError, setShuffleError] = useState<string | null>(null);
+  const startStreamingExportJobFn = useServerFn(startStreamingExportJob);
 
   async function handleRunShuffle() {
     setShuffleRunning(true);
@@ -406,6 +410,21 @@ export function StreamingDatasetPanel() {
               epoch {epochIndex + 1} / {epochs.length}
             </span>
           </div>
+          <VideoExportControls
+            filenameStem="mallory-graph-streaming-shuffle"
+            start={(format, videoDuration) =>
+              startStreamingExportJobFn({
+                data: {
+                  size: Number(size),
+                  epochCount: Number(epochCount),
+                  seed: Number(seed),
+                  bufferSize: bufferSize.trim() === "" ? undefined : Number(bufferSize),
+                  duration: videoDuration,
+                  format,
+                },
+              })
+            }
+          />
         </div>
       )}
 
