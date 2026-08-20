@@ -31,7 +31,13 @@ function mixedState(overrides?: { valueValue?: number; odeExpr?: string }): Note
       { type: "graph", rows: [{ source: "sin(x)", color: 0x2563eb, visible: true, params: {} }], viewport: { xMin: -10, xMax: 10, yMin: -10, yMax: 10 } },
       { type: "tensor", source: "1 2\n3 4", op: "none" },
       { type: "calculator" },
-      { type: "ode", state: { ...DEFAULT_ODE_STATE, expr: overrides?.odeExpr ?? DEFAULT_ODE_STATE.expr } },
+      {
+        type: "ode",
+        state: {
+          ...DEFAULT_ODE_STATE,
+          rows: [{ x0: "0", y0: "1", color: 0x2563eb, visible: true, expr: overrides?.odeExpr ?? "x - y" }],
+        },
+      },
       { type: "geometry", state: { v: 1, ops: [] } },
     ],
   };
@@ -108,7 +114,7 @@ test("hydrateBlocks (restore): a replaced remount-needing block's old CellGraph 
   // effect would have seeded into the graph for these ids (hydrateBlocks
   // itself never seeds these types -- see its own doc comment).
   const oldOdeIds = cellIdsOde(odeBlock.id);
-  graph.set(oldOdeIds.expr, DEFAULT_ODE_STATE.expr);
+  graph.set(oldOdeIds.expr, "x - y");
   const oldGeometryIds = cellIdsGeometry(geometryBlock.id);
   graph.set(oldGeometryIds.objectList, ["obj-1"], { auxiliary: true });
 

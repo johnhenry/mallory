@@ -212,6 +212,15 @@ export function cellIdsOde(cellId: string) {
     solution: `odeSolution:${cellId}`,
     slopeField: `odeSlopeField:${cellId}`,
     closedForm: `odeClosedForm:${cellId}`,
+    // Unlimited expressions (#336 item 7, mirroring cellIdsOde2's identical
+    // split): xMin/xMax/yMin/yMax/list are container-level (called with the
+    // panel's own container id, shared by every row); color/visible are
+    // per-row (called with a row id). expr/x0/y0/solution/slopeField/
+    // closedForm above are ALSO per-row now -- one initial-value problem per
+    // row, each with its own f(x,y).
+    color: `odeColor:${cellId}`,
+    visible: `odeVisible:${cellId}`,
+    list: `odeList:${cellId}`,
   };
 }
 

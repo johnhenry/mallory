@@ -146,6 +146,19 @@ test("encoded fragment is URL-fragment-safe (no +, /, or = padding)", () => {
   assert.ok(!/[+/=]/.test(fragment), `fragment contains unsafe characters: ${fragment}`);
 });
 
+test("decodeNotebookState upgrades a legacy v1 (single-equation) ode block's nested state to v2 on decode (#336 item 7)", () => {
+  const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const legacy = {
+    v: 1,
+    blocks: [{ type: "ode", state: { v: 1, expr: "x - y", x0: "0", y0: "1", xMin: "-5", xMax: "5", yMin: "-5", yMax: "5" } }],
+  };
+  const decoded = decodeNotebookState(legacyFragment(legacy));
+  assert.ok(decoded);
+  const odeBlock = decoded!.blocks[0] as { type: "ode"; state: { v: number; rows?: Array<{ expr: string }> } };
+  assert.equal(odeBlock.state.v, 2, "the nested OdeState is upgraded to the version seedOdeState/NotebookOdeBlock now expect");
+  assert.equal(odeBlock.state.rows?.[0]?.expr, "x - y");
+});
+
 test("decodeNotebookState returns null for garbage input rather than throwing", () => {
   assert.equal(decodeNotebookState("not-valid-base64url-json!!!"), null);
   assert.equal(decodeNotebookState(""), null);
