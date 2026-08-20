@@ -134,16 +134,28 @@ export function cellIdsSpaceCurve(cellId: string) {
 
 export type CellIdsSpaceCurve = ReturnType<typeof cellIdsSpaceCurve>;
 
-/** #345: a single complex-graph curve, not (yet) multi-row -- see complex-graph-state.ts's own doc comment for why this stays single-object for v1. */
+/**
+ * #345/#24-followup: unlimited complex-graph functions sharing one set of
+ * screen axes. `axisX`/`axisY`/`axisZ`/`list` are panel-level (call with
+ * the container id, never a row id) -- the axis assignment is a shared
+ * "view" every function is plotted against, same reasoning as why
+ * VectorField3DPanel's domain bounds stay container-level while its
+ * expressions go per-row. `yExpr`/`tMin`/`tMax`/`color`/`visible`/`points`
+ * are per-row (see cellIdsImplicit's doc comment for the "same factory,
+ * container id vs. row id" split).
+ */
 export function cellIdsComplexGraph3D(cellId: string) {
   return {
     yExpr: `complexGraph3dYExpr:${cellId}`,
-    axisX: `complexGraph3dAxisX:${cellId}`,
-    axisY: `complexGraph3dAxisY:${cellId}`,
-    axisZ: `complexGraph3dAxisZ:${cellId}`,
     tMin: `complexGraph3dTMin:${cellId}`,
     tMax: `complexGraph3dTMax:${cellId}`,
     points: `complexGraph3dPoints:${cellId}`,
+    color: `complexGraph3dColor:${cellId}`,
+    visible: `complexGraph3dVisible:${cellId}`,
+    axisX: `complexGraph3dAxisX:${cellId}`,
+    axisY: `complexGraph3dAxisY:${cellId}`,
+    axisZ: `complexGraph3dAxisZ:${cellId}`,
+    list: `complexGraph3dList:${cellId}`,
   };
 }
 
