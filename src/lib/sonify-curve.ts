@@ -91,8 +91,15 @@ export function buildSonificationSchedule(
  * `rootTimes` (seconds, see {@link xToSweepTime}) get a brief gain spike
  * layered on top, the sweep's audible "click" for a root crossing.
  * Returns a `stop()` to cancel early (e.g. the panel unmounts mid-sweep).
+ * `onEnded`, if given, fires once whether playback stops early via `stop()`
+ * or finishes naturally -- callers use it to flip a "playing" UI flag back
+ * off without polling or a separately-tracked timer.
  */
-export function playSonification(schedule: SonificationStep[], rootTimes: readonly number[] = []): { stop: () => void } {
+export function playSonification(
+  schedule: SonificationStep[],
+  rootTimes: readonly number[] = [],
+  onEnded?: () => void,
+): { stop: () => void } {
   const AudioContextCtor = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const ctx = new AudioContextCtor();
   const osc = ctx.createOscillator();
@@ -121,6 +128,15 @@ export function playSonification(schedule: SonificationStep[], rootTimes: readon
   const totalDuration = schedule.length > 0 ? (schedule[schedule.length - 1] as SonificationStep).time : 0;
   osc.start(startTime);
   osc.stop(startTime + totalDuration + 0.1);
+  // Fires for BOTH the natural osc.stop() above and an early manual stop()
+  // below (calling .stop() again after it already fired is a no-op, not a
+  // second event) -- the single path the "playing" UI flag needs.
+  let ended = false;
+  osc.onended = () => {
+    if (ended) return;
+    ended = true;
+    onEnded?.();
+  };
 
   return {
     stop: () => {

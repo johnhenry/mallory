@@ -405,6 +405,7 @@ export function GraphCanvasMulti() {
   // description composition is a natural follow-up rather than in scope here.
   const [description, setDescription] = useState("No curves plotted yet.");
   const sonifyPlayerRef = useRef<{ stop: () => void } | null>(null);
+  const [isSonifying, setIsSonifying] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(() =>
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("session") : null,
   );
@@ -728,14 +729,20 @@ export function GraphCanvasMulti() {
     setReadoutMissed(false);
   }
 
-  // Issue #50: sweeps the primary row's curve across the current viewport,
-  // mapping f(x) to pitch (discontinuities as silences, roots as clicks --
-  // see sonify-curve.ts). Stops any already-playing sweep first so
-  // repeated clicks don't stack overlapping tones.
+  // Issue #50 (issue #333: added a stop control -- there was previously no
+  // way to silence a sweep once started): sweeps the primary row's curve
+  // across the current viewport, mapping f(x) to pitch (discontinuities as
+  // silences, roots as clicks -- see sonify-curve.ts). A second click while
+  // playing stops it instead of stacking a new overlapping sweep.
   function handlePlaySound() {
+    if (sonifyPlayerRef.current) {
+      sonifyPlayerRef.current.stop();
+      sonifyPlayerRef.current = null;
+      setIsSonifying(false);
+      return;
+    }
     const primary = getPrimaryRow(graph);
     if (!primary) return;
-    sonifyPlayerRef.current?.stop();
     const path = graph.get<Path2D>(primary.ids.path);
     const discontinuities = graph.hasValue(primary.ids.discontinuities)
       ? graph.get<{ before: { x: number; y: number }; after: { x: number; y: number } }[]>(primary.ids.discontinuities)
@@ -745,7 +752,11 @@ export function GraphCanvasMulti() {
     const durationSeconds = 3;
     const schedule = buildSonificationSchedule(path, discontinuities, viewport, durationSeconds);
     const rootTimes = roots.map((r) => xToSweepTime(r.x, viewport, durationSeconds));
-    sonifyPlayerRef.current = playSonification(schedule, rootTimes);
+    setIsSonifying(true);
+    sonifyPlayerRef.current = playSonification(schedule, rootTimes, () => {
+      sonifyPlayerRef.current = null;
+      setIsSonifying(false);
+    });
   }
 
   useEffect(() => {
@@ -1009,7 +1020,7 @@ export function GraphCanvasMulti() {
         />{" "}
         <SvgExportButton getSvg={() => getMultiGraphSvg(graph, rowIds)} label="multi-expression" />{" "}
         <button type="button" onClick={handlePlaySound}>
-          🔊 Play sound
+          {isSonifying ? "⏹ Stop sound" : "🔊 Play sound"}
         </button>
       </div>
       <p style={{ margin: "0.25rem 0", color: "var(--muted)", fontSize: "0.85rem" }}>{description}</p>
