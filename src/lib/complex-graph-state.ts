@@ -2,34 +2,25 @@ import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 import { isAxisChoice, type AxisChoice } from "./sample-complex-graph.ts";
 
 /**
- * URL-state schema for ComplexGraph3DPanel (issue #345) -- a flat dump of
- * its free cells (see cell-ids.ts's cellIdsComplexGraph3D). Single-object
- * v1, not the multi-row "unlimited expressions" shape SpaceCurvePanel/
- * ParametricSurfacePanel/OdePanel etc. use -- deliberate v1 scope match
- * with #345's own comment: this panel only supports the CURVE case (drop a
- * domain component) for now, and multi-curve overlay is a natural but
- * separate follow-up once the surface case (the other #345 follow-up)
- * clarifies what "another row" even means here.
+ * URL-state schema for ComplexGraph3DPanel. v1 (issue #345) was a single
+ * complex-graph curve, not yet multi-row -- the design explicitly deferred
+ * "another row" until the always-grid-sample/auto-detect redesign (this
+ * file's own v1 comment history) settled what a row even means once the
+ * strict curve-only constraint was gone.
  *
- * No separate `drop` field -- the dropped component is derived from
- * whichever of Re(x)/Im(x)/Re(y)/Im(y) ISN'T one of axisX/axisY/axisZ (see
- * sample-complex-graph.ts's `droppedComponent`). A very early version of
- * this schema had an explicit `drop` field; removed before this ever
- * shipped anywhere reachable, so no migration is needed -- a stray `drop`
- * key in an old fragment is simply ignored (extra keys don't fail
- * validation), so nothing breaks either way.
+ * v2 lifts that: unlimited y=f(x) functions (`rows`), sharing ONE set of
+ * screen axes (`axisX`/`axisY`/`axisZ` stay panel-level, not per-row) -- the
+ * point is comparing several functions against the same view, the same way
+ * SpaceCurvePanel's issue #251 upgrade added unlimited curves. Each row
+ * gets its own `color`/`visible` (mirroring every other multi-row panel's
+ * row shape) plus its own `tMin`/`tMax`, since different functions often
+ * want different sweep ranges even while sharing axes.
  *
- * Each axis is `AxisChoice` (a real component, or `"none"`) rather than
- * always-assigned `ComplexComponent` -- a follow-up UI fix: the first
- * version's dropdowns disabled any choice that would violate the "exactly
- * one domain component" curve-validity rule directly at the UI layer, on
- * the theory that an unreachable state is better than a confusing one. In
- * practice that made a perfectly fine reassignment (moving Im(x) from
- * Axis Z to Axis X, say) look stuck, since the OLD value briefly didn't
- * free up until the intermediate state passed the same strict check.
- * Axes now freely take any of the 4 components (duplicates still blocked)
- * or "none"; the domain-count rule moved to be a plain error message at
- * the sampling layer instead of a UI gate (see ComplexGraph3DPanel.tsx).
+ * Each axis is `AxisChoice` (a real component, or `"none"`) -- see
+ * sample-complex-graph.ts's own top comment: any of the 4 real components
+ * may be assigned to any axis, or left unassigned, with the render mode
+ * (curve vs. scatter) auto-detected per row from how many domain
+ * components (Re(x)/Im(x)) end up used.
  */
 export interface ComplexGraphStateV1 {
   v: 1;
@@ -41,18 +32,51 @@ export interface ComplexGraphStateV1 {
   tMax: string;
 }
 
-export type ComplexGraphState = ComplexGraphStateV1;
+/** One function row (v2, multi-function) -- a v1 state's own per-curve fields, plus color/visibility. */
+export interface ComplexGraphRowState {
+  yExpr: string;
+  tMin: string;
+  tMax: string;
+  color: number;
+  visible: boolean;
+}
+
+export interface ComplexGraphStateV2 {
+  v: 2;
+  axisX: AxisChoice;
+  axisY: AxisChoice;
+  axisZ: AxisChoice;
+  rows: ComplexGraphRowState[];
+}
+
+export type ComplexGraphState = ComplexGraphStateV2;
 
 /** y = e^(i*x): the issue's own worked example, so the panel opens already showing the spiral rather than a blank/degenerate default. */
-export const DEFAULT_COMPLEX_GRAPH_STATE: ComplexGraphState = {
-  v: 1,
+const DEFAULT_ROW: ComplexGraphRowState = {
   yExpr: "exp(i*x)",
+  tMin: "0",
+  tMax: String(4 * Math.PI),
+  color: 0x9333ea,
+  visible: true,
+};
+
+export const DEFAULT_COMPLEX_GRAPH_STATE: ComplexGraphState = {
+  v: 2,
   axisX: "reX",
   axisY: "reY",
   axisZ: "imY",
-  tMin: "0",
-  tMax: String(4 * Math.PI),
+  rows: [DEFAULT_ROW],
 };
+
+function upgradeV1ToV2(v1: ComplexGraphStateV1): ComplexGraphStateV2 {
+  return {
+    v: 2,
+    axisX: v1.axisX,
+    axisY: v1.axisY,
+    axisZ: v1.axisZ,
+    rows: [{ yExpr: v1.yExpr, tMin: v1.tMin, tMax: v1.tMax, color: 0x9333ea, visible: true }],
+  };
+}
 
 export function encodeComplexGraphState(state: ComplexGraphState): string {
   return encodeStateFragment(state);
@@ -62,7 +86,9 @@ export function encodeComplexGraphState(state: ComplexGraphState): string {
 export function decodeComplexGraphState(fragment: string): ComplexGraphState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
-    return isComplexGraphStateV1(parsed) ? parsed : null;
+    if (isComplexGraphStateV2(parsed)) return parsed;
+    if (isComplexGraphStateV1(parsed)) return upgradeV1ToV2(parsed);
+    return null;
   } catch {
     return null;
   }
@@ -80,4 +106,15 @@ export function isComplexGraphStateV1(value: unknown): value is ComplexGraphStat
     typeof v.tMin === "string" &&
     typeof v.tMax === "string"
   );
+}
+
+export function isComplexGraphStateV2(value: unknown): value is ComplexGraphStateV2 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.v !== 2 || !isAxisChoice(v.axisX) || !isAxisChoice(v.axisY) || !isAxisChoice(v.axisZ) || !Array.isArray(v.rows)) return false;
+  return v.rows.every((row) => {
+    if (typeof row !== "object" || row === null) return false;
+    const r = row as Record<string, unknown>;
+    return typeof r.yExpr === "string" && typeof r.tMin === "string" && typeof r.tMax === "string" && typeof r.color === "number" && typeof r.visible === "boolean";
+  });
 }
