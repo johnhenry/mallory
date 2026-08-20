@@ -6,6 +6,7 @@ export type Boundary3D = "dead" | "wrap";
 /** "custom" (issue #260 item 1) pairs with `customGrid1d`/`customGrid2d` below -- a '0'/'1' bitstring a `CustomGridEditor` painted (see src/lib/ca/custom-grid.ts's own doc comment for the encoding). */
 export type InitialCondition1D = "single-cell" | "random" | "custom";
 export type InitialCondition2D = "random" | "custom";
+export type InitialCondition3D = "random" | "custom";
 
 export interface CaStateV1 {
   v: 1;
@@ -33,10 +34,10 @@ export interface CaStateV1 {
   customGrid2d: string;
   /** Whether the 3D voxel spacetime-stack view is showing (issue #229's own "2D rule's history is naturally a 3D volume" framing) -- off by default since it's the heavier render. */
   showVoxelView: boolean;
-  // 3D (totalistic) params -- see src/lib/ca/totalistic-3d.ts. The grid is
-  // always randomly seeded (there's no "single cell" analogue that's
-  // interesting in 3D the way 1D's is), so it needs its own density/seed
-  // rather than reusing 2D's initial1d-style toggle.
+  // 3D (totalistic) params -- see src/lib/ca/totalistic-3d.ts. Density/seed
+  // feed `randomGrid3D`; there's no "single cell" analogue that's
+  // interesting in 3D the way 1D's is, so this reuses 2D's initial2d-style
+  // random/custom toggle instead (added in V2, see `initial3d` below).
   rule3d: string;
   width3d: number;
   height3d: number;
@@ -47,10 +48,25 @@ export interface CaStateV1 {
   density3d: number;
 }
 
-export type CaState = CaStateV1;
+/**
+ * V2 (issue #389): adds the 3D custom-initial-state painter -- the panel's
+ * own "the custom initial-state editor isn't available for 3D yet" note
+ * this issue asked to close. `initial3d` mirrors `initial2d`'s
+ * random/custom toggle; `customGrid3d` is a flat '0'/'1' bitstring over the
+ * whole `width3d`x`height3d`x`depth3d` volume, z-major (see
+ * `custom-grid.ts`'s `decodeCustomGrid3D`), painted one layer at a time via
+ * the same `CustomGridEditor` the 1D/2D editors already use.
+ */
+export interface CaStateV2 extends Omit<CaStateV1, "v"> {
+  v: 2;
+  initial3d: InitialCondition3D;
+  customGrid3d: string;
+}
+
+export type CaState = CaStateV2;
 
 export const DEFAULT_CA_STATE: CaState = {
-  v: 1,
+  v: 2,
   dimension: "1d",
   ruleNumber: 30,
   width1d: 101,
@@ -77,7 +93,13 @@ export const DEFAULT_CA_STATE: CaState = {
   boundary3d: "dead",
   seed3d: 1,
   density3d: 0.15,
+  initial3d: "random",
+  customGrid3d: "",
 };
+
+function upgradeV1ToV2(v1: CaStateV1): CaStateV2 {
+  return { ...v1, v: 2, initial3d: "random", customGrid3d: "" };
+}
 
 export function encodeCaState(state: CaState): string {
   return encodeStateFragment(state);
@@ -87,7 +109,9 @@ export function encodeCaState(state: CaState): string {
 export function decodeCaState(fragment: string): CaState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
-    return isCaStateV1(parsed) ? parsed : null;
+    if (isCaStateV2(parsed)) return parsed;
+    if (isCaStateV1(parsed)) return upgradeV1ToV2(parsed);
+    return null;
   } catch {
     return null;
   }
@@ -99,12 +123,10 @@ const BOUNDARIES_2D: Boundary2D[] = ["dead", "wrap"];
 const BOUNDARIES_3D: Boundary3D[] = ["dead", "wrap"];
 const INITIAL_CONDITIONS_1D: InitialCondition1D[] = ["single-cell", "random", "custom"];
 const INITIAL_CONDITIONS_2D: InitialCondition2D[] = ["random", "custom"];
+const INITIAL_CONDITIONS_3D: InitialCondition3D[] = ["random", "custom"];
 
-export function isCaStateV1(value: unknown): value is CaStateV1 {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
+function hasCaStateV1Fields(v: Record<string, unknown>): boolean {
   return (
-    v.v === 1 &&
     typeof v.dimension === "string" &&
     DIMENSIONS.includes(v.dimension as CaDimension) &&
     typeof v.ruleNumber === "number" &&
@@ -137,6 +159,24 @@ export function isCaStateV1(value: unknown): value is CaStateV1 {
     BOUNDARIES_3D.includes(v.boundary3d as Boundary3D) &&
     typeof v.seed3d === "number" &&
     typeof v.density3d === "number"
+  );
+}
+
+export function isCaStateV1(value: unknown): value is CaStateV1 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return v.v === 1 && hasCaStateV1Fields(v);
+}
+
+export function isCaStateV2(value: unknown): value is CaStateV2 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.v === 2 &&
+    hasCaStateV1Fields(v) &&
+    typeof v.initial3d === "string" &&
+    INITIAL_CONDITIONS_3D.includes(v.initial3d as InitialCondition3D) &&
+    typeof v.customGrid3d === "string"
   );
 }
 

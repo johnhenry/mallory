@@ -16,8 +16,9 @@ import {
   type CaState,
   type InitialCondition1D,
   type InitialCondition2D,
+  type InitialCondition3D,
 } from "../lib/ca-state.ts";
-import { blankBits, decodeBits, pixelToCellIndex, setBit, type Cell as CaCell } from "../lib/ca/custom-grid.ts";
+import { blankBits, decodeBits, pixelToCellIndex, replaceBitsSlice, setBit, type Cell as CaCell } from "../lib/ca/custom-grid.ts";
 import { NAMED_ELEMENTARY_RULES, ruleTable, spacetimeElementary, toggleRuleBit, type Spacetime as Spacetime1D } from "../lib/ca/elementary.ts";
 import {
   bsRuleToString,
@@ -31,9 +32,9 @@ import {
   type Spacetime2D,
 } from "../lib/ca/life-like.ts";
 import {
+  initialGrid3D,
   NAMED_TOTALISTIC_3D_RULES,
   parseTotalisticRule3D,
-  randomGrid3D,
   spacetimeTotalistic3D,
   toggleBirth3D,
   toggleSurvival3D,
@@ -124,11 +125,13 @@ function seedState(graph: CellGraph, ids: CellIdsCellularAutomata, state: CaStat
   graph.set(ids.boundary3d, state.boundary3d);
   graph.set(ids.seed3d, state.seed3d);
   graph.set(ids.density3d, state.density3d);
+  graph.set(ids.initial3d, state.initial3d);
+  graph.set(ids.customGrid3d, state.customGrid3d);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsCellularAutomata): CaState {
   return {
-    v: 1,
+    v: 2,
     dimension: graph.get<CaDimension>(ids.dimension),
     ruleNumber: graph.get<number>(ids.ruleNumber),
     width1d: graph.get<number>(ids.width1d),
@@ -155,6 +158,8 @@ function getCurrentState(graph: CellGraph, ids: CellIdsCellularAutomata): CaStat
     boundary3d: graph.get<Boundary3D>(ids.boundary3d),
     seed3d: graph.get<number>(ids.seed3d),
     density3d: graph.get<number>(ids.density3d),
+    initial3d: graph.get<InitialCondition3D>(ids.initial3d),
+    customGrid3d: graph.get<string>(ids.customGrid3d),
   };
 }
 
@@ -233,7 +238,10 @@ function useCaGraph(cellId: string): CellGraph {
           throw new Error(`width x height x depth (${width * height * depth}) exceeds the ${MAX_3D_GRID_CELLS} cap -- shrink one of them.`);
         }
         const rule = parseTotalisticRule3D(graph.get<string>(ids.rule3d));
-        const initial = randomGrid3D(width, height, depth, new Rng(graph.get<number>(ids.seed3d)), graph.get<number>(ids.density3d));
+        const initialKind = graph.get<InitialCondition3D>(ids.initial3d);
+        const rng = initialKind === "random" ? new Rng(graph.get<number>(ids.seed3d)) : undefined;
+        const customBits = initialKind === "custom" ? graph.get<string>(ids.customGrid3d) : undefined;
+        const initial = initialGrid3D(width, height, depth, initialKind, rng, graph.get<number>(ids.density3d), customBits);
         const value = spacetimeTotalistic3D(initial, rule, generations, graph.get<Boundary3D>(ids.boundary3d));
         return { ok: true, value };
       } catch (e) {
@@ -520,7 +528,7 @@ const EDITOR_CELL_SIZE = 14;
  * spacetime views above do (up to MAX_2D_WIDTH x MAX_2D_HEIGHT = 6400 cells
  * is a lot of buttons to click-and-drag over).
  */
-function CustomGridEditor({ bits, width, height, onChange }: { bits: string; width: number; height: number; onChange: (bits: string) => void }) {
+export function CustomGridEditor({ bits, width, height, onChange }: { bits: string; width: number; height: number; onChange: (bits: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const paintingRef = useRef(false);
   const paintValueRef = useRef<CaCell>(1);
@@ -543,11 +551,28 @@ function CustomGridEditor({ bits, width, height, onChange }: { bits: string; wid
     }
   }, [bits, width, height, canvasWidth, canvasHeight]);
 
+  // #389: `getBoundingClientRect()`'s CSS pixel size isn't guaranteed to
+  // exactly equal the canvas's backing-store `width`/`height` attributes --
+  // browser zoom, OS display scaling, or fractional layout rounding can all
+  // introduce a small mismatch (confirmed live: a 280px-wide canvas
+  // measured 281.9 CSS px in one ordinary run). `pixelToCellIndex` assumes
+  // its input is already in canvas-pixel space, so feeding it a raw
+  // CSS-pixel offset silently drifts by a growing fraction of a cell the
+  // further a click lands from the origin -- for a wide grid (1D's up to
+  // MAX_1D_WIDTH=300 cells, vs. 2D's much smaller typical width) that drift
+  // accumulates into a whole-cell error well before the far edge, which is
+  // exactly the "clicks the square to the left" symptom reported. Scaling
+  // by the canvas/rect size ratio converts the CSS-pixel click position
+  // into true canvas-pixel space before dividing by EDITOR_CELL_SIZE,
+  // eliminating the drift regardless of its cause or direction.
   function indexAt(clientX: number, clientY: number): number | null {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
-    return pixelToCellIndex(clientX - rect.left, clientY - rect.top, EDITOR_CELL_SIZE, width, height);
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return pixelToCellIndex((clientX - rect.left) * scaleX, (clientY - rect.top) * scaleY, EDITOR_CELL_SIZE, width, height);
   }
 
   function handlePointerDown(e: ReactPointerEvent<HTMLCanvasElement>) {
@@ -598,54 +623,68 @@ const RULE_PICKER_CELL_SIZE = 18;
 const NEIGHBORHOOD_DISPLAY_ORDER = [7, 6, 5, 4, 3, 2, 1, 0] as const;
 
 /**
- * Visual rule picker for 1D elementary rules (issue #260 item 2): one
+ * Visual rule picker for 1D elementary rules (issue #260 item 2, restyled
+ * per #389 to match 2D/3D's `NeighborCountIcon` visual language): one
  * diagram per possible 3-cell neighborhood -- a row of 3 squares (left,
- * center, right) with a 4th square below showing the resulting next-state
- * cell, exactly the "row of 3 + 1 below" diagram the issue itself
- * describes. Clicking the bottom square flips that neighborhood's outcome
- * via elementary.ts's own `toggleRuleBit`; this component is otherwise just
- * an interactive rendering of `ruleTable(ruleNumber)`.
+ * center, right, center shown as a dim dot like `NeighborCountIcon`'s own
+ * self-cell marker) with a 4th square below showing the resulting
+ * next-state cell, the "row of 3 + 1 below" diagram every published
+ * elementary-CA rule diagram uses. Unlike 2D/3D (2^9/2^26 neighborhoods
+ * makes enumerating every exact arrangement intractable, so those pickers
+ * group by neighbor COUNT instead -- see `NeighborCountIcon`'s own doc
+ * comment), 1D's 8 neighborhoods are few enough to enumerate directly, so
+ * this stays one icon per EXACT neighborhood, not per count; only the
+ * VISUAL treatment changes to match. The whole icon (not just the outcome
+ * square) is now one clickable button, bordered in the accent color when
+ * the outcome is alive -- the same "click anywhere on the icon, active
+ * state reads as a ring around it" interaction `NeighborCountIcon` uses,
+ * rather than a separate inert row plus a small outcome-only button.
  */
 function RulePicker1D({ ruleNumber, onChange }: { ruleNumber: number; onChange: (ruleNumber: number) => void }) {
   const table = ruleTable(ruleNumber);
   const theme = getThemeColors();
-  const cellStyle = (alive: boolean): CSSProperties => ({
+  const cellStyle = (alive: boolean, isCenter: boolean): CSSProperties => ({
     width: RULE_PICKER_CELL_SIZE,
     height: RULE_PICKER_CELL_SIZE,
-    background: alive ? theme.ink : theme.surface,
+    background: isCenter ? theme.muted : alive ? theme.ink : theme.surface,
     border: "1px solid var(--border, #999)",
+    borderRadius: isCenter ? "50%" : 0,
     boxSizing: "border-box" as const,
   });
   return (
-    <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+    <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
       {NEIGHBORHOOD_DISPLAY_ORDER.map((i) => {
         const left = (i >> 2) & 1;
         const center = (i >> 1) & 1;
         const right = i & 1;
         const outcome = table[i]!;
+        const active = outcome === 1;
         return (
-          <div key={i} style={{ textAlign: "center" }}>
-            <div style={{ display: "flex" }}>
-              <div style={cellStyle(left === 1)} />
-              <div style={cellStyle(center === 1)} />
-              <div style={cellStyle(right === 1)} />
+          <button
+            key={i}
+            type="button"
+            onClick={() => onChange(toggleRuleBit(ruleNumber, i))}
+            aria-pressed={active}
+            aria-label={`Neighborhood ${left}${center}${right} maps to ${active ? "alive" : "dead"} -- click to toggle`}
+            title={`${left}${center}${right} -> ${outcome}`}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: 2,
+              cursor: "pointer",
+              background: "none",
+              border: active ? "2px solid var(--accent, #2563eb)" : "2px solid transparent",
+              borderRadius: 3,
+            }}
+          >
+            <div style={{ display: "flex", gap: NEIGHBOR_ICON_GAP }}>
+              <div style={cellStyle(left === 1, false)} />
+              <div style={cellStyle(center === 1, true)} />
+              <div style={cellStyle(right === 1, false)} />
             </div>
-            <button
-              type="button"
-              onClick={() => onChange(toggleRuleBit(ruleNumber, i))}
-              aria-label={`Neighborhood ${left}${center}${right} maps to ${outcome === 1 ? "alive" : "dead"} -- click to toggle`}
-              title={`${left}${center}${right} -> ${outcome}`}
-              // #377: this used to be 3 cells wide (spanning the full row
-              // above), which read as an odd wide bar rather than the
-              // single resulting cell it represents. One cell wide, centered
-              // under the row via the parent's own textAlign: "center" (the
-              // button is inline-block by default), draws the standard
-              // "T" shape every published elementary-CA rule diagram uses --
-              // 3-cell neighborhood above, single next-state cell below the
-              // middle one.
-              style={{ ...cellStyle(outcome === 1), cursor: "pointer", padding: 0, marginTop: 2 }}
-            />
-          </div>
+            <div style={{ ...cellStyle(active, false), marginTop: NEIGHBOR_ICON_GAP + 1 }} />
+          </button>
         );
       })}
     </div>
@@ -839,6 +878,8 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
   const boundary3d = useCell<Boundary3D>(graph, ids.boundary3d);
   const seed3d = useCell<number>(graph, ids.seed3d);
   const density3d = useCell<number>(graph, ids.density3d);
+  const initial3d = useCell<InitialCondition3D>(graph, ids.initial3d);
+  const customGrid3d = useCell<string>(graph, ids.customGrid3d);
   const spacetime3dResult = useCell<Result<Spacetime3D>>(graph, ids.spacetime3dResult);
 
   const time = useCell<number>(graph, TIME_CELL);
@@ -852,6 +893,12 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
   const [speed, setSpeed] = useState(1);
+  // #389: which z-layer the 3D custom-initial-state editor is currently
+  // painting -- purely a local editing cursor (not part of CaState), same
+  // as `textInput`/`playing` above; resets to layer 0 on remount, which is
+  // fine since it has no meaning outside an active editing session.
+  const [layerIndex3d, setLayerIndex3d] = useState(0);
+  const clampedLayerIndex3d = Math.min(layerIndex3d, Math.max(0, depth3d - 1));
   const duration =
     dimension === "2d"
       ? spacetime2dResult.ok
@@ -1358,21 +1405,32 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
               </select>
             </label>
             <label>
-              seed: <input type="number" value={seed3d} onChange={(e) => graph.set(ids.seed3d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+              initial:{" "}
+              <select value={initial3d} onChange={(e) => graph.set(ids.initial3d, e.target.value as InitialCondition3D)}>
+                <option value="random">Random</option>
+                <option value="custom">Custom (paint it)</option>
+              </select>
             </label>
-            <label>
-              density: <input type="number" min={0} max={1} step={0.05} value={density3d} onChange={(e) => graph.set(ids.density3d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
-              <input
-                type="range"
-                aria-label="density slider"
-                min={0}
-                max={1}
-                step={0.05}
-                value={density3d}
-                onChange={(e) => graph.set(ids.density3d, Number(e.target.value))}
-                style={{ verticalAlign: "middle", marginLeft: "0.4rem" }}
-              />
-            </label>
+            {initial3d === "random" && (
+              <>
+                <label>
+                  seed: <input type="number" value={seed3d} onChange={(e) => graph.set(ids.seed3d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+                </label>
+                <label>
+                  density: <input type="number" min={0} max={1} step={0.05} value={density3d} onChange={(e) => graph.set(ids.density3d, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+                  <input
+                    type="range"
+                    aria-label="density slider"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={density3d}
+                    onChange={(e) => graph.set(ids.density3d, Number(e.target.value))}
+                    style={{ verticalAlign: "middle", marginLeft: "0.4rem" }}
+                  />
+                </label>
+              </>
+            )}
           </div>
           <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{NAMED_TOTALISTIC_3D_RULES.find((r) => r.rule === rule3d)?.description ?? "Custom rule."}</p>
 
@@ -1387,9 +1445,39 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
               <p style={{ color: "crimson", fontSize: "0.8rem" }}>Fix the B/S rule text above to use the visual picker.</p>
             )}
           </details>
-          <p style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-            The custom initial-state editor (above, for 1D/2D) isn't available for 3D yet -- painting a 3D volume needs its own UI (e.g. per-layer slices) and is deferred as future work; the grid is always randomly seeded here.
-          </p>
+
+          {initial3d === "custom" && (
+            <div style={{ margin: "0.5rem 0" }}>
+              <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.25rem" }}>
+                Click or drag to paint one z-layer at a time (black = alive); switch layers below. Size follows the width/height/depth fields above.
+              </p>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0.25rem 0" }}>
+                <button type="button" disabled={clampedLayerIndex3d <= 0} onClick={() => setLayerIndex3d(Math.max(0, clampedLayerIndex3d - 1))}>
+                  ← Prev layer
+                </button>
+                <span style={{ fontSize: "0.85rem" }}>
+                  layer {clampedLayerIndex3d + 1} of {depth3d}
+                </span>
+                <button type="button" disabled={clampedLayerIndex3d >= depth3d - 1} onClick={() => setLayerIndex3d(Math.min(depth3d - 1, clampedLayerIndex3d + 1))}>
+                  Next layer →
+                </button>
+              </div>
+              <CustomGridEditor
+                bits={customGrid3d.slice(clampedLayerIndex3d * width3d * height3d, (clampedLayerIndex3d + 1) * width3d * height3d)}
+                width={width3d}
+                height={height3d}
+                onChange={(layerBits) =>
+                  graph.set(
+                    ids.customGrid3d,
+                    replaceBitsSlice(customGrid3d, width3d * height3d * depth3d, clampedLayerIndex3d * width3d * height3d, width3d * height3d, layerBits),
+                  )
+                }
+              />
+              <button type="button" onClick={() => graph.set(ids.customGrid3d, blankBits(width3d * height3d * depth3d))} style={{ marginTop: "0.35rem" }}>
+                Clear all layers
+              </button>
+            </div>
+          )}
 
           {voxelBudget3d > MAX_3D_GRID_CELLS && (
             <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
