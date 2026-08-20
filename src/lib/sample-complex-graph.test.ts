@@ -5,6 +5,7 @@ import {
   isComplexComponent,
   isValidComplexAxisAssignment,
   sampleComplexGraph,
+  usedDomainComponents,
   type ComplexGraphAxisAssignment,
 } from "./sample-complex-graph.ts";
 
@@ -113,5 +114,37 @@ test("sampleComplexGraph: an axis assigned 'none' always reads as 0, even alongs
   assert.equal(mode, "curve");
   for (const p of points) {
     assert.equal(p.z, 0);
+  }
+});
+
+test("usedDomainComponents (#365): with no sweep flags, only assigned components are 'used' -- default matches today's implicit behavior", () => {
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "reY", z: "none" };
+  assert.deepEqual(usedDomainComponents(assignment), ["reX"]);
+  assert.deepEqual(usedDomainComponents(assignment, { reX: false, imX: false }), ["reX"]);
+});
+
+test("usedDomainComponents (#365): a forced sweep flag adds an otherwise-unassigned component to the used set", () => {
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "reY", z: "none" };
+  assert.deepEqual(usedDomainComponents(assignment, { reX: false, imX: true }), ["reX", "imX"]);
+});
+
+test("usedDomainComponents (#365): forcing an ALREADY-assigned component doesn't duplicate it", () => {
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "imX", z: "reY" };
+  assert.deepEqual(usedDomainComponents(assignment, { reX: true, imX: true }), ["reX", "imX"]);
+});
+
+test("sampleComplexGraph (#365): forcing Im(x) to sweep turns an otherwise-clean curve into a scatter, even though Im(x) still isn't shown on any axis", () => {
+  // {Re(x), Re(y), None} for exp(i*x) is the exact worked example that
+  // motivated #365: with Im(x) held at 0 (the default), this traces a
+  // clean curve (cos(t), sin(t) held off-axis). Forcing Im(x) to sweep
+  // makes the grid 2D even though only Re(x)/Re(y) are ever shown.
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "reY", z: "none" };
+  const withoutForce = sampleComplexGraph("exp(i*x)", assignment, { min: 0, max: Math.PI }, 20);
+  assert.equal(withoutForce.mode, "curve");
+  const withForce = sampleComplexGraph("exp(i*x)", assignment, { min: 0, max: Math.PI }, 20, { reX: false, imX: true });
+  assert.equal(withForce.mode, "scatter");
+  assert.ok(withForce.points.length > withoutForce.points.length, "the 2D grid samples far more points than the 1D sweep");
+  for (const p of withForce.points) {
+    assert.equal(p.z, 0, "z is still 'none' -- forcing a sweep doesn't change what's shown, only what's swept");
   }
 });
