@@ -29,7 +29,7 @@ function GraphingPage() {
         prefix="graphing"
         syncSearchParam="tab"
         tabs={[
-          { label: "Multi-expression", key: "multi", render: () => <GraphCanvasMulti /> },
+          { label: "Expression", key: "multi", render: () => <GraphCanvasMulti /> },
           { label: "Implicit", key: "implicit", render: () => <ImplicitPanel /> },
           { label: "Parametric & Polar", key: "parametric", render: () => <ParametricPanel /> },
           { label: "Complex plane", key: "complex", render: () => <ComplexPanel /> },

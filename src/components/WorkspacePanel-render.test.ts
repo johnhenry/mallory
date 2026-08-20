@@ -20,7 +20,7 @@ test("WorkspacePanel: explainer states its actual, narrower scope rather than an
   const text = container.textContent ?? "";
   assert.ok(text.includes("Compare"), "expected the explainer to name the Compare tab as a place it's usable");
   assert.ok(text.includes("z = f(x, y)"), "expected the explainer to name the 3D height-field pane as a place it's usable");
-  assert.ok(text.includes("Multi-expression"), "expected the explainer to call out the main multi-expression view as NOT reading workspace variables");
+  assert.ok(text.includes("Expression"), "expected the explainer to call out the main Expression view as NOT reading workspace variables");
   assert.ok(text.includes("Calculator"), "expected the explainer to call out the Calculator as NOT reading workspace variables");
   assert.ok(
     !text.includes("every panel, app-wide"),

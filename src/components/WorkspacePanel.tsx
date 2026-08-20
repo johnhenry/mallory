@@ -83,7 +83,7 @@ export function WorkspacePanel() {
         a fallback for a matching free variable in exactly two places: Graphing's "Compare" tab, and the 2D pane of
         3D & Surfaces' "z = f(x, y)" view. If a variable of that name already has its own local slider there, the
         workspace value overrides it entirely. It is <strong>not</strong> currently read by the main Graphing
-        "Multi-expression" view, the Calculator, Notebook value blocks, or any other panel (Geometry, Calculus, Data
+        "Expression" view, the Calculator, Notebook value blocks, or any other panel (Geometry, Calculus, Data
         &amp; Algebra, Complex, Signal, ...) -- setting "k" here won't affect those. An AI agent with "Agent access"
         turned on can also read and write these variables directly, from any page.
       </p>
