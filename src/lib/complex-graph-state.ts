@@ -70,7 +70,27 @@ export interface ComplexGraphStateV3 {
   rows: ComplexGraphRowState[];
 }
 
-export type ComplexGraphState = ComplexGraphStateV3;
+/**
+ * v4 (issue #367): adds `highlightNearReal`, a shared/container-level
+ * toggle (same reasoning as `sweepReX`/`sweepImX`) for whether scatter
+ * points whose one hidden range component is close to 0 get visually
+ * distinguished -- see sample-complex-graph.ts's `hiddenRangeComponent`/
+ * `ComplexGraphSampleResult.nearReal`. Default `false` matches today's
+ * (no highlight) rendering exactly, so existing saved/shared graphs are
+ * unaffected by the upgrade.
+ */
+export interface ComplexGraphStateV4 {
+  v: 4;
+  axisX: AxisChoice;
+  axisY: AxisChoice;
+  axisZ: AxisChoice;
+  sweepReX: boolean;
+  sweepImX: boolean;
+  highlightNearReal: boolean;
+  rows: ComplexGraphRowState[];
+}
+
+export type ComplexGraphState = ComplexGraphStateV4;
 
 /** y = e^(i*x): the issue's own worked example, so the panel opens already showing the spiral rather than a blank/degenerate default. */
 const DEFAULT_ROW: ComplexGraphRowState = {
@@ -82,12 +102,13 @@ const DEFAULT_ROW: ComplexGraphRowState = {
 };
 
 export const DEFAULT_COMPLEX_GRAPH_STATE: ComplexGraphState = {
-  v: 3,
+  v: 4,
   axisX: "reX",
   axisY: "reY",
   axisZ: "imY",
   sweepReX: false,
   sweepImX: false,
+  highlightNearReal: false,
   rows: [DEFAULT_ROW],
 };
 
@@ -105,6 +126,10 @@ function upgradeV2ToV3(v2: ComplexGraphStateV2): ComplexGraphStateV3 {
   return { ...v2, v: 3, sweepReX: false, sweepImX: false };
 }
 
+function upgradeV3ToV4(v3: ComplexGraphStateV3): ComplexGraphStateV4 {
+  return { ...v3, v: 4, highlightNearReal: false };
+}
+
 export function encodeComplexGraphState(state: ComplexGraphState): string {
   return encodeStateFragment(state);
 }
@@ -113,9 +138,10 @@ export function encodeComplexGraphState(state: ComplexGraphState): string {
 export function decodeComplexGraphState(fragment: string): ComplexGraphState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
-    if (isComplexGraphStateV3(parsed)) return parsed;
-    if (isComplexGraphStateV2(parsed)) return upgradeV2ToV3(parsed);
-    if (isComplexGraphStateV1(parsed)) return upgradeV2ToV3(upgradeV1ToV2(parsed));
+    if (isComplexGraphStateV4(parsed)) return parsed;
+    if (isComplexGraphStateV3(parsed)) return upgradeV3ToV4(parsed);
+    if (isComplexGraphStateV2(parsed)) return upgradeV3ToV4(upgradeV2ToV3(parsed));
+    if (isComplexGraphStateV1(parsed)) return upgradeV3ToV4(upgradeV2ToV3(upgradeV1ToV2(parsed)));
     return null;
   } catch {
     return null;
@@ -161,6 +187,21 @@ export function isComplexGraphStateV3(value: unknown): value is ComplexGraphStat
     isAxisChoice(v.axisZ) &&
     typeof v.sweepReX === "boolean" &&
     typeof v.sweepImX === "boolean" &&
+    hasValidRows(v)
+  );
+}
+
+export function isComplexGraphStateV4(value: unknown): value is ComplexGraphStateV4 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.v === 4 &&
+    isAxisChoice(v.axisX) &&
+    isAxisChoice(v.axisY) &&
+    isAxisChoice(v.axisZ) &&
+    typeof v.sweepReX === "boolean" &&
+    typeof v.sweepImX === "boolean" &&
+    typeof v.highlightNearReal === "boolean" &&
     hasValidRows(v)
   );
 }
