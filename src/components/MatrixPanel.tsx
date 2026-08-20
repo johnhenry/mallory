@@ -18,6 +18,7 @@ import {
 } from "../lib/matrix-ops.ts";
 import { DEFAULT_MATRIX_STATE, decodeMatrixState, encodeMatrixState, type MatrixState } from "../lib/matrix-state.ts";
 import { drawAxes, drawScatter, type Viewport } from "../lib/render-path.ts";
+import { getThemeColors } from "../lib/theme-colors.ts";
 import { scatterPointsToSvgDocument } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -63,6 +64,11 @@ export function drawMatrixGraph(ctx: CanvasRenderingContext2D, width: number, he
   if (!matrixGraph) return;
   const vertices = matrixGraph.vertices();
   const layout = circularLayout(vertices);
+  // Theme-aware label ink (issue #314): the weight labels were hardcoded
+  // #374151 (dark gray) -- effectively invisible against the dark theme's
+  // background, which is how "the matrix-graph view has no weight labels"
+  // got reported while the code plainly drew them.
+  const theme = getThemeColors();
 
   ctx.save();
   ctx.font = "10px sans-serif";
@@ -87,7 +93,7 @@ export function drawMatrixGraph(ctx: CanvasRenderingContext2D, width: number, he
       ctx.beginPath();
       ctx.arc(loopCx, loopCy, 10, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.fillStyle = "#374151";
+      ctx.fillStyle = theme.ink;
       ctx.textAlign = "center";
       ctx.fillText(String(e.weight), loopCx, loopCy - 15);
       continue;
@@ -116,7 +122,7 @@ export function drawMatrixGraph(ctx: CanvasRenderingContext2D, width: number, he
     ctx.closePath();
     ctx.fillStyle = "#9ca3af";
     ctx.fill();
-    ctx.fillStyle = "#374151";
+    ctx.fillStyle = theme.ink;
     ctx.textAlign = "center";
     ctx.fillText(String(e.weight), (fromX + toX) / 2, (fromY + toY) / 2 - 6);
   }

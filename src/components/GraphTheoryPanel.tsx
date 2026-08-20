@@ -34,6 +34,7 @@ import {
 import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
 import { frobeniusNormalForm, type FrobeniusResult } from "../lib/frobenius.ts";
+import { getThemeColors } from "../lib/theme-colors.ts";
 import { drawFrobeniusOverlay, drawHeatmap } from "../lib/heatmap.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
@@ -224,7 +225,9 @@ export function drawCondensationView(ctx: CanvasRenderingContext2D, width: numbe
   ctx.save();
   ctx.strokeStyle = "#9ca3af";
   ctx.lineWidth = 1.5;
-  ctx.fillStyle = "#374151";
+  // Theme-aware ink (issue #314) -- hardcoded #374151 text is invisible on
+  // the dark theme's background.
+  ctx.fillStyle = getThemeColors().ink;
   ctx.font = "11px sans-serif";
   for (const e of condensedGraph.edges()) {
     const from = layout.get(e.from);
@@ -369,6 +372,7 @@ export function drawGraphTheoryPanel(
     if (r.kind === "order") for (const v of r.order) highlightedVertices.add(v);
   }
   const edgeKey = (a: string, b: string) => highlightedEdges.has(`${a} ${b}`) || highlightedEdges.has(`${b} ${a}`);
+  const theme = getThemeColors();
 
   ctx.save();
   for (const e of g.edges()) {
@@ -384,7 +388,7 @@ export function drawGraphTheoryPanel(
     ctx.stroke();
     const midX = toScreenX((from.x + to.x) / 2, VIEWPORT, width);
     const midY = toScreenY((from.y + to.y) / 2, VIEWPORT, height);
-    ctx.fillStyle = "#374151";
+    ctx.fillStyle = theme.ink; // issue #314: hardcoded #374151 was invisible in dark theme
     ctx.font = "11px sans-serif";
     ctx.fillText(String(e.weight), midX, midY);
   }
