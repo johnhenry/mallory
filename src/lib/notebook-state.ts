@@ -2,7 +2,7 @@ import { isComplexStateV2, type ComplexState } from "./complex-state.ts";
 import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 import { isGeometryStateV1, type GeometryState } from "./geometry-state.ts";
 import { TENSOR_OP_LABELS, type TensorOpType } from "./tensor-block.ts";
-import { isOdeStateV1, type OdeState } from "./ode-state.ts";
+import { isOdeStateV1, isOdeStateV2, upgradeOdeV1ToV2, type OdeState } from "./ode-state.ts";
 import { isOdeSystemStateV1, type OdeSystemState } from "./ode-system-state.ts";
 import { isRegressionStateV1, type RegressionState } from "./regression-state.ts";
 import { isStatisticsStateV1, type StatisticsState } from "./statistics-state.ts";
@@ -176,10 +176,26 @@ export function encodeNotebookState(state: NotebookState): string {
 export function decodeNotebookState(fragment: string): NotebookState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
-    return isNotebookStateV1(parsed) ? parsed : null;
+    if (!isNotebookStateV1(parsed)) return null;
+    return { ...parsed, blocks: parsed.blocks.map(upgradeNotebookBlock) };
   } catch {
     return null;
   }
+}
+
+/**
+ * A notebook block nests its standalone panel's own state type directly
+ * (this file's own doc comment) rather than re-declaring that panel's
+ * version history -- so when a nested type version-bumps (OdeState v1->v2,
+ * #336 item 7), an "ode" block's `state` here still validates (isNotebookBlockStateV1
+ * below accepts either shape) but needs upgrading to the CURRENT shape
+ * before `NotebookOdeBlock` hands it to `seedOdeState`, which -- like every
+ * other panel's seed function -- only knows how to read the current
+ * version.
+ */
+function upgradeNotebookBlock(block: NotebookBlockStateV1): NotebookBlockStateV1 {
+  if (block.type === "ode" && isOdeStateV1(block.state)) return { ...block, state: upgradeOdeV1ToV2(block.state) };
+  return block;
 }
 
 function isNotebookStateV1(value: unknown): value is NotebookStateV1 {
@@ -212,7 +228,9 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
   if (b.type === "surface3d") {
     return typeof b.expr === "string" && typeof b.params === "object" && b.params !== null;
   }
-  if (b.type === "ode") return isOdeStateV1(b.state);
+  // #336 item 7: OdeState is now v2 (unlimited rows) -- v1 stays accepted so
+  // an ode block saved before this change still decodes.
+  if (b.type === "ode") return isOdeStateV1(b.state) || isOdeStateV2(b.state);
   if (b.type === "ode-system") return isOdeSystemStateV1(b.state);
   if (b.type === "regression") return isRegressionStateV1(b.state);
   if (b.type === "statistics") return isStatisticsStateV1(b.state);

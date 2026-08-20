@@ -105,14 +105,12 @@ export const GALLERY_SEEDS: GallerySeed[] = [
     kind: "ode",
     createdAt: 1700000004000,
     state: {
-      v: 1,
-      expr: "x - y",
-      x0: "0",
-      y0: "1",
+      v: 2,
       xMin: "-5",
       xMax: "5",
       yMin: "-5",
       yMax: "5",
+      rows: [{ expr: "x - y", x0: "0", y0: "1", color: 0x2563eb, visible: true }],
     },
   },
   {
