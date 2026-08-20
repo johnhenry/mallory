@@ -32,13 +32,26 @@ const CARD_DESCRIPTIONS: Record<string, string> = {
   "/cellular-automata": "Step and animate 1D and 2D cellular automata rules, live.",
 };
 
-export const CARDS: Array<{ to: string; title: string; description: string }> = NAV_SECTIONS.filter(
+export const CARDS: Array<{ to: string; title: string; description: string; group: string }> = NAV_SECTIONS.filter(
   (section) => section.to !== "/",
 ).map((section) => ({
   to: section.to,
   title: section.label,
   description: CARD_DESCRIPTIONS[section.to] ?? `Open the ${section.label} tool.`,
+  group: section.group,
 }));
+
+// Dashboard cards grouped under the same Tools/Explore/Workspace headers the
+// sidebar uses (issue #317) -- one flat 16-card grid read as equal weight
+// while the nav communicated structure; mirroring it here keeps one mental
+// model. Group ORDER follows NAV_SECTIONS's own first-appearance order,
+// exactly like the sidebar's run-based eyebrow rendering.
+export const CARD_GROUPS: Array<{ group: string; cards: typeof CARDS }> = CARDS.reduce<Array<{ group: string; cards: typeof CARDS }>>((groups, card) => {
+  const last = groups[groups.length - 1];
+  if (last && last.group === card.group) last.cards.push(card);
+  else groups.push({ group: card.group, cards: [card] });
+  return groups;
+}, []);
 
 function DashboardPage() {
   return (
@@ -52,17 +65,24 @@ function DashboardPage() {
         </p>
       </div>
 
-      <div className="card-grid">
-        {CARDS.map((card) => (
-          <Link key={card.to} to={card.to} className="dashboard-card">
-            <h3>{card.title}</h3>
-            <p>{card.description}</p>
-          </Link>
-        ))}
-      </div>
+      {CARD_GROUPS.map(({ group, cards }) => (
+        <section key={group}>
+          <h2 className="page-eyebrow" style={{ margin: "1.25rem 0 0.5rem" }}>
+            {group}
+          </h2>
+          <div className="card-grid">
+            {cards.map((card) => (
+              <Link key={card.to} to={card.to} className="dashboard-card">
+                <h3>{card.title}</h3>
+                <p>{card.description}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ))}
 
       <div className="demos-strip">
-        Looking for an older single-purpose page? <Link to="/demos">Browse the legacy demo index →</Link>
+        Looking for an older single-purpose page? <Link to="/demos">Browse the legacy demo index (legacy, unsupported) →</Link>
       </div>
     </div>
   );
