@@ -159,6 +159,51 @@ test("decodeNotebookState upgrades a legacy v1 (single-equation) ode block's nes
   assert.equal(odeBlock.state.rows?.[0]?.expr, "x - y");
 });
 
+test("decodeNotebookState upgrades a legacy v1 complex block's nested state to v3 on decode", () => {
+  const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const legacy = {
+    v: 1,
+    blocks: [
+      { type: "complex", state: { v: 1, exprText: "z^2 + 1", probeRe: "1", probeIm: "1", showRootsOfUnity: true, rootsN: "5" } },
+    ],
+  };
+  const decoded = decodeNotebookState(legacyFragment(legacy));
+  assert.ok(decoded);
+  const complexBlock = decoded!.blocks[0] as { type: "complex"; state: { v: number; exprText: string; showZeros?: boolean; showPoles?: boolean } };
+  assert.equal(complexBlock.state.v, 3, "the nested ComplexState is upgraded to the version seedComplexState/NotebookComplexBlock now expect");
+  assert.equal(complexBlock.state.exprText, "z^2 + 1");
+  assert.equal(complexBlock.state.showZeros, false);
+  assert.equal(complexBlock.state.showPoles, false);
+});
+
+test("decodeNotebookState upgrades a legacy v2 complex block's nested state to v3 on decode", () => {
+  const legacyFragment = encodeNotebookState as unknown as (s: unknown) => string;
+  const legacy = {
+    v: 1,
+    blocks: [
+      {
+        type: "complex",
+        state: {
+          v: 2,
+          exprText: "z^2 + 1",
+          probeRe: "1",
+          probeIm: "1",
+          showRootsOfUnity: true,
+          rootsN: "5",
+          showConformalGrid: true,
+          conformalGridType: "polar",
+          conformalGridSpacing: "0.25",
+        },
+      },
+    ],
+  };
+  const decoded = decodeNotebookState(legacyFragment(legacy));
+  assert.ok(decoded);
+  const complexBlock = decoded!.blocks[0] as { type: "complex"; state: { v: number; conformalGridType: string } };
+  assert.equal(complexBlock.state.v, 3, "the nested ComplexState is upgraded to the version seedComplexState/NotebookComplexBlock now expect");
+  assert.equal(complexBlock.state.conformalGridType, "polar", "v2 fields are preserved through the upgrade");
+});
+
 test("decodeNotebookState returns null for garbage input rather than throwing", () => {
   assert.equal(decodeNotebookState("not-valid-base64url-json!!!"), null);
   assert.equal(decodeNotebookState(""), null);

@@ -65,15 +65,16 @@ export function decodeComplexState(fragment: string): ComplexState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
     if (isComplexStateV3(parsed)) return parsed;
-    if (isComplexStateV2(parsed)) return upgradeV2ToV3(parsed);
-    if (isComplexStateV1(parsed)) return upgradeV2ToV3(upgradeV1ToV2(parsed));
+    if (isComplexStateV2(parsed)) return upgradeComplexV2ToV3(parsed);
+    if (isComplexStateV1(parsed)) return upgradeComplexV2ToV3(upgradeComplexV1ToV2(parsed));
     return null;
   } catch {
     return null;
   }
 }
 
-function upgradeV1ToV2(v1: ComplexStateV1): ComplexStateV2 {
+/** Exported for notebook-state.ts's own "complex" block upgrade -- notebook blocks nest this panel's state type directly rather than re-declaring its version history, so they need the same v1->v2 migration this file's own decodeComplexState applies (same pattern as ode-state.ts's exported `upgradeOdeV1ToV2`). */
+export function upgradeComplexV1ToV2(v1: ComplexStateV1): ComplexStateV2 {
   return {
     ...v1,
     v: 2,
@@ -83,7 +84,8 @@ function upgradeV1ToV2(v1: ComplexStateV1): ComplexStateV2 {
   };
 }
 
-function upgradeV2ToV3(v2: ComplexStateV2): ComplexStateV3 {
+/** Exported for notebook-state.ts's own "complex" block upgrade -- see `upgradeComplexV1ToV2`'s doc comment. */
+export function upgradeComplexV2ToV3(v2: ComplexStateV2): ComplexStateV3 {
   return {
     ...v2,
     v: 3,
