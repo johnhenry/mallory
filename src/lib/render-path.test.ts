@@ -128,9 +128,13 @@ test("drawAxes: a viewport panned entirely above y=0 hugs the x-axis to the bott
   // x tick labels flip to baseline="bottom" (drawn above the tick) since the axis line itself sits on the bottom edge.
   assert.ok(ctx.calls.includes('fillText("2",20,94,align=center,baseline=bottom)'));
   assert.ok(ctx.calls.includes('fillText("10",100,94,align=center,baseline=bottom)'));
-  // x-axis's own "0" tick mark still draws (at screen x=0) but carries no label (0 is outside [xMin,xMax]=[0,10]... actually 0 IS xMin here, so it's the leftmost tick -- but with no coinciding y=0 label to protect against since the y-axis's own zero tick is off-viewport).
-  // y ticks: computeNiceTicks(2,12,5) = [2,4,6,8,10,12], all labeled (y-axis is at its true, non-clamped position x=0, not hugging the left edge in the "flip" sense since xMin===0 exactly).
-  assert.ok(ctx.calls.includes('fillText("12",-8,0,align=right,baseline=middle)'));
+  // y ticks: computeNiceTicks(2,12,5) = [2,4,6,8,10,12], all labeled. xMin===0
+  // now counts as "y-axis hugging the left edge" (issue #313: the old strict
+  // `xMin > 0` check classified an exactly-on-the-edge axis as interior,
+  // flipping labels OUTWARD to x=-8 -- clipped off-canvas, which is exactly
+  // the "spectrum has no Hz labels" symptom for zero-based viewports), so
+  // labels flip INTO the canvas: align=left at x=+8.
+  assert.ok(ctx.calls.includes('fillText("12",8,0,align=left,baseline=middle)'));
 });
 
 test("drawAxes: a degenerate/inverted viewport (xMax <= xMin) draws nothing rather than emitting NaN screen coordinates", () => {

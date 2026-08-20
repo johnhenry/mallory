@@ -64,12 +64,18 @@ export function drawAxes(
   const targetTickCount = options.targetTickCount ?? 6;
   const tickHalf = 4;
 
-  const xAxisAtBottom = yMin > 0; // whole viewport is above y=0 -> axis line hugs the bottom edge
-  const xAxisAtTop = yMax < 0; // whole viewport is below y=0 -> axis line hugs the top edge
+  // >= / <= (not > / <), issue #313: a viewport with min exactly 0 (every
+  // zero-based chart -- the signal spectrum/correlation/PSD, loss curves)
+  // puts the axis ON the canvas edge; the strict comparison classified that
+  // as "axis in the interior", which flips the label side OUTWARD and
+  // renders every tick label just outside the canvas -- clipped, invisible.
+  // The tester-visible symptom was "the spectrum has no Hz labels at all."
+  const xAxisAtBottom = yMin >= 0; // viewport at/above y=0 -> axis line hugs the bottom edge
+  const xAxisAtTop = yMax <= 0; // viewport at/below y=0 -> axis line hugs the top edge
   const xAxisSy = xAxisAtBottom ? height : xAxisAtTop ? 0 : toScreenY(0, viewport, height);
 
-  const yAxisAtRight = xMax < 0; // whole viewport is left of x=0 -> axis line hugs the right edge
-  const yAxisAtLeft = xMin > 0; // whole viewport is right of x=0 -> axis line hugs the left edge
+  const yAxisAtRight = xMax <= 0; // viewport at/left of x=0 -> axis line hugs the right edge
+  const yAxisAtLeft = xMin >= 0; // viewport at/right of x=0 -> axis line hugs the left edge
   const yAxisSx = yAxisAtRight ? width : yAxisAtLeft ? 0 : toScreenX(0, viewport, width);
 
   ctx.save();

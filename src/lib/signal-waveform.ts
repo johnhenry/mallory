@@ -107,11 +107,19 @@ export function findSpectrumPeaks(spectrum: AmplitudeSpectrum, options: FindSpec
     distance: options.minSpacingHz !== undefined && binSpacingHz > 0 ? Math.max(1, Math.round(options.minSpacingHz / binSpacingHz)) : undefined,
     prominence: options.minProminence,
   });
-  return result.indices.map((index, i) => ({
-    frequency: spectrum.frequencies[index]!,
-    amplitude: result.heights[i]!,
-    prominence: result.prominences[i]!,
-  }));
+  return (
+    result.indices
+      .map((index, i) => ({
+        frequency: spectrum.frequencies[index]!,
+        amplitude: result.heights[i]!,
+        prominence: result.prominences[i]!,
+      }))
+      // A zero-amplitude bin is never a meaningful peak regardless of what
+      // the caller's thresholds say (issue #313): with all-zero options the
+      // raw findPeaks happily reports flat noise-floor bins ("1.00Hz --
+      // amplitude 0.000") alongside real tones.
+      .filter((p) => p.amplitude > 0)
+  );
 }
 
 export interface Spectrogram {

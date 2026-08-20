@@ -88,9 +88,14 @@ export const DEFAULT_SIGNAL_STATE: SignalState = {
   nperseg: "16",
   noverlap: "8",
   showPeaks: false,
-  minAmplitude: "0",
+  // Non-zero peak-finding defaults (issue #313): with everything at 0,
+  // "Find peaks" marked essentially every FFT bin -- including exact-zero
+  // noise-floor bins -- as a peak, making the feature meaningless out of
+  // the box. 0.05 is ~5% of the default two-tone signal's unit amplitude:
+  // small enough to keep real secondary tones, large enough to drop floor.
+  minAmplitude: "0.05",
   minSpacingHz: "0",
-  minProminence: "0",
+  minProminence: "0.05",
   showCorrelation: false,
   // The same waveform as the default f(t), delayed by 0.05s -- a
   // ready-made demo where the cross-correlation's detected lag should read
