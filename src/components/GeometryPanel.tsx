@@ -1,5 +1,5 @@
 import { type PointerEvent, useEffect, useRef, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
+import { addLocalSave } from "../lib/local-saves.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
@@ -21,7 +21,6 @@ import {
   type GeometryOp,
   type GeometryState,
 } from "../lib/geometry-state.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 
 const WIDTH = 500;
 const HEIGHT = 500;
@@ -500,15 +499,13 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   );
 
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const saveGraphFn = useServerFn(saveGraph);
 
   async function handleSave() {
     const title = window.prompt("Title for this saved construction:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "geometry", state: getCurrentGeometryState(graph, listIds) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "geometry", state: getCurrentGeometryState(graph, listIds) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -954,7 +951,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
-            Save to gallery
+            Save
           </button>{" "}
           <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
             ↩ Undo

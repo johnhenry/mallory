@@ -1,4 +1,4 @@
-import { useServerFn } from "@tanstack/react-start";
+import { addLocalSave } from "../lib/local-saves.ts";
 import type { Path2D } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
@@ -37,7 +37,6 @@ import { DEFAULT_REGRESSION_STATE, type RegressionState } from "../lib/regressio
 import { DEFAULT_STATISTICS_STATE, type StatisticsState } from "../lib/statistics-state.ts";
 import { DEFAULT_SYSTEM_STATE, type SystemState } from "../lib/system-state.ts";
 import { notebookToLatex, notebookToMarkdown, type NotebookGraphImages } from "../lib/notebook-export.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 import { getCurrentComplexState } from "./ComplexPanel.tsx";
 import { getCurrentGeometryState } from "./GeometryPanel.tsx";
 import { getCurrentOdeState } from "./OdePanel.tsx";
@@ -453,7 +452,6 @@ export function NotebookPanel() {
   );
 
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const saveGraphFn = useServerFn(saveGraph);
 
   useCellGraphTools("notebook", graph);
 
@@ -464,10 +462,9 @@ export function NotebookPanel() {
   async function handleSave() {
     const title = window.prompt("Title for this saved notebook:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "notebook", state: getCurrentNotebookState(graph, blocks) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "notebook", state: getCurrentNotebookState(graph, blocks) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -1127,7 +1124,7 @@ export function NotebookPanel() {
           ↪ Redo
         </button>
         <button type="button" onClick={handleSave}>
-          Save to gallery
+          Save
         </button>
         <button type="button" onClick={handleExportMarkdown} title="Export this document as a self-contained Markdown file with embedded graph images">
           Export .md

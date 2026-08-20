@@ -1,7 +1,7 @@
 import { GraphUtils, Numerical, Statistics, Symbolic, Vector, type Path2D } from "mallory-math";
+import { addLocalSave } from "../lib/local-saves.ts";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsRegression, type CellIdsRegression } from "../lib/cell-ids.ts";
 import { collectFreeVars } from "../lib/free-vars.ts";
@@ -9,7 +9,6 @@ import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { DEFAULT_REGRESSION_STATE, decodeRegressionState, encodeRegressionState, type RegressionState } from "../lib/regression-state.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 import { drawAxes, drawPath, drawPoint, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { findOutlierIndices, fitRobustLinear, type RobustLinearFit } from "../lib/robust-regression.ts";
 import { layersToSvgDocument } from "../lib/svg-export.ts";
@@ -278,7 +277,6 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
     setModelExprInput(modelExpr);
   }, [modelExpr]);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const saveGraphFn = useServerFn(saveGraph);
 
   // Row-edit generation counter (issue #237): handleFitHuber captures
   // `fit.points` at click time and awaits an async trainer.fit run, but the
@@ -295,10 +293,9 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
   async function handleSave() {
     const title = window.prompt("Title for this saved regression:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "regression", state: getCurrentRegressionState(graph, ids) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "regression", state: getCurrentRegressionState(graph, ids) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -574,7 +571,7 @@ export function RegressionPanel({ cellId = "regression-1", graph: externalGraph,
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
-            Save to gallery
+            Save
           </button>{" "}
           <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
             ↩ Undo

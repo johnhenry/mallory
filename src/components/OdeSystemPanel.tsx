@@ -1,6 +1,6 @@
 import type { Path2D } from "mallory-math";
+import { addLocalSave } from "../lib/local-saves.ts";
 import { useEffect, useRef, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsOdeSystem, type CellIdsOdeSystem } from "../lib/cell-ids.ts";
 import { drawAxes, drawPath, drawPoint, drawVectorField, type Viewport } from "../lib/render-path.ts";
@@ -15,7 +15,6 @@ import {
 import { classifyFixedPoint, findFixedPoints, FIXED_POINT_LABEL, type ClassifiedFixedPoint } from "../lib/phase-portrait.ts";
 import { getThemeColors } from "../lib/theme-colors.ts";
 import { DEFAULT_ODE_SYSTEM_STATE, decodeOdeSystemState, encodeOdeSystemState, type OdeSystemState } from "../lib/ode-system-state.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 import { layersToSvgDocument, type SvgLayer } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
@@ -244,15 +243,13 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
     setExprYInput(exprY);
   }, [exprY]);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const saveGraphFn = useServerFn(saveGraph);
 
   async function handleSave() {
     const title = window.prompt("Title for this saved ODE system:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "ode-system", state: getCurrentOdeSystemState(graph, ids) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "ode-system", state: getCurrentOdeSystemState(graph, ids) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -381,7 +378,7 @@ export function OdeSystemPanel({ cellId = "ode-system-1", graph: externalGraph, 
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
-            Save to gallery
+            Save
           </button>
           {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
         </div>

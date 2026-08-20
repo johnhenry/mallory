@@ -30,6 +30,7 @@ mock.module("~/lib/saved-graphs.ts", {
     listSavedGraphs: async () => [],
     getSavedGraph: async () => ({}),
     deleteSavedGraph: async () => {},
+    saveGraph: async () => ({ id: "fake" }),
   },
 });
 mock.module("~/lib/short-links.ts", {
@@ -60,8 +61,14 @@ test("GalleryPage: explainer covers what's saved, how retrieval works, and how s
   assert.ok(text.includes("snapshot"), "expected the explainer to say a save is a snapshot, not a live link");
   assert.ok(text.includes("Copy short link"), "expected the explainer to mention the short-link sharing feature by its button name");
   assert.ok(text.includes("/s/:id"), "expected the explainer to mention the short-link URL shape");
-  assert.ok(text.includes("shared by everyone"), "expected the explainer to clarify the gallery is not private per-browser");
+  assert.ok(text.includes("shared by everyone"), "expected the explainer to clarify the shared gallery is not private per-browser");
   assert.ok(text.includes("Curated"), "expected the explainer to mention curated, undeletable entries");
+  // #320 step 3's local-first split: both sections present, publishing is
+  // explicit, and the shared side's redeploy-ephemerality is stated plainly.
+  assert.ok(text.includes("My saves"), "expected the private local-saves section");
+  assert.ok(text.includes("Shared gallery"), "expected the shared server-store section");
+  assert.ok(text.includes("Publish"), "expected the explainer to name the explicit publish action");
+  assert.ok(text.includes("redeployed"), "expected the explainer to state that published entries/short links are cleared on redeploy");
 
   await unmount();
 });
