@@ -1085,6 +1085,21 @@ export function cellIdsTiles(cellId: string) {
     relaxStatus: `tilesRelaxStatus:${cellId}`,
     relaxResult: `tilesRelaxResult:${cellId}`,
     relaxError: `tilesRelaxError:${cellId}`,
+    // Polyomino-supported (multi-cell footprint) tiles (issue #382/#383):
+    // square-lattice-only, same `tilesText` field as the unit pipeline
+    // above (an `@row,col`-annotated line is a strict syntax extension of
+    // the plain `id N E S W` line, so no separate text cell is needed).
+    // `compoundTileSetResult` always parses successfully for ordinary
+    // unit-only text too, but the panel only takes this SEPARATE solve
+    // path when at least one tile has a multi-cell footprint -- see
+    // TilesPanel's own `isCompound`. A distinct solve status/steps/grid/
+    // error cell set, same on-demand-vs-auto shape as `solveStatus` etc.
+    // above, since `solveWangCompound` needs its own step/grid types.
+    compoundTileSetResult: `tilesCompoundTileSetResult:${cellId}`,
+    compoundSolveStatus: `tilesCompoundSolveStatus:${cellId}`,
+    compoundSolveSteps: `tilesCompoundSolveSteps:${cellId}`,
+    compoundSolveGrid: `tilesCompoundSolveGrid:${cellId}`,
+    compoundSolveError: `tilesCompoundSolveError:${cellId}`,
   };
 }
 

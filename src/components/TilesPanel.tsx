@@ -6,6 +6,7 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsTiles, TIME_CELL, type CellIdsTiles } from "../lib/cell-ids.ts";
+import { parseCompoundTileSetText } from "../lib/compound-tile-set-text.ts";
 import { DEFAULT_CUBE_TILES_TEXT, parseCubeTileSetText } from "../lib/cube-tile-set-text.ts";
 import { startTilesExportJob } from "../lib/export-tiles-video.ts";
 import { DEFAULT_HEX_TILES_TEXT, parseHexTileSetText } from "../lib/hex-tile-set-text.ts";
@@ -26,6 +27,12 @@ import { edgeLabelColor } from "../lib/tiles/edge-colors.ts";
 import { hexCenter, hexCorners, hexEdgeSegment } from "../lib/tiles/hex-geometry.ts";
 import { solveHex, type HexGrid, type HexTile, type HexTileSet } from "../lib/tiles/hex-tile-model.ts";
 import { expandTileSetSymmetry, type SymmetryGroup } from "../lib/tiles/symmetry.ts";
+import {
+  type CompoundSolveStep,
+  type CompoundTileSet,
+  type CompoundWangGrid,
+  solveWangCompound,
+} from "../lib/tiles/compound-tile-model.ts";
 import { solveTorus, solveWang, solveWangViaSat, type Direction, type SolveStep, type Tile, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
 import { triCenterX, triCorners, triEdgeSegment } from "../lib/tiles/tri-geometry.ts";
 import { solveTri, type TriGrid, type TriTile, type TriTileSet } from "../lib/tiles/tri-tile-model.ts";
@@ -164,13 +171,39 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.set(ids.relaxStatus, "idle" as RelaxStatus, { auxiliary: true });
     graph.set(ids.relaxResult, null as RelaxResult | null, { auxiliary: true });
     graph.set(ids.relaxError, "", { auxiliary: true });
+    graph.set(ids.compoundSolveStatus, "idle" as SolveStatus, { auxiliary: true });
+    graph.set(ids.compoundSolveSteps, [] as CompoundSolveStep[], { auxiliary: true });
+    graph.set(ids.compoundSolveGrid, null as CompoundWangGrid | null, { auxiliary: true });
+    graph.set(ids.compoundSolveError, "", { auxiliary: true });
 
-    graph.define(ids.tileSetResult, (): Result<TileSet> => {
+    // Polyomino-supported tiles (#382/#383): always parse `tilesText`
+    // through the compound-aware parser first -- for ordinary unit-only
+    // text it's a strict superset of `parseTileSetText` (see
+    // compound-tile-set-text.test.ts's own round-trip coverage against
+    // it), so this is a no-op change for every existing tile set. Only
+    // when the text actually declares a multi-cell (`@row,col`) footprint
+    // does `tileSetResult` short-circuit to a friendly "not supported
+    // here" error -- which then naturally propagates through every
+    // existing `!ok`-checking consumer below (symmetry expansion, the
+    // auto-solve effect, entropy, diffraction, relaxation), so none of
+    // them need their own compound-awareness. `compoundTileSetResult`
+    // (always populated, unit-only or not) feeds the SEPARATE compound
+    // solve path this panel adds alongside the unit one.
+    graph.define(ids.compoundTileSetResult, (): Result<CompoundTileSet> => {
       try {
-        return { ok: true, value: parseTileSetText(graph.get<string>(ids.tilesText)) };
+        return { ok: true, value: parseCompoundTileSetText(graph.get<string>(ids.tilesText)) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
+    });
+
+    graph.define(ids.tileSetResult, (): Result<TileSet> => {
+      const compound = graph.get<Result<CompoundTileSet>>(ids.compoundTileSetResult);
+      if (!compound.ok) return compound;
+      if (compound.value.tiles.some((t) => t.footprint.length > 1)) {
+        return { ok: false, message: "This tile set uses multi-cell (@row,col) tiles -- symmetry/entropy/diffraction/relaxation aren't available for those yet. See the compound solve view below." };
+      }
+      return { ok: true, value: { tiles: compound.value.tiles.map((t) => ({ id: t.id, edges: t.cells.get("0,0")!.edges })) } };
     });
 
     graph.define(ids.hexTileSetResult, (): Result<HexTileSet> => {
@@ -296,6 +329,13 @@ export function stepLabel(step: SolveStep): string {
   return step.contradiction
     ? `Backtrack at (${step.row}, ${step.col})`
     : `Place tile at (${step.row}, ${step.col})`;
+}
+
+/** Same as `stepLabel`, for a compound (multi-cell) solve step -- names the placed tile since "at (row, col)" alone doesn't convey a footprint. */
+export function compoundStepLabel(step: CompoundSolveStep): string {
+  return step.contradiction
+    ? `Backtrack at anchor (${step.anchorRow}, ${step.anchorCol})`
+    : `Place tile "${step.tileId}" at anchor (${step.anchorRow}, ${step.anchorCol})`;
 }
 
 async function drainSolve(
@@ -682,6 +722,13 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const time = useCell<number>(graph, TIME_CELL);
   const startTilesExportJobFn = useServerFn(startTilesExportJob);
 
+  const compoundTileSetResult = useCell<Result<CompoundTileSet>>(graph, ids.compoundTileSetResult);
+  const isCompound = compoundTileSetResult.ok && compoundTileSetResult.value.tiles.some((t) => t.footprint.length > 1);
+  const compoundSolveStatus = useCell<SolveStatus>(graph, ids.compoundSolveStatus);
+  const compoundSolveSteps = useCell<CompoundSolveStep[]>(graph, ids.compoundSolveSteps);
+  const compoundSolveGrid = useCell<CompoundWangGrid | null>(graph, ids.compoundSolveGrid);
+  const compoundSolveError = useCell<string>(graph, ids.compoundSolveError);
+
   const lattice = useCell<TilesLattice>(graph, ids.lattice);
   const hexTilesText = useCell<string>(graph, ids.hexTilesText);
   const hexTileSetResult = useCell<Result<HexTileSet>>(graph, ids.hexTileSetResult);
@@ -712,17 +759,26 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const duration = showAnimation ? solveSteps.length * STEP_SECONDS : 0;
+  const duration = showAnimation ? (isCompound ? compoundSolveSteps.length : solveSteps.length) * STEP_SECONDS : 0;
   useTimelinePlayback(graph, playing, loop, speed, duration, setPlaying);
 
   useModelContextTool({
     name: `tiles_${cellId}_solve`,
     description:
-      "Re-run the Wang tile solve with the panel's current tile set, width, height, and solver variant. Returns whether a tiling was found and how many search steps it took. Normally solving is triggered automatically whenever the tile set/width/height/solver changes, so this is mainly useful to force a re-solve after an external set_cell write.",
+      "Re-run the Wang tile solve with the panel's current tile set, width, height, and solver variant. Returns whether a tiling was found and how many search steps it took. If the tile set uses multi-cell (@row,col) tiles, `compound` is true and the result comes from the compound solver instead (solver/symmetry are ignored in that case -- see #383). Normally solving is triggered automatically whenever the tile set/width/height/solver changes, so this is mainly useful to force a re-solve after an external set_cell write.",
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
+      const compound = graph.get<Result<CompoundTileSet>>(ids.compoundTileSetResult);
+      if (compound.ok && compound.value.tiles.some((t) => t.footprint.length > 1)) {
+        return {
+          compound: true,
+          status: graph.get<SolveStatus>(ids.compoundSolveStatus),
+          found: graph.get<CompoundWangGrid | null>(ids.compoundSolveGrid) !== null,
+          steps: graph.get<CompoundSolveStep[]>(ids.compoundSolveSteps).length,
+        };
+      }
       const status = graph.get<SolveStatus>(ids.solveStatus);
-      return { status, found: graph.get<WangGrid | null>(ids.solveGrid) !== null, steps: graph.get<SolveStep[]>(ids.solveSteps).length };
+      return { compound: false, status, found: graph.get<WangGrid | null>(ids.solveGrid) !== null, steps: graph.get<SolveStep[]>(ids.solveSteps).length };
     },
   });
 
@@ -787,6 +843,54 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, lattice, expandedTileSetResult, width, height, solver, showAnimation]);
+
+  // Compound (multi-cell footprint) auto-solve (#382/#383): same "drain the
+  // async generator, write back via graph.set" shape as the unit solve
+  // effect above, but only ever runs `solveWangCompound` -- torus/SAT
+  // aren't compound-aware yet (see solveWangCompound's own doc comment),
+  // so `solver` is ignored here regardless of the dropdown's value.
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (lattice !== "square" || !isCompound || !compoundTileSetResult.ok) {
+        graph.set(ids.compoundSolveStatus, "idle" satisfies SolveStatus);
+        graph.set(ids.compoundSolveSteps, []);
+        graph.set(ids.compoundSolveGrid, null);
+        graph.set(ids.compoundSolveError, "");
+        return;
+      }
+      if (width < 1 || height < 1 || width * height > MAX_CELLS) {
+        graph.set(ids.compoundSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.compoundSolveError, `Grid must be at least 1x1 and at most ${MAX_CELLS} cells total.`);
+        return;
+      }
+      graph.set(ids.compoundSolveStatus, "solving" satisfies SolveStatus);
+      try {
+        const gen = solveWangCompound(compoundTileSetResult.value, width, height, { trackSteps: showAnimation });
+        const steps: CompoundSolveStep[] = [];
+        let next = await gen.next();
+        while (!next.done) {
+          steps.push(next.value);
+          if (steps.length > MAX_STEPS) throw new Error(`Search exceeded ${MAX_STEPS} steps -- reduce the grid size or tile set.`);
+          next = await gen.next();
+        }
+        if (cancelled) return;
+        graph.set(ids.compoundSolveSteps, steps);
+        graph.set(ids.compoundSolveGrid, next.value);
+        graph.set(ids.compoundSolveError, "");
+        graph.set(ids.compoundSolveStatus, "done" satisfies SolveStatus);
+      } catch (e) {
+        if (cancelled) return;
+        graph.set(ids.compoundSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.compoundSolveError, e instanceof Error ? e.message : String(e));
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, lattice, isCompound, compoundTileSetResult, width, height, showAnimation]);
 
   // Hex/tri auto-solve: same "drain the async generator, write the result
   // back via graph.set" shape as the square lattice's own effect above,
@@ -909,7 +1013,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   useEffect(() => {
     graph.set(TIME_CELL, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [solveSteps]);
+  }, [solveSteps, compoundSolveSteps]);
 
   // Keep the diffraction tile-id selection valid across a new solve: pick
   // the first available id when the current selection isn't (or never was)
@@ -1034,6 +1138,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
 
   const currentStepIndex = solveSteps.length > 0 ? Math.min(solveSteps.length - 1, Math.floor(time / STEP_SECONDS)) : -1;
   const currentStep = currentStepIndex >= 0 ? solveSteps[currentStepIndex] : undefined;
+  const compoundCurrentStepIndex = compoundSolveSteps.length > 0 ? Math.min(compoundSolveSteps.length - 1, Math.floor(time / STEP_SECONDS)) : -1;
+  const compoundCurrentStep = compoundCurrentStepIndex >= 0 ? compoundSolveSteps[compoundCurrentStepIndex] : undefined;
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasWidth = Math.max(1, width) * CELL_SIZE;
@@ -1043,6 +1149,66 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+    if (isCompound) {
+      // Same fill/edge/label drawing as the unit-tile path below, except
+      // an edge shared with another cell of the SAME placement (same
+      // tileId + anchor) is skipped entirely -- that's exactly what makes
+      // a multi-cell tile read as one shape instead of N independent
+      // unit cells (#383's own "one tile lights up across its footprint"
+      // ask).
+      const displayGrid = showAnimation && compoundCurrentStep ? compoundCurrentStep.grid : compoundSolveGrid;
+      if (!displayGrid) return;
+      const cellMap = new Map<string, Tile>();
+      if (compoundTileSetResult.ok) {
+        for (const tile of compoundTileSetResult.value.tiles) {
+          for (const offset of tile.footprint) {
+            cellMap.set(`${tile.id}:${offset.row},${offset.col}`, tile.cells.get(`${offset.row},${offset.col}`)!);
+          }
+        }
+      }
+      for (let row = 0; row < displayGrid.length; row++) {
+        for (let col = 0; col < displayGrid[row]!.length; col++) {
+          const cell = displayGrid[row]![col];
+          const x = col * CELL_SIZE;
+          const y = row * CELL_SIZE;
+          ctx.fillStyle = cell ? tileColor(cell.tileId) : EMPTY_CELL_FILL;
+          ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+          if (cell) {
+            const offset = { row: row - cell.anchorRow, col: col - cell.anchorCol };
+            const cellTile = cellMap.get(`${cell.tileId}:${offset.row},${offset.col}`);
+            const samePlacement = (r: number, c: number): boolean => {
+              const neighbor = displayGrid[r]?.[c];
+              return !!neighbor && neighbor.tileId === cell.tileId && neighbor.anchorRow === cell.anchorRow && neighbor.anchorCol === cell.anchorCol;
+            };
+            if (!cellTile) {
+              ctx.strokeStyle = "#00000022";
+              ctx.strokeRect(x, y, CELL_SIZE, CELL_SIZE);
+            } else {
+              if (!samePlacement(row - 1, col)) strokeEdgeSegment(ctx, { x, y }, { x: x + CELL_SIZE, y }, edgeLabelColor(cellTile.edges.N));
+              if (!samePlacement(row, col + 1)) strokeEdgeSegment(ctx, { x: x + CELL_SIZE, y }, { x: x + CELL_SIZE, y: y + CELL_SIZE }, edgeLabelColor(cellTile.edges.E));
+              if (!samePlacement(row + 1, col)) strokeEdgeSegment(ctx, { x, y: y + CELL_SIZE }, { x: x + CELL_SIZE, y: y + CELL_SIZE }, edgeLabelColor(cellTile.edges.S));
+              if (!samePlacement(row, col - 1)) strokeEdgeSegment(ctx, { x, y }, { x, y: y + CELL_SIZE }, edgeLabelColor(cellTile.edges.W));
+            }
+            if (cell.anchorRow === row && cell.anchorCol === col) {
+              ctx.fillStyle = "#fff";
+              ctx.font = "13px sans-serif";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(cell.tileId, x + CELL_SIZE / 2, y + CELL_SIZE / 2);
+            }
+          }
+        }
+      }
+      if (showAnimation && compoundCurrentStep) {
+        const x = compoundCurrentStep.anchorCol * CELL_SIZE;
+        const y = compoundCurrentStep.anchorRow * CELL_SIZE;
+        ctx.strokeStyle = compoundCurrentStep.contradiction ? "#dc2626" : "#16a34a";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x + 1.5, y + 1.5, CELL_SIZE - 3, CELL_SIZE - 3);
+      }
+      return;
+    }
 
     const displayGrid: ReadonlyArray<ReadonlyArray<string | null>> | null =
       showAnimation && currentStep ? currentStep.grid : solveGrid;
@@ -1074,7 +1240,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       ctx.lineWidth = 3;
       ctx.strokeRect(x + 1.5, y + 1.5, CELL_SIZE - 3, CELL_SIZE - 3);
     }
-  }, [canvasWidth, canvasHeight, showAnimation, currentStep, solveGrid, expandedTileSetResult]);
+  }, [canvasWidth, canvasHeight, showAnimation, currentStep, solveGrid, expandedTileSetResult, isCompound, compoundCurrentStep, compoundSolveGrid, compoundTileSetResult]);
 
   // Hex canvas: the axial-to-pixel map is affine in (q, r), so the pixel
   // bounding box of the width x height parallelogram is exactly the
@@ -1332,7 +1498,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
         <>
           <div style={{ margin: "0.25rem 0" }}>
             <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
-              Tile set (one per line: <code>id N E S W</code>)
+              Tile set (one per line: <code>id N E S W</code> -- or, for a multi-cell tile, several lines sharing one{" "}
+              <code>id@row,col N E S W</code>, with <code>?</code> marking a side welded to another cell of the same tile; see #293)
             </label>
             <textarea
               value={textInput}
@@ -1356,6 +1523,18 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
               </div>
             </div>
           )}
+          {isCompound && compoundTileSetResult.ok && (
+            <div style={{ margin: "0.5rem 0" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>Compound tile palette ({compoundTileSetResult.value.tiles.length} tile{compoundTileSetResult.value.tiles.length === 1 ? "" : "s"})</label>
+              <ul style={{ margin: "0.25rem 0", paddingLeft: "1.25rem", fontSize: "0.85rem" }}>
+                {compoundTileSetResult.value.tiles.map((t) => (
+                  <li key={t.id}>
+                    <strong>{t.id}</strong> -- {t.footprint.length} cell{t.footprint.length === 1 ? "" : "s"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
             <label>
               width: <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
@@ -1363,17 +1542,17 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             <label>
               height: <input type="number" min={1} value={height} onChange={(e) => graph.set(ids.height, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
             </label>
-            <label title="How the grid gets filled -- see &quot;How this works&quot; above for what each option does.">
+            <label title={isCompound ? "Only plain backtracking solves multi-cell tile sets -- torus/SAT aren't compound-aware yet (#383)." : "How the grid gets filled -- see &quot;How this works&quot; above for what each option does."}>
               solver:{" "}
-              <select value={solver} onChange={(e) => graph.set(ids.solver, e.target.value as TilesSolverKind)}>
+              <select value={solver} disabled={isCompound} onChange={(e) => graph.set(ids.solver, e.target.value as TilesSolverKind)}>
                 <option value="wang">Backtracking</option>
                 <option value="torus">Backtracking (torus/periodic)</option>
                 <option value="sat">SAT cross-check</option>
               </select>
             </label>
-            <label title="Expands each tile into its rotated/reflected variants before solving, so a small tile set can be used in any orientation.">
+            <label title={isCompound ? "Symmetry expansion isn't compound-aware yet (#383)." : "Expands each tile into its rotated/reflected variants before solving, so a small tile set can be used in any orientation."}>
               symmetry:{" "}
-              <select value={symmetry} onChange={(e) => graph.set(ids.symmetry, e.target.value as SymmetryGroup)}>
+              <select value={symmetry} disabled={isCompound} onChange={(e) => graph.set(ids.symmetry, e.target.value as SymmetryGroup)}>
                 <option value="none">None (translations only)</option>
                 <option value="rotations">Rotations (C4)</option>
                 <option value="rotations-reflections">Rotations + reflections (D4)</option>
@@ -1386,21 +1565,27 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             )}
           </div>
 
-          {!tileSetResult.ok && <p style={{ color: "crimson" }}>{tileSetResult.message}</p>}
+          {isCompound && (
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+              Multi-cell tile set: solving uses plain backtracking regardless of the solver dropdown above; symmetry, entropy, diffraction, and relaxation aren't available for these yet (#383).
+            </p>
+          )}
+          {!isCompound && !tileSetResult.ok && <p style={{ color: "crimson" }}>{tileSetResult.message}</p>}
           {tileSetResult.ok && symmetry !== "none" && expandedTileSetResult.ok && (
             <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
               Symmetry expansion: {tileSetResult.value.tiles.length} tile{tileSetResult.value.tiles.length === 1 ? "" : "s"} →{" "}
               {expandedTileSetResult.value.tiles.length} oriented variant{expandedTileSetResult.value.tiles.length === 1 ? "" : "s"} used for solving.
             </p>
           )}
-          {solveStatus === "error" && <p style={{ color: "crimson" }}>{solveError}</p>}
+          {!isCompound && solveStatus === "error" && <p style={{ color: "crimson" }}>{solveError}</p>}
+          {isCompound && compoundSolveStatus === "error" && <p style={{ color: "crimson" }}>{compoundSolveError}</p>}
 
           <canvas ref={canvasRef} width={canvasWidth} height={canvasHeight} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
           <div style={{ margin: "0.25rem 0" }}>
             <PngExportButton getCanvas={() => canvasRef.current} label="tiles" />
           </div>
 
-          {showAnimation && solver !== "sat" && solveSteps.length > 0 && (
+          {!isCompound && showAnimation && solver !== "sat" && solveSteps.length > 0 && (
             <>
               <TransportControls graph={graph} time={time} duration={duration} playing={playing} setPlaying={setPlaying} loop={loop} setLoop={setLoop} speed={speed} setSpeed={setSpeed} />
               {currentStep && (
@@ -1426,14 +1611,29 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
               />
             </>
           )}
+          {isCompound && showAnimation && compoundSolveSteps.length > 0 && (
+            <>
+              <TransportControls graph={graph} time={time} duration={duration} playing={playing} setPlaying={setPlaying} loop={loop} setLoop={setLoop} speed={speed} setSpeed={setSpeed} />
+              {compoundCurrentStep && (
+                <p style={{ fontSize: "0.85rem", color: "var(--muted)" }} aria-live="polite">
+                  {compoundStepLabel(compoundCurrentStep)}
+                </p>
+              )}
+              <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Video export isn't available for multi-cell tile sets yet (#383).</p>
+            </>
+          )}
 
-          {solveStatus === "solving" && <p>Solving…</p>}
-          {solveStatus === "done" && (
+          {!isCompound && solveStatus === "solving" && <p>Solving…</p>}
+          {!isCompound && solveStatus === "done" && (
             <p>
               {solveGrid
                 ? `Tiling found${solver !== "sat" ? ` in ${solveSteps.length} search steps` : ""}.`
                 : `No tiling exists for this tile set at ${width}x${height}${solver !== "sat" ? ` (search exhausted after ${solveSteps.length} steps)` : ""}.`}
             </p>
+          )}
+          {isCompound && compoundSolveStatus === "solving" && <p>Solving…</p>}
+          {isCompound && compoundSolveStatus === "done" && (
+            <p>{compoundSolveGrid ? `Tiling found in ${compoundSolveSteps.length} search steps.` : `No tiling exists for this tile set at ${width}x${height} (search exhausted after ${compoundSolveSteps.length} steps).`}</p>
           )}
 
           <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
