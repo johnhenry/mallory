@@ -134,6 +134,22 @@ export function cellIdsSpaceCurve(cellId: string) {
 
 export type CellIdsSpaceCurve = ReturnType<typeof cellIdsSpaceCurve>;
 
+/** #345: a single complex-graph curve, not (yet) multi-row -- see complex-graph-state.ts's own doc comment for why this stays single-object for v1. */
+export function cellIdsComplexGraph3D(cellId: string) {
+  return {
+    yExpr: `complexGraph3dYExpr:${cellId}`,
+    drop: `complexGraph3dDrop:${cellId}`,
+    axisX: `complexGraph3dAxisX:${cellId}`,
+    axisY: `complexGraph3dAxisY:${cellId}`,
+    axisZ: `complexGraph3dAxisZ:${cellId}`,
+    tMin: `complexGraph3dTMin:${cellId}`,
+    tMax: `complexGraph3dTMax:${cellId}`,
+    points: `complexGraph3dPoints:${cellId}`,
+  };
+}
+
+export type CellIdsComplexGraph3D = ReturnType<typeof cellIdsComplexGraph3D>;
+
 /**
  * Cell-id namespacing for a system-of-equations solver panel
  * (SystemSolverPanel.tsx) -- a different input shape entirely from
