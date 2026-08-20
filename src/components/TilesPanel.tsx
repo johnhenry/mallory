@@ -28,7 +28,10 @@ import { hexCenter, hexCorners, hexEdgeSegment } from "../lib/tiles/hex-geometry
 import { solveHex, type HexGrid, type HexTile, type HexTileSet } from "../lib/tiles/hex-tile-model.ts";
 import { expandTileSetSymmetry, type SymmetryGroup } from "../lib/tiles/symmetry.ts";
 import {
+  isBoundaryEdge,
+  offsetKey,
   type CompoundSolveStep,
+  type CompoundTile,
   type CompoundTileSet,
   type CompoundWangGrid,
   solveWangCompound,
@@ -612,6 +615,57 @@ function SquareTilePaletteEntry({ tile }: { tile: Tile }) {
     ctx.fillText(tile.id, PALETTE_SQUARE_SIZE / 2, PALETTE_SQUARE_SIZE / 2);
   }, [tile]);
   return <canvas ref={canvasRef} width={PALETTE_SQUARE_SIZE} height={PALETTE_SQUARE_SIZE} style={{ border: "1px solid var(--border)" }} />;
+}
+
+/**
+ * A compound (multi-cell) tile's own fused shape, apart from the solved
+ * grid (issue #390's "preview each full domino" ask) -- same drawing
+ * language as `SquareTilePaletteEntry` (fill + `edgeLabelColor`-per-side +
+ * centered id label) and the compound solve canvas's own render effect,
+ * factored out here since both need "skip the edge between two cells of
+ * the same tile" -- draws the whole footprint at `PALETTE_SQUARE_SIZE`
+ * per cell, translated so its top-left offset sits at the canvas origin
+ * regardless of what the footprint's actual (possibly negative) offsets
+ * are.
+ */
+function CompoundTilePaletteEntry({ tile }: { tile: CompoundTile }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const minRow = Math.min(...tile.footprint.map((o) => o.row));
+  const minCol = Math.min(...tile.footprint.map((o) => o.col));
+  const maxRow = Math.max(...tile.footprint.map((o) => o.row));
+  const maxCol = Math.max(...tile.footprint.map((o) => o.col));
+  const cols = maxCol - minCol + 1;
+  const rows = maxRow - minRow + 1;
+  const canvasWidth = cols * PALETTE_SQUARE_SIZE;
+  const canvasHeight = rows * PALETTE_SQUARE_SIZE;
+
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    ctx.fillStyle = tileColor(tile.id);
+    for (const offset of tile.footprint) {
+      const x = (offset.col - minCol) * PALETTE_SQUARE_SIZE;
+      const y = (offset.row - minRow) * PALETTE_SQUARE_SIZE;
+      ctx.fillRect(x, y, PALETTE_SQUARE_SIZE, PALETTE_SQUARE_SIZE);
+    }
+    for (const offset of tile.footprint) {
+      const cell = tile.cells.get(offsetKey(offset))!;
+      const x = (offset.col - minCol) * PALETTE_SQUARE_SIZE;
+      const y = (offset.row - minRow) * PALETTE_SQUARE_SIZE;
+      if (isBoundaryEdge(tile.footprint, offset, "N")) strokeEdgeSegment(ctx, { x, y }, { x: x + PALETTE_SQUARE_SIZE, y }, edgeLabelColor(cell.edges.N));
+      if (isBoundaryEdge(tile.footprint, offset, "E")) strokeEdgeSegment(ctx, { x: x + PALETTE_SQUARE_SIZE, y }, { x: x + PALETTE_SQUARE_SIZE, y: y + PALETTE_SQUARE_SIZE }, edgeLabelColor(cell.edges.E));
+      if (isBoundaryEdge(tile.footprint, offset, "S")) strokeEdgeSegment(ctx, { x, y: y + PALETTE_SQUARE_SIZE }, { x: x + PALETTE_SQUARE_SIZE, y: y + PALETTE_SQUARE_SIZE }, edgeLabelColor(cell.edges.S));
+      if (isBoundaryEdge(tile.footprint, offset, "W")) strokeEdgeSegment(ctx, { x, y }, { x, y: y + PALETTE_SQUARE_SIZE }, edgeLabelColor(cell.edges.W));
+    }
+    ctx.fillStyle = "#fff";
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(tile.id, canvasWidth / 2, canvasHeight / 2);
+  }, [tile, canvasWidth, canvasHeight, minRow, minCol]);
+
+  return <canvas ref={canvasRef} width={canvasWidth} height={canvasHeight} style={{ border: "1px solid var(--border)" }} />;
 }
 
 const PALETTE_HEX_SIZE = 26;
@@ -1499,7 +1553,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
           <div style={{ margin: "0.25rem 0" }}>
             <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
               Tile set (one per line: <code>id N E S W</code> -- or, for a multi-cell tile, several lines sharing one{" "}
-              <code>id@row,col N E S W</code>, with <code>?</code> marking a side welded to another cell of the same tile; see #293)
+              <code>id@row,col N E S W</code>, with <code>?</code> marking a side welded to another cell of the same tile; a line with the id omitted, or just{" "}
+              <code>?</code>, continues the tile above one row down; see #293/#390)
             </label>
             <textarea
               value={textInput}
@@ -1525,14 +1580,14 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
           )}
           {isCompound && compoundTileSetResult.ok && (
             <div style={{ margin: "0.5rem 0" }}>
-              <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>Compound tile palette ({compoundTileSetResult.value.tiles.length} tile{compoundTileSetResult.value.tiles.length === 1 ? "" : "s"})</label>
-              <ul style={{ margin: "0.25rem 0", paddingLeft: "1.25rem", fontSize: "0.85rem" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+                Compound tile palette ({compoundTileSetResult.value.tiles.length} tile{compoundTileSetResult.value.tiles.length === 1 ? "" : "s"}, each on its own -- #390)
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                 {compoundTileSetResult.value.tiles.map((t) => (
-                  <li key={t.id}>
-                    <strong>{t.id}</strong> -- {t.footprint.length} cell{t.footprint.length === 1 ? "" : "s"}
-                  </li>
+                  <CompoundTilePaletteEntry key={t.id} tile={t} />
                 ))}
-              </ul>
+              </div>
             </div>
           )}
           <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
