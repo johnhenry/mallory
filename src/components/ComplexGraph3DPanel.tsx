@@ -6,13 +6,12 @@ import { cellIdsComplexGraph3D, type CellIdsComplexGraph3D } from "../lib/cell-i
 import {
   ALL_COMPONENTS,
   COMPONENT_LABELS,
-  droppedComponent,
-  isComplexComponent,
-  isValidCurveAxisAssignment,
-  sampleComplexGraphCurve,
+  isValidComplexAxisAssignment,
+  sampleComplexGraph,
+  usedDomainComponents,
   type AxisChoice,
+  type ComplexGraphSampleResult,
 } from "../lib/sample-complex-graph.ts";
-import type { SpaceCurvePoint } from "../lib/sample-space-curve.ts";
 import {
   DEFAULT_COMPLEX_GRAPH_STATE,
   decodeComplexGraphState,
@@ -33,6 +32,7 @@ const RESOLUTION = 300;
 const TUBE_RADIUS = 0.05;
 const TUBE_RADIAL_SEGMENTS = 8;
 const CURVE_COLOR = 0x9333ea;
+const POINT_SIZE = 0.06;
 
 function seedComplexGraphState(graph: CellGraph, ids: CellIdsComplexGraph3D, state: ComplexGraphState): void {
   graph.set(ids.yExpr, state.yExpr);
@@ -63,25 +63,22 @@ function useComplexGraphGraph(cellId: string): { graph: CellGraph; ids: CellIdsC
     const decoded = typeof window !== "undefined" ? decodeComplexGraphState(window.location.hash.slice(1)) : null;
     seedComplexGraphState(graph, ids, decoded ?? DEFAULT_COMPLEX_GRAPH_STATE);
 
-    graph.define(ids.points, (): Result<SpaceCurvePoint[]> => {
+    graph.define(ids.points, (): Result<ComplexGraphSampleResult> => {
       try {
-        const rawX = graph.get<AxisChoice>(ids.axisX);
-        const rawY = graph.get<AxisChoice>(ids.axisY);
-        const rawZ = graph.get<AxisChoice>(ids.axisZ);
-        if (!isComplexComponent(rawX) || !isComplexComponent(rawY) || !isComplexComponent(rawZ)) {
-          throw new Error('Assign all three axes (X, Y, Z) to a component -- "none" can\'t be left on more than one, or the curve has nothing to plot.');
-        }
-        const assignment = { x: rawX, y: rawY, z: rawZ };
-        if (!isValidCurveAxisAssignment(assignment)) {
-          throw new Error("Every one of Re(x)/Im(x)/Re(y)/Im(y) must be assigned to exactly one of X/Y/Z, leaving Re(x) or Im(x) as the one dropped.");
+        const assignment = {
+          x: graph.get<AxisChoice>(ids.axisX),
+          y: graph.get<AxisChoice>(ids.axisY),
+          z: graph.get<AxisChoice>(ids.axisZ),
+        };
+        if (!isValidComplexAxisAssignment(assignment)) {
+          throw new Error("Assign at least one axis to a component, and don't assign the same component to two axes.");
         }
         const tMin = Number(graph.get<string>(ids.tMin));
         const tMax = Number(graph.get<string>(ids.tMax));
         if (Number.isNaN(tMin) || Number.isNaN(tMax)) throw new Error("t-min and t-max must both be numbers.");
         if (tMin >= tMax) throw new Error("t-min must be less than t-max.");
-        const points = sampleComplexGraphCurve(graph.get<string>(ids.yExpr), assignment, { min: tMin, max: tMax }, RESOLUTION);
-        if (points.length < 2) throw new Error("Not enough valid samples to draw a curve -- widen the t range or check the expression.");
-        return { ok: true, value: points };
+        const sample = sampleComplexGraph(graph.get<string>(ids.yExpr), assignment, { min: tMin, max: tMax }, RESOLUTION);
+        return { ok: true, value: sample };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
@@ -137,29 +134,23 @@ function AxisSelect({
 /**
  * y = f(x) with x, y both complex (issue #345): a complex "graph" has 4
  * real degrees of freedom (Re(x), Im(x), Re(y), Im(y)), and a 3D plot can
- * only show 3 -- so one is always dropped (held fixed at 0), implicitly
- * whichever component isn't assigned to X/Y/Z (see sample-complex-graph.ts's
- * `droppedComponent`). This panel only supports the case where the dropped
- * one is a DOMAIN component (Re(x) or Im(x)): the other domain component
- * becomes a single free real parameter `t` tracing a CURVE, with the
- * remaining 2 axes free to come from Re(y)/Im(y). The classic example:
- * axes {Re(x), Re(y), Im(y)} (dropping Im(x)) -- `e^(i*x)` traces a spiral
- * (a unit circle in the Re(y)/Im(y) plane while Re(x) runs along the third
- * axis).
+ * only show 3 at once. Any axis (X/Y/Z) may be assigned to any of the 4
+ * components, or left "None" (reads as a constant 0) -- there's no longer
+ * a rule requiring exactly one domain component to be dropped.
  *
- * Dropping a RANGE component instead (Re(y) or Im(y)) would leave BOTH
- * domain components free, sweeping a 2D surface -- a well-defined, separate
- * follow-up (see #345), not implemented here. Unlike an earlier version,
- * the UI itself no longer blocks reaching that (or any other 2/4-of-4)
- * combination -- see `AxisSelect`'s own doc comment for why -- it's caught
- * as a plain error message once sampling is attempted instead.
+ * How many of the 2 domain components (Re(x)/Im(x)) end up assigned to a
+ * screen axis decides the render mode, auto-detected rather than chosen:
+ * exactly 1 used sweeps a clean 1D CURVE (e.g. the classic {Re(x), Re(y),
+ * Im(y)} spiral for `e^(i*x)`, rendered as a tube same as before); 0 or 2
+ * used can't be captured by a single sweep, so a grid is sampled instead
+ * and rendered as a SCATTER (point cloud) -- see sample-complex-graph.ts's
+ * `sampleComplexGraph` for the full reasoning.
  *
  * Reuses SpaceCurvePanel's exact Three.js tube-rendering approach
- * (CatmullRomCurve3 + TubeGeometry) unmodified -- the only new code is the
- * complex-valued sampling layer (`sample-complex-graph.ts`) that feeds it
- * plain {x,y,z} points in the same shape SpaceCurvePanel already renders.
- * Single-curve v1 (not the multi-row "unlimited expressions" shape most
- * other panels use) -- see complex-graph-state.ts's own doc comment.
+ * (CatmullRomCurve3 + TubeGeometry) for the curve case unmodified; the
+ * scatter case uses a plain InstancedMesh of small spheres. Single-curve
+ * v1 (not the multi-row "unlimited expressions" shape most other panels
+ * use) -- see complex-graph-state.ts's own doc comment.
  */
 export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: string } = {}) {
   const { graph, ids } = useComplexGraphGraph(cellId);
@@ -176,7 +167,7 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
   const axisZ = useCell<AxisChoice>(graph, ids.axisZ);
   const tMin = useCell<string>(graph, ids.tMin);
   const tMax = useCell<string>(graph, ids.tMax);
-  const pointsResult = useCell<Result<SpaceCurvePoint[]>>(graph, ids.points);
+  const pointsResult = useCell<Result<ComplexGraphSampleResult>>(graph, ids.points);
 
   useEffect(() => {
     function writeUrl() {
@@ -257,26 +248,44 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
           (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
         }
       }
-      const result = graph.get<Result<SpaceCurvePoint[]>>(ids.points);
+      const result = graph.get<Result<ComplexGraphSampleResult>>(ids.points);
       if (!result.ok) return;
-      const vectors = result.value.map((p) => new THREE.Vector3(p.x, p.y, p.z));
-      const curve = new THREE.CatmullRomCurve3(vectors);
-      const tubularSegments = Math.max(2, vectors.length);
-      const geometry = new THREE.TubeGeometry(curve, tubularSegments, TUBE_RADIUS, TUBE_RADIAL_SEGMENTS, false);
-      const material = new THREE.MeshStandardMaterial({ color: CURVE_COLOR });
-      group.add(new THREE.Mesh(geometry, material));
+      const { mode, points } = result.value;
+      if (points.length === 0) return;
+      if (mode === "curve") {
+        const vectors = points.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+        const curve = new THREE.CatmullRomCurve3(vectors);
+        const tubularSegments = Math.max(2, vectors.length);
+        const geometry = new THREE.TubeGeometry(curve, tubularSegments, TUBE_RADIUS, TUBE_RADIAL_SEGMENTS, false);
+        const material = new THREE.MeshStandardMaterial({ color: CURVE_COLOR });
+        group.add(new THREE.Mesh(geometry, material));
+      } else {
+        // scatter: 0 or 2 domain components used (see sampleComplexGraph's
+        // own doc comment) -- no single parameter order to draw a tube
+        // through, so render each sample as its own small sphere instead.
+        const geometry = new THREE.SphereGeometry(POINT_SIZE, 6, 6);
+        const material = new THREE.MeshStandardMaterial({ color: CURVE_COLOR });
+        const mesh = new THREE.InstancedMesh(geometry, material, points.length);
+        const dummy = new THREE.Object3D();
+        points.forEach((p, i) => {
+          dummy.position.set(p.x, p.y, p.z);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+        });
+        group.add(mesh);
+      }
     }
     rebuild();
     return graph.subscribeAll(rebuild);
   }, [graph, ids]);
 
-  // droppedComponent (and the "X is held fixed" hint below) only make
-  // sense once all 3 axes are real, distinct components -- with "none"
-  // now reachable, that's no longer guaranteed.
-  const drop =
-    isComplexComponent(axisX) && isComplexComponent(axisY) && isComplexComponent(axisZ)
-      ? droppedComponent({ x: axisX, y: axisY, z: axisZ })
-      : null;
+  const domainUsed = usedDomainComponents({ x: axisX, y: axisY, z: axisZ });
+  const modeHint =
+    domainUsed.length === 1
+      ? `${COMPONENT_LABELS[domainUsed[0] as "reX" | "imX"]} sweeps t from ${tMin} to ${tMax}; the other domain component is held fixed at 0. Curve.`
+      : domainUsed.length === 2
+        ? `Both Re(x) and Im(x) sweep t from ${tMin} to ${tMax} (a grid). Scatter.`
+        : "Neither Re(x) nor Im(x) is assigned to an axis -- x is fixed at 0. A single point.";
 
   return (
     <div>
@@ -303,11 +312,7 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
           <input value={tMax} onChange={(e) => graph.set(ids.tMax, e.target.value)} style={{ font: "inherit", width: "8ch" }} />]
         </label>
       </div>
-      {drop && (
-        <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
-          {COMPONENT_LABELS[drop]} is held fixed at 0. The non-dropped Re(x)/Im(x) sweeps t from {tMin} to {tMax}.
-        </p>
-      )}
+      <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{modeHint}</p>
       {!pointsResult.ok && <p style={{ color: "var(--danger)", fontSize: "0.8rem" }}>{pointsResult.message}</p>}
       <div ref={containerRef} style={{ position: "relative", maxWidth: WIDTH, border: "1px solid var(--border)" }} />
       <div style={{ margin: "0.25rem 0" }}>

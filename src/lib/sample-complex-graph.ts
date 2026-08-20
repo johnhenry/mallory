@@ -5,17 +5,13 @@ import type { Domain1D, SpaceCurvePoint } from "./sample-space-curve.ts";
 
 /**
  * A complex "graph" y = f(x) has 4 real degrees of freedom (Re(x), Im(x),
- * Re(y), Im(y)) -- a 3D plot can only show 3 axes, so exactly one is always
- * dropped (held fixed at 0). Which one determines the shape: dropping a
- * DOMAIN component (reX/imX) leaves the other domain component as the
- * single free real parameter driving a CURVE; dropping a RANGE component
- * (reY/imY) leaves both domain components free, driving a SURFACE (issue
- * #345's own follow-up, not implemented here). This module handles the
- * curve case only.
+ * Re(y), Im(y)) -- a 3D plot can only show 3 at once. Any of the 4 may be
+ * assigned to any screen axis (X/Y/Z), or left "none" (that axis's screen
+ * coordinate is just fixed at 0 -- see `AxisChoice`).
  */
 export type ComplexComponent = "reX" | "imX" | "reY" | "imY";
 
-/** An axis dropdown's full choice set: one of the 4 real components, or explicitly unassigned. Distinct from `ComplexComponent` (which every math function in this module still requires all 3 axes to be) since "none" only has meaning at the UI edge, before a curve can even be attempted. */
+/** An axis dropdown's full choice set: one of the 4 real components, or explicitly unassigned. */
 export type AxisChoice = ComplexComponent | "none";
 
 export const ALL_COMPONENTS: ComplexComponent[] = ["reX", "imX", "reY", "imY"];
@@ -35,90 +31,91 @@ export function isAxisChoice(v: unknown): v is AxisChoice {
   return v === "none" || isComplexComponent(v);
 }
 
-function isDomainComponent(c: ComplexComponent): boolean {
-  return c === "reX" || c === "imX";
-}
-
 /**
- * The screen-axis assignment: which of the 4 real components maps to X/Y/Z.
- * The 4th (unassigned) component is implicitly the dropped one, held fixed
- * at 0 -- there's no separate `drop` field to keep in sync with x/y/z (a
- * UI iteration on #345: the first version had one, which meant two
- * different controls could disagree about which component was excluded;
- * deriving it from whichever component ISN'T one of x/y/z removes that
- * whole class of inconsistency by construction).
+ * The screen-axis assignment: which of the 4 real components (or "none")
+ * maps to X/Y/Z. Any axis may independently be "none", any real component
+ * may be reused... except not reused -- see `isValidComplexAxisAssignment`,
+ * which is the only remaining constraint (previously the UI/sampler also
+ * required "exactly one domain component dropped" so the result was always
+ * a clean curve; that rule is gone -- see this module's own top comment
+ * and `sampleComplexGraph`'s curve-vs-scatter auto-detection instead).
  */
 export interface ComplexGraphAxisAssignment {
-  x: ComplexComponent;
-  y: ComplexComponent;
-  z: ComplexComponent;
-}
-
-/** The one component not assigned to any screen axis -- null if `assignment` isn't even a valid 3-of-4 selection (see `isValidCurveAxisAssignment`) yet, e.g. mid-edit with a duplicate. */
-export function droppedComponent(assignment: ComplexGraphAxisAssignment): ComplexComponent | null {
-  const used = new Set([assignment.x, assignment.y, assignment.z]);
-  if (used.size !== 3) return null;
-  return ALL_COMPONENTS.find((c) => !used.has(c)) ?? null;
+  x: AxisChoice;
+  y: AxisChoice;
+  z: AxisChoice;
 }
 
 /**
- * True iff `x`/`y`/`z` are 3 distinct components AND exactly one of them is
- * a domain component (Re(x) or Im(x)) -- equivalently, both Re(y) and
- * Im(y) are assigned somewhere, since the dropped 4th component must be a
- * domain one for this to be a curve (dropping a range component would be
- * the surface case instead, issue #345's own follow-up, not built here).
- * There are only 12 valid assignments total (2 choices of which domain
- * component survives x 3! orderings across X/Y/Z) -- small enough that
- * `isValidAxisTriple` (used by the UI's own per-option disabling) can just
- * brute-force-check every candidate rather than reasoning about it
- * case-by-case.
+ * True iff at least one axis is assigned to a real component (otherwise
+ * there's nothing to plot at all) and no two axes share the same
+ * non-"none" component (multiple axes can independently be "none", that's
+ * just an incomplete-looking but valid assignment -- see `AxisSelect`'s own
+ * doc comment in ComplexGraph3DPanel.tsx for why the UI only blocks exact
+ * duplicates and nothing more).
  */
-export function isValidCurveAxisAssignment(assignment: ComplexGraphAxisAssignment): boolean {
-  return isValidAxisTriple(assignment.x, assignment.y, assignment.z);
-}
-
-/** Order-independent: true iff `a`, `b`, `c` are 3 distinct components with exactly one domain component among them. Exported so the UI can ask "would choosing `c` here, alongside whatever the other two dropdowns already show, produce a valid assignment?" for its own per-option disabling, without duplicating this rule. */
-export function isValidAxisTriple(a: ComplexComponent, b: ComplexComponent, c: ComplexComponent): boolean {
-  const set = new Set([a, b, c]);
-  if (set.size !== 3) return false;
-  const domainCount = [a, b, c].filter(isDomainComponent).length;
-  return domainCount === 1;
+export function isValidComplexAxisAssignment(assignment: ComplexGraphAxisAssignment): boolean {
+  const used = [assignment.x, assignment.y, assignment.z].filter(isComplexComponent);
+  if (used.length === 0) return false;
+  return new Set(used).size === used.length;
 }
 
 /**
- * Samples the curve traced by y = f(x) as x's non-dropped domain component
- * sweeps `tDomain`, reading off whichever of {Re(x), Im(x), Re(y), Im(y)}
- * `assignment` maps to each screen axis. Reuses `SpaceCurvePanel`'s own
- * `SpaceCurvePoint` shape (issue #345) so its Three.js tube-rendering can
- * be reused unmodified -- the only new thing here is the complex-valued
- * math feeding it, not a new rendering pipeline.
+ * Which of the 2 domain components (Re(x)/Im(x)) are assigned to at least
+ * one screen axis -- drives `sampleComplexGraph`'s 0D/1D/2D sampling and
+ * curve-vs-scatter choice below. Exported so the panel's own UI hint can
+ * describe the same 0/1/2-used cases without duplicating the rule.
+ */
+export function usedDomainComponents(assignment: ComplexGraphAxisAssignment): Array<"reX" | "imX"> {
+  const used = new Set([assignment.x, assignment.y, assignment.z]);
+  return (["reX", "imX"] as const).filter((c) => used.has(c));
+}
+
+/** Grid side length for the 2-domain-components-used (surface-shaped) case -- squared, so kept far below the 1D curve case's `resolution` to stay responsive (60^2 = 3721 points, plenty dense for a scatter). */
+const GRID_RESOLUTION = 60;
+
+export type ComplexGraphSampleResult = { mode: "curve" | "scatter"; points: SpaceCurvePoint[] };
+
+/**
+ * Samples y = f(x) over `tDomain`, reading off whichever of {Re(x), Im(x),
+ * Re(y), Im(y)} `assignment` maps to each screen axis (an axis assigned
+ * "none" always reads as a constant 0). How many of the 2 domain
+ * components (Re(x)/Im(x)) are actually assigned to a screen axis decides
+ * both the sampling shape and the render mode, auto-detected rather than
+ * chosen by the caller:
  *
- * `yExprSource` is parsed through the same complex evaluator ComplexPanel
- * uses (`evaluateComplex`, `complex-eval.ts`) with `x` bound to the swept
- * complex value each step -- so `pi`/`e`/`i` and every elementary function
- * (sqrt/sin/exp/...) already work exactly as they do there.
+ *  - 0 used: x is entirely fixed at the origin -- a single point.
+ *  - 1 used: the other domain component is implicitly held at 0, and the
+ *    used one sweeps `tDomain` as a single free real parameter -- a clean
+ *    1D curve (e.g. the classic e^(i*x) spiral: {Re(x), Re(y), Im(y)}).
+ *  - 2 used: both domain components are free, so a single 1D sweep can't
+ *    capture the result -- a Re(x)*Im(x) grid over `tDomain` x `tDomain`
+ *    is sampled instead, which generically covers a 2D sheet. Rendered as
+ *    a scatter (point cloud), not a tube -- there's no single parameter
+ *    order to draw a tube through. This is also what a plain real-only
+ *    plot (e.g. mapping just {Re(x), Re(y)}, "None" on Z) falls into:
+ *    since Im(x) isn't pinned to 0 by being assigned "none" -- it's simply
+ *    not shown -- the swept grid still varies it, so distinct (Re(x),
+ *    Im(x)) pairs can land on/near the same visible (Re(x), Re(y)) spot,
+ *    which is exactly the "series of dots" the design discussion
+ *    anticipated for that case.
  *
  * A non-finite or throwing sample (a pole, or outside the function's
- * domain) is skipped rather than aborting the whole curve, same as
- * `sampleSpaceCurve`'s own convention -- the caller builds one continuous
- * `CatmullRomCurve3` through whatever points come back.
+ * domain) is skipped rather than aborting the whole sample, same as
+ * `sampleSpaceCurve`'s own convention.
  */
-export function sampleComplexGraphCurve(
+export function sampleComplexGraph(
   yExprSource: string,
   assignment: ComplexGraphAxisAssignment,
   tDomain: Domain1D,
   resolution = 300,
-): SpaceCurvePoint[] {
-  const drop = droppedComponent(assignment);
-  if (drop === null || !isValidCurveAxisAssignment(assignment)) {
-    throw new Error("Every one of Re(x)/Im(x)/Re(y)/Im(y) must be assigned to exactly one of X/Y/Z, leaving Re(x) or Im(x) as the one dropped.");
+): ComplexGraphSampleResult {
+  if (!isValidComplexAxisAssignment(assignment)) {
+    throw new Error("Assign at least one axis to a component, and don't assign the same component to two axes.");
   }
   const expr = Symbolic.parse(preprocessImplicitMultiplication(yExprSource));
-  const points: SpaceCurvePoint[] = [];
-  for (let i = 0; i <= resolution; i++) {
-    const t = tDomain.min + (i / resolution) * (tDomain.max - tDomain.min);
-    const reX = drop === "reX" ? 0 : t;
-    const imX = drop === "imX" ? 0 : t;
+
+  function sampleAt(reX: number, imX: number): SpaceCurvePoint | null {
     let y: ComplexNumber;
     try {
       // evaluateComplex's own constant table only has pi/e -- "i" (the
@@ -126,11 +123,46 @@ export function sampleComplexGraphCurve(
       // calculator-eval.ts's identical complex mode does.
       y = evaluateComplex(expr, { x: new ComplexNumber(reX, imX), i: ComplexNumber.I });
     } catch {
-      continue;
+      return null;
     }
     const components: Record<ComplexComponent, number> = { reX, imX, reY: y.re, imY: y.im };
-    const point: SpaceCurvePoint = { x: components[assignment.x], y: components[assignment.y], z: components[assignment.z] };
-    if (Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z)) points.push(point);
+    const at = (choice: AxisChoice) => (choice === "none" ? 0 : components[choice]);
+    const point: SpaceCurvePoint = { x: at(assignment.x), y: at(assignment.y), z: at(assignment.z) };
+    return Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z) ? point : null;
   }
-  return points;
+
+  const domainUsed = usedDomainComponents(assignment);
+  const points: SpaceCurvePoint[] = [];
+
+  if (domainUsed.length === 0) {
+    const p = sampleAt(0, 0);
+    if (p) points.push(p);
+    if (points.length === 0) throw new Error("x = 0 isn't a valid input to this expression -- nothing to plot.");
+    return { mode: "scatter", points };
+  }
+
+  if (domainUsed.length === 1) {
+    const sweptComponent = domainUsed[0] as "reX" | "imX";
+    for (let i = 0; i <= resolution; i++) {
+      const t = tDomain.min + (i / resolution) * (tDomain.max - tDomain.min);
+      const reX = sweptComponent === "reX" ? t : 0;
+      const imX = sweptComponent === "imX" ? t : 0;
+      const p = sampleAt(reX, imX);
+      if (p) points.push(p);
+    }
+    if (points.length < 2) throw new Error("Not enough valid samples to draw a curve -- widen the t range or check the expression.");
+    return { mode: "curve", points };
+  }
+
+  const grid = Math.min(resolution, GRID_RESOLUTION);
+  for (let i = 0; i <= grid; i++) {
+    const reX = tDomain.min + (i / grid) * (tDomain.max - tDomain.min);
+    for (let j = 0; j <= grid; j++) {
+      const imX = tDomain.min + (j / grid) * (tDomain.max - tDomain.min);
+      const p = sampleAt(reX, imX);
+      if (p) points.push(p);
+    }
+  }
+  if (points.length === 0) throw new Error("Not enough valid samples to plot -- widen the t range or check the expression.");
+  return { mode: "scatter", points };
 }
