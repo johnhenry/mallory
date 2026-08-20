@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { encodeStateFragment } from "./url-fragment.ts";
 import { test } from "node:test";
 import {
   DEFAULT_COMPLEX_STATE,
@@ -34,7 +35,7 @@ test("isComplexStateV1/isComplexStateV2/isComplexStateV3: distinguish the three 
 
 test("decodeComplexState: upgrades a v1 payload all the way to v3, defaulting the conformal-grid and zeros/poles fields off", () => {
   const v1: ComplexStateV1 = { v: 1, exprText: "1/z", probeRe: "2", probeIm: "-1", showRootsOfUnity: true, rootsN: "7" };
-  const encoded = Buffer.from(JSON.stringify(v1)).toString("base64url");
+  const encoded = encodeStateFragment(v1);
   const decoded = decodeComplexState(encoded);
   assert.ok(decoded);
   assert.equal(decoded.v, 3);
@@ -62,7 +63,7 @@ test("decodeComplexState: upgrades a v2 payload to v3, defaulting showZeros/show
     conformalGridType: "polar",
     conformalGridSpacing: "0.25",
   };
-  const encoded = Buffer.from(JSON.stringify(v2)).toString("base64url");
+  const encoded = encodeStateFragment(v2);
   const decoded = decodeComplexState(encoded);
   assert.ok(decoded);
   assert.equal(decoded.v, 3);
@@ -75,13 +76,13 @@ test("decodeComplexState: upgrades a v2 payload to v3, defaulting showZeros/show
 
 test("decodeComplexState: rejects a v3 payload with a malformed conformalGridType", () => {
   const bad = { ...DEFAULT_COMPLEX_STATE, conformalGridType: "spiral" };
-  const encoded = Buffer.from(JSON.stringify(bad)).toString("base64url");
+  const encoded = encodeStateFragment(bad);
   assert.equal(decodeComplexState(encoded), null);
 });
 
 test("decodeComplexState: rejects a v3 payload with a non-boolean showZeros/showPoles", () => {
   const badZeros = { ...DEFAULT_COMPLEX_STATE, showZeros: "yes" };
-  assert.equal(decodeComplexState(Buffer.from(JSON.stringify(badZeros)).toString("base64url")), null);
+  assert.equal(decodeComplexState(encodeStateFragment(badZeros)), null);
   const badPoles = { ...DEFAULT_COMPLEX_STATE, showPoles: null };
-  assert.equal(decodeComplexState(Buffer.from(JSON.stringify(badPoles)).toString("base64url")), null);
+  assert.equal(decodeComplexState(encodeStateFragment(badPoles)), null);
 });

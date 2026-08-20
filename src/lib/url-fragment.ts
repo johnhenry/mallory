@@ -13,11 +13,15 @@
  * gallery reopen href, every stored short-link target, and makes QR codes
  * viable.
  *
- * Backward compatible by construction: legacy fragments are pure base64url
- * (alphabet `A-Za-z0-9_-`), which can never contain `:`, so the `z:`
- * prefix is an unambiguous version marker. `decodeStateFragment` tries the
- * marker first and falls back to the legacy plain-JSON path, so every URL
- * ever shared keeps working.
+ * The compressed format is the ONLY format: decode of the pre-compression
+ * plain-base64url fragments was dropped shortly after they were replaced
+ * (nothing persisted holds them -- short links live in the same
+ * deploy-ephemeral DB, so a redeploy clears any stored old-format
+ * fragment along with everything else). An old-format fragment simply
+ * fails to decode, which every codec call site already treats as
+ * "no/invalid state in the URL". The `z:` prefix stays as a version
+ * marker so a future format change has the same clean discriminator this
+ * transition used.
  *
  * Throws on garbage (mirroring `JSON.parse`) rather than returning null --
  * every codec call site already wraps its decode in try/catch and applies
@@ -47,21 +51,13 @@ function base64UrlToBytes(input: string): Uint8Array {
   return bytes;
 }
 
-/** Legacy transport (pre-compression): base64url over UTF-8 JSON text -- byte-for-byte the same decode the codecs' old private helpers used (TextEncoder on the way in, TextDecoder on the way out). */
-function legacyBase64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
 export function encodeStateFragment(state: unknown): string {
   return COMPRESSED_PREFIX + bytesToBase64Url(deflateSync(strToU8(JSON.stringify(state))));
 }
 
 export function decodeStateFragment(fragment: string): unknown {
-  if (fragment.startsWith(COMPRESSED_PREFIX)) {
-    return JSON.parse(strFromU8(inflateSync(base64UrlToBytes(fragment.slice(COMPRESSED_PREFIX.length)))));
+  if (!fragment.startsWith(COMPRESSED_PREFIX)) {
+    throw new Error("Unrecognized state-fragment format (expected a z:-prefixed compressed fragment).");
   }
-  return JSON.parse(legacyBase64UrlDecode(fragment));
+  return JSON.parse(strFromU8(inflateSync(base64UrlToBytes(fragment.slice(COMPRESSED_PREFIX.length)))));
 }
