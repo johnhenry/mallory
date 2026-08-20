@@ -1,3 +1,4 @@
+import { useServerFn } from "@tanstack/react-start";
 import type { Edge, Graph } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
@@ -34,6 +35,7 @@ import {
 import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/pointer-media.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY, type Viewport } from "../lib/viewport.ts";
 import { frobeniusNormalForm, type FrobeniusResult } from "../lib/frobenius.ts";
+import { startGraphTheoryExportJob } from "../lib/export-graph-theory-video.ts";
 import { getThemeColors } from "../lib/theme-colors.ts";
 import { drawFrobeniusOverlay, drawHeatmap } from "../lib/heatmap.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -42,6 +44,7 @@ import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
+import { VideoExportControls } from "./VideoExportControls.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 type Algorithm = "bfs" | "dfs" | "dijkstra" | "shortest-path" | "mst";
@@ -522,6 +525,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   const algorithmSteps = useCell<AlgorithmStep[]>(graph, ids.algorithmSteps);
   const time = useCell<number>(graph, TIME_CELL);
   const dragFromRef = useRef<string | null>(null);
+  const startGraphTheoryExportJobFn = useServerFn(startGraphTheoryExportJob);
 
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -715,6 +719,24 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
         <>
           <TransportControls graph={graph} time={time} duration={duration} playing={playing} setPlaying={setPlaying} loop={loop} setLoop={setLoop} speed={speed} setSpeed={setSpeed} />
           {currentStep && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{currentStep.label}</p>}
+          <VideoExportControls
+            filenameStem="mallory-graph-graph-theory"
+            start={(format, videoDuration) =>
+              startGraphTheoryExportJobFn({
+                data: {
+                  edgeListText,
+                  directed,
+                  algorithm,
+                  startVertex,
+                  endVertex,
+                  vertexPositions,
+                  showEditor,
+                  duration: videoDuration,
+                  format,
+                },
+              })
+            }
+          />
         </>
       )}
       {algorithmResult.ok ? (
