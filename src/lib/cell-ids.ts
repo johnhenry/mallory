@@ -1143,6 +1143,10 @@ export function cellIdsCellularAutomata(cellId: string) {
     boundary3d: `caBoundary3d:${cellId}`,
     seed3d: `caSeed3d:${cellId}`,
     density3d: `caDensity3d:${cellId}`,
+    // #389: 3D's own initial2d/customGrid2d equivalent -- see ca-state.ts's
+    // CaStateV2 doc comment.
+    initial3d: `caInitial3d:${cellId}`,
+    customGrid3d: `caCustomGrid3d:${cellId}`,
     spacetime3dResult: `caSpacetime3dResult:${cellId}`,
   };
 }

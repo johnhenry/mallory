@@ -4,10 +4,13 @@ import {
   blankBits,
   decodeBits,
   decodeCustomGrid,
+  decodeCustomGrid3D,
   decodeCustomRow,
   encodeBits,
   encodeCustomGrid,
+  encodeCustomGrid3D,
   pixelToCellIndex,
+  replaceBitsSlice,
   setBit,
   toggleBit,
 } from "./custom-grid.ts";
@@ -103,4 +106,50 @@ test("pixelToCellIndex treats height=1 as a 1D row (only y in [0, cellSize) is v
 
 test("pixelToCellIndex returns null for a non-positive cellSize", () => {
   assert.equal(pixelToCellIndex(1, 1, 0, 4, 3), null);
+});
+
+test("decodeCustomGrid3D decodes z-major into a depth x height x width volume (issue #389)", () => {
+  // 2(w) x 2(h) x 2(d): layer z=0 rows "10","01"; layer z=1 rows "11","00"
+  const grid = decodeCustomGrid3D("10011100", 2, 2, 2);
+  assert.deepEqual(grid, [
+    [
+      [1, 0],
+      [0, 1],
+    ],
+    [
+      [1, 1],
+      [0, 0],
+    ],
+  ]);
+});
+
+test("encodeCustomGrid3D/decodeCustomGrid3D round-trip a 3D volume", () => {
+  const grid = [
+    [
+      [1, 0],
+      [0, 1],
+    ],
+    [
+      [1, 1],
+      [0, 0],
+    ],
+  ] as const;
+  const bits = encodeCustomGrid3D(grid);
+  assert.deepEqual(decodeCustomGrid3D(bits, 2, 2, 2), grid.map((layer) => layer.map((row) => [...row])));
+});
+
+test("replaceBitsSlice overwrites exactly the targeted slice, leaving the rest of the bitstring unchanged", () => {
+  const bits = "000000"; // 2x3 flat, 3 layers of 2 conceptually
+  const updated = replaceBitsSlice(bits, 6, 2, 2, "11");
+  assert.equal(updated, "001100");
+});
+
+test("replaceBitsSlice pads a too-short sliceBits with 0s (same decodeBits convention as everything else here)", () => {
+  const updated = replaceBitsSlice("0000", 4, 0, 4, "1");
+  assert.equal(updated, "1000");
+});
+
+test("replaceBitsSlice ignores any part of the slice that falls outside the total length", () => {
+  const updated = replaceBitsSlice("0000", 4, 2, 4, "1111"); // offset 2 + length 4 runs past index 4
+  assert.equal(updated, "0011");
 });

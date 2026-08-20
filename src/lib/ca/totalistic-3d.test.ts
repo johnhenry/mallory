@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Rng } from "mallory-tensor-core";
 import {
+  initialGrid3D,
   NAMED_TOTALISTIC_3D_RULES,
   parseTotalisticRule3D,
   randomGrid3D,
@@ -125,4 +126,25 @@ test("NAMED_TOTALISTIC_3D_RULES: every entry's rule string parses cleanly and ro
     assert.ok(!seen.has(entry.rule), `duplicate rule ${entry.rule}`);
     seen.add(entry.rule);
   }
+});
+
+test("initialGrid3D: 'custom' decodes the given bitstring z-major, and requires customBits (issue #389)", () => {
+  const grid = initialGrid3D(2, 2, 2, "custom", undefined, undefined, "10011100");
+  assert.deepEqual(grid, [
+    [
+      [1, 0],
+      [0, 1],
+    ],
+    [
+      [1, 1],
+      [0, 0],
+    ],
+  ]);
+  assert.throws(() => initialGrid3D(2, 2, 2, "custom"), /requires customBits/);
+});
+
+test("initialGrid3D: 'random' requires an rng and matches randomGrid3D given the same one", () => {
+  assert.throws(() => initialGrid3D(3, 3, 3, "random"), /requires an rng/);
+  const grid = initialGrid3D(3, 3, 3, "random", new Rng(7), 0.4);
+  assert.deepEqual(grid, randomGrid3D(3, 3, 3, new Rng(7), 0.4));
 });

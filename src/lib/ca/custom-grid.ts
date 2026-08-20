@@ -53,6 +53,46 @@ export function encodeCustomGrid(grid: readonly (readonly Cell[])[]): string {
   return encodeBits(flat);
 }
 
+/** 3D convenience (issue #389): decode a bitstring into a `depth` x `height` x `width` volume, `[z][y][x]` -- z-major, matching `Grid3D`'s own indexing convention in totalistic-3d.ts. */
+export function decodeCustomGrid3D(bits: string, width: number, height: number, depth: number): Cell[][][] {
+  const flat = decodeBits(bits, width * height * depth);
+  const grid: Cell[][][] = [];
+  for (let z = 0; z < depth; z++) {
+    const layer: Cell[][] = [];
+    for (let y = 0; y < height; y++) layer.push(flat.slice(z * width * height + y * width, z * width * height + (y + 1) * width));
+    grid.push(layer);
+  }
+  return grid;
+}
+
+/** Encodes a 3D volume (`[z][y][x]`) back into a flat bitstring. */
+export function encodeCustomGrid3D(grid: readonly (readonly (readonly Cell[])[])[]): string {
+  const flat: Cell[] = [];
+  for (const layer of grid) for (const row of layer) for (const cell of row) flat.push(cell);
+  return encodeBits(flat);
+}
+
+/**
+ * Splices a shorter bitstring (`sliceBits`, `sliceLength` cells) into a
+ * larger one (`bits`, `totalLength` cells) starting at `offset`, returning
+ * the updated full bitstring -- issue #389's 3D custom-initial-state editor
+ * uses this to write back ONE z-layer (painted via the same 2D
+ * `CustomGridEditor` the 1D/2D editors already use) into the full 3D
+ * volume's flat bitstring, without needing a bespoke 3D-aware editor
+ * component. `sliceBits` shorter than `sliceLength` decodes with trailing
+ * zeros (same `decodeBits` convention every other helper here uses), so a
+ * freshly-blanked layer round-trips correctly.
+ */
+export function replaceBitsSlice(bits: string, totalLength: number, offset: number, sliceLength: number, sliceBits: string): string {
+  const cells = decodeBits(bits, totalLength);
+  const sliceCells = decodeBits(sliceBits, sliceLength);
+  for (let i = 0; i < sliceLength; i++) {
+    const target = offset + i;
+    if (target >= 0 && target < totalLength) cells[target] = sliceCells[i]!;
+  }
+  return encodeBits(cells);
+}
+
 /** Sets a single cell (by flat row-major index) in a bitstring of `length` cells, returning the updated bitstring. Out-of-range indices are a no-op (still round-trips `bits` through decode/encode at `length`). Used by the editor's click/paint handlers. */
 export function setBit(bits: string, length: number, index: number, value: Cell): string {
   const cells = decodeBits(bits, length);

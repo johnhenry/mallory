@@ -14,9 +14,12 @@
  * (is "12" the single count twelve, or the two counts one and two?).
  */
 import { Rng } from "mallory-tensor-core";
+import { decodeCustomGrid3D } from "./custom-grid.ts";
 
 export type Cell = 0 | 1;
 export type Boundary = "dead" | "wrap";
+/** "random" (the only option before issue #389) or "custom" -- 3D's own version of `life-like.ts`'s `InitialCondition`, paired with a painted-per-layer `customBits` volume (see `custom-grid.ts`'s `decodeCustomGrid3D`/`encodeCustomGrid3D`). */
+export type InitialCondition3D = "random" | "custom";
 /** `grid[z][y][x]`, matching the Wang tile lab's own CubeGrid indexing convention (#92 M4). */
 export type Grid3D = ReadonlyArray<ReadonlyArray<ReadonlyArray<Cell>>>;
 
@@ -133,6 +136,21 @@ export function randomGrid3D(width: number, height: number, depth: number, rng: 
   return Array.from({ length: depth }, () =>
     Array.from({ length: height }, () => Array.from({ length: width }, () => (rng.nextFloat() < density ? 1 : 0))),
   );
+}
+
+/**
+ * Dispatches to `randomGrid3D` or a decoded custom-editor bitstring (issue
+ * #389) by `initial`, mirroring `life-like.ts`'s own `initialGrid`.
+ * `customBits` is the '0'/'1' bitstring a per-layer `CustomGridEditor`
+ * volume painted -- see custom-grid.ts's `decodeCustomGrid3D`.
+ */
+export function initialGrid3D(width: number, height: number, depth: number, initial: InitialCondition3D, rng?: Rng, density = 0.2, customBits?: string): Grid3D {
+  if (initial === "custom") {
+    if (customBits === undefined) throw new Error('initialGrid3D("custom", ...) requires customBits.');
+    return decodeCustomGrid3D(customBits, width, height, depth);
+  }
+  if (!rng) throw new Error('initialGrid3D("random", ...) requires an rng.');
+  return randomGrid3D(width, height, depth, rng, density);
 }
 
 export type Spacetime3D = ReadonlyArray<Grid3D>;
