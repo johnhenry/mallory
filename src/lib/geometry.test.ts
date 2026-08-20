@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { interiorAngleRadians, isSelfIntersecting, polygonCentroid, shoelaceArea } from "./geometry.ts";
+import { interiorAngleRadians, isSelfIntersecting, pointInPolygon, pointToSegmentDistance, polygonCentroid, shoelaceArea } from "./geometry.ts";
 
 test("interiorAngleRadians reports 90 degrees for a right angle", () => {
   const a = { x: 1, y: 0 };
@@ -136,4 +136,43 @@ test("polygonCentroid falls back to the vertex average for a degenerate (colline
   const c = polygonCentroid(collinear);
   assert.ok(Math.abs(c.x - 1) < 1e-12);
   assert.ok(Math.abs(c.y - 1) < 1e-12);
+});
+
+test("pointToSegmentDistance: zero for a point ON the segment", () => {
+  assert.ok(Math.abs(pointToSegmentDistance({ x: 1, y: 0 }, { x: 0, y: 0 }, { x: 2, y: 0 })) < 1e-12);
+});
+
+test("pointToSegmentDistance: perpendicular distance for a point off to the side", () => {
+  assert.ok(Math.abs(pointToSegmentDistance({ x: 1, y: 3 }, { x: 0, y: 0 }, { x: 2, y: 0 }) - 3) < 1e-12);
+});
+
+test("pointToSegmentDistance: clamps to the nearest ENDPOINT, not the infinite line, past either end", () => {
+  // Directly "below" (0,0) on the infinite line's extension -- distance to
+  // the endpoint (0,0) is 4, not the (smaller) perpendicular-to-line distance.
+  assert.ok(Math.abs(pointToSegmentDistance({ x: -4, y: 0 }, { x: 0, y: 0 }, { x: 2, y: 0 }) - 4) < 1e-12);
+});
+
+test("pointToSegmentDistance: degenerate segment (a === b) falls back to plain point distance", () => {
+  assert.ok(Math.abs(pointToSegmentDistance({ x: 3, y: 4 }, { x: 0, y: 0 }, { x: 0, y: 0 }) - 5) < 1e-12);
+});
+
+test("pointInPolygon: true for a point inside a simple square, false for one clearly outside", () => {
+  const square = [
+    { x: 0, y: 0 },
+    { x: 2, y: 0 },
+    { x: 2, y: 2 },
+    { x: 0, y: 2 },
+  ];
+  assert.equal(pointInPolygon({ x: 1, y: 1 }, square), true);
+  assert.equal(pointInPolygon({ x: 5, y: 5 }, square), false);
+});
+
+test("pointInPolygon: false for a point outside a triangle", () => {
+  const triangle = [
+    { x: 0, y: 0 },
+    { x: 4, y: 0 },
+    { x: 0, y: 4 },
+  ];
+  assert.equal(pointInPolygon({ x: 3, y: 3 }, triangle), false); // outside the hypotenuse
+  assert.equal(pointInPolygon({ x: 1, y: 1 }, triangle), true);
 });

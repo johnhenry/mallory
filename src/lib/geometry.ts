@@ -120,3 +120,38 @@ export function polygonCentroid(points: Point2D[]): Point2D {
   }
   return { x: cx / (3 * signedAreaTwice), y: cy / (3 * signedAreaTwice) };
 }
+
+/**
+ * Perpendicular distance from `p` to segment `ab`, clamped to the segment
+ * itself (not the infinite line through it) -- the standard "closest point
+ * on a line segment" projection, used by GeometryPanel's select-tool
+ * hit-testing to let a click "near" a line (not just exactly on its
+ * infinite extension) select it (#336 item 1).
+ */
+export function pointToSegmentDistance(p: Point2D, a: Point2D, b: Point2D): number {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const lengthSq = abx * abx + aby * aby;
+  if (lengthSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSq));
+  return Math.hypot(p.x - (a.x + t * abx), p.y - (a.y + t * aby));
+}
+
+/**
+ * Standard ray-casting point-in-polygon test (even-odd rule) -- lets a
+ * click anywhere INSIDE a polygon select it (#336 item 1), not just exactly
+ * on its boundary. Meaningful membership for a simple polygon; best-effort
+ * (even-odd still gives a definite answer, just not necessarily the
+ * "obviously correct" one for every self-crossing case) for a
+ * self-intersecting one.
+ */
+export function pointInPolygon(p: Point2D, points: Point2D[]): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const pi = points[i] as Point2D;
+    const pj = points[j] as Point2D;
+    const crosses = pi.y > p.y !== pj.y > p.y && p.x < ((pj.x - pi.x) * (p.y - pi.y)) / (pj.y - pi.y) + pi.x;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}

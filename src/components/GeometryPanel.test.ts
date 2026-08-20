@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsGeometry } from "../lib/cell-ids.ts";
 import type { GeometryOp } from "../lib/geometry-state.ts";
-import { applyGeometryState, editGeometryOp, getCurrentGeometryState, replayGeometryOps } from "./GeometryPanel.tsx";
+import { applyGeometryState, deleteGeometryObject, editGeometryOp, getCurrentGeometryState, recolorGeometryObject, replayGeometryOps } from "./GeometryPanel.tsx";
 
 function freshGraph() {
   const graph = new CellGraph();
@@ -87,4 +87,103 @@ test("editGeometryOp: editing one op preserves every other op's identity and ord
 
   assert.deepEqual(graph.get<string[]>(listIds.objectList), ["p1", "p2", "t1"], "no object dropped or reordered by the edit");
   assert.deepEqual(graph.get("geomPoint:t1"), { x: 6, y: 5 });
+});
+
+test("recolorGeometryObject: sets the live color cell and persists into the op log for round-tripping (#336 item 2)", () => {
+  const { graph, listIds } = freshGraph();
+  const ops: GeometryOp[] = [
+    { tool: "point", id: "p1", x: 0, y: 0 },
+    { tool: "point", id: "p2", x: 1, y: 0 },
+    { tool: "line", id: "l1", a: "p1", b: "p2" },
+  ];
+  replayGeometryOps(graph, listIds, ops);
+  assert.equal(graph.has("geomColor:l1"), false, "un-recolored line has no color cell -- keeps following the theme default");
+
+  recolorGeometryObject(graph, listIds, "l1", "#ff0000");
+
+  assert.equal(graph.get<string>("geomColor:l1"), "#ff0000");
+  const persisted = getCurrentGeometryState(graph, listIds).ops.find((op) => op.id === "l1") as { tool: "line"; color?: string };
+  assert.equal(persisted.color, "#ff0000", "the op log itself reflects the recolor");
+});
+
+test("recolorGeometryObject: a round trip through applyGeometryState (undo/redo, hash hydration) preserves the custom color", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "p1", x: 0, y: 0 },
+    { tool: "point", id: "p2", x: 0, y: 1 },
+    { tool: "circle", id: "c1", center: "p1", radiusPoint: "p2" },
+  ]);
+  recolorGeometryObject(graph, listIds, "c1", "#00ff00");
+  const snapshot = getCurrentGeometryState(graph, listIds);
+
+  applyGeometryState(graph, listIds, { v: 1, ops: [] }); // simulate a full undo-to-empty
+  applyGeometryState(graph, listIds, snapshot); // then redo
+
+  assert.equal(graph.get<string>("geomColor:c1"), "#00ff00");
+});
+
+test("deleteGeometryObject: removing a line/circle/polygon leaves its defining points untouched (nothing references a non-point object id)", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "p1", x: 0, y: 0 },
+    { tool: "point", id: "p2", x: 1, y: 0 },
+    { tool: "line", id: "l1", a: "p1", b: "p2" },
+  ]);
+
+  const removed = deleteGeometryObject(graph, listIds, "l1");
+
+  assert.deepEqual(removed, new Set(["l1"]));
+  assert.deepEqual(graph.get<string[]>(listIds.objectList), ["p1", "p2"]);
+  assert.equal(graph.has("geomPoint:p1"), true);
+  assert.equal(graph.has("geomPoint:p2"), true);
+});
+
+test("deleteGeometryObject: removing a point cascades to every line/circle/transform/polygon built from it", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "p1", x: 0, y: 0 },
+    { tool: "point", id: "p2", x: 1, y: 0 },
+    { tool: "point", id: "p3", x: 0, y: 1 },
+    { tool: "line", id: "l1", a: "p1", b: "p2" }, // references p1
+    { tool: "circle", id: "c1", center: "p1", radiusPoint: "p3" }, // references p1
+    { tool: "polygon", id: "poly1", points: ["p1", "p2", "p3"] }, // references p1
+    { tool: "line", id: "l2", a: "p2", b: "p3" }, // does NOT reference p1 -- must survive
+  ]);
+
+  const removed = deleteGeometryObject(graph, listIds, "p1");
+
+  assert.deepEqual(removed, new Set(["p1", "l1", "c1", "poly1"]));
+  assert.deepEqual(graph.get<string[]>(listIds.objectList), ["p2", "p3", "l2"]);
+  assert.equal(graph.has("geomPoint:p1"), false);
+  assert.equal(graph.has("geomLine:l1"), false);
+  assert.equal(graph.has("geomCircle:c1"), false);
+  assert.equal(graph.has("geomPolygon:poly1"), false);
+  assert.equal(graph.has("geomLine:l2"), true, "an unrelated line not referencing the deleted point survives");
+});
+
+test("deleteGeometryObject: cascades transitively through a chain of transform-produced points", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "p1", x: 1, y: 0 },
+    { tool: "point", id: "center", x: 0, y: 0 },
+    { tool: "rotation", id: "r1", source: "p1", center: "center", angleDegrees: 90 }, // references p1
+    { tool: "reflection", id: "ref1", source: "r1", center: "center" }, // references r1, NOT p1 directly
+  ]);
+
+  const removed = deleteGeometryObject(graph, listIds, "p1");
+
+  // p1 -> r1 (direct reference) -> ref1 (transitive, references r1 which is being deleted)
+  assert.deepEqual(removed, new Set(["p1", "r1", "ref1"]));
+  assert.deepEqual(graph.get<string[]>(listIds.objectList), ["center"]);
+});
+
+test("deleteGeometryObject: a no-op for an id that's already gone (idempotent, safe to call twice)", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [{ tool: "point", id: "p1", x: 0, y: 0 }]);
+  deleteGeometryObject(graph, listIds, "p1");
+
+  const removedAgain = deleteGeometryObject(graph, listIds, "p1");
+
+  assert.deepEqual(removedAgain, new Set(["p1"]));
+  assert.deepEqual(graph.get<string[]>(listIds.objectList), []);
 });

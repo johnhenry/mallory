@@ -23,12 +23,16 @@ export interface GeometryOpLine {
   id: string;
   a: string;
   b: string;
+  /** #336 item 2: omitted (not merely undefined -- never written to the encoded op) unless the user explicitly recolored this line, so an un-recolored line keeps following the theme-aware default color rather than freezing whatever theme was active at construction time. */
+  color?: string;
 }
 export interface GeometryOpCircle {
   tool: "circle";
   id: string;
   center: string;
   radiusPoint: string;
+  /** See GeometryOpLine.color's doc comment -- same "omitted means auto" convention. */
+  color?: string;
 }
 export interface GeometryOpReflection {
   tool: "reflection";
@@ -68,6 +72,8 @@ export interface GeometryOpPolygon {
   tool: "polygon";
   id: string;
   points: string[];
+  /** See GeometryOpLine.color's doc comment -- same "omitted means auto" convention. */
+  color?: string;
 }
 
 export type GeometryOp =
@@ -119,9 +125,9 @@ function isGeometryOp(value: unknown): value is GeometryOp {
     case "point":
       return isNumber(op.x) && isNumber(op.y);
     case "line":
-      return isString(op.a) && isString(op.b);
+      return isString(op.a) && isString(op.b) && (op.color === undefined || isString(op.color));
     case "circle":
-      return isString(op.center) && isString(op.radiusPoint);
+      return isString(op.center) && isString(op.radiusPoint) && (op.color === undefined || isString(op.color));
     case "reflection":
       return isString(op.source) && isString(op.center);
     case "rotation":
@@ -133,7 +139,7 @@ function isGeometryOp(value: unknown): value is GeometryOp {
     case "angle":
       return isString(op.a) && isString(op.vertex) && isString(op.c);
     case "polygon":
-      return Array.isArray(op.points) && op.points.every(isString);
+      return Array.isArray(op.points) && op.points.every(isString) && (op.color === undefined || isString(op.color));
     default:
       return false;
   }

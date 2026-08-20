@@ -5,7 +5,7 @@ import { AlgebraView } from "./AlgebraView.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { CellGraph } from "../lib/cell-graph.ts";
-import { interiorAngleRadians, isSelfIntersecting, polygonCentroid, shoelaceArea } from "../lib/geometry.ts";
+import { interiorAngleRadians, isSelfIntersecting, pointInPolygon, pointToSegmentDistance, polygonCentroid, shoelaceArea } from "../lib/geometry.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
@@ -41,6 +41,8 @@ const HIT_RADIUS_PX = 14;
 // than 1e-6, so that threshold would never fire for a real user.
 const DEGENERATE_EPSILON = 0.05;
 const DEGENERATE_COLOR = "#d97706";
+/** #336 item 1: the same red already used for an in-progress pending-click selection, reused here for a select-tool selection so the app has one consistent "this is selected" color rather than two. */
+const SELECTED_HIGHLIGHT_COLOR = "#dc2626";
 
 // Only the object-list and ops-log cells are namespaced per instance (via
 // cellIdsGeometry(cellId), passed around as `listIds` below) -- every
@@ -62,6 +64,8 @@ const angleValueCellId = (id: string) => `geomAngleValue:${id}`;
 const polygonCellId = (id: string) => `geomPolygon:${id}`;
 const areaCellId = (id: string) => `geomArea:${id}`;
 const polygonSelfIntersectingCellId = (id: string) => `geomSelfIntersecting:${id}`;
+/** #336 item 2: only ever set when the user explicitly recolors a line/circle/polygon -- an un-recolored object has no cell here at all, so it keeps following the theme-aware/type default computed live at draw time instead of freezing a color chosen at construction. Not used for points (their free/dependent coloring is a meaningful signal, not decoration) or angle markers (a fixed measurement-arc indicator) -- see recolorGeometryObject's own doc comment. */
+const colorCellId = (id: string) => `geomColor:${id}`;
 
 interface PointRecord {
   x: number;
@@ -84,7 +88,7 @@ interface PolygonRecord {
   points: string[];
 }
 
-type Tool = "point" | "line" | "circle" | "reflect" | "rotate" | "translate" | "scale" | "angle" | "polygon";
+type Tool = "point" | "line" | "circle" | "reflect" | "rotate" | "translate" | "scale" | "angle" | "polygon" | "select";
 
 /**
  * Tool palette groups (issue #252): "objects" are one-click-per-point
@@ -114,9 +118,12 @@ type Tool = "point" | "line" | "circle" | "reflect" | "rotate" | "translate" | "
  */
 const OBJECT_TOOLS = ["point", "line", "circle", "reflect", "polygon", "angle"] as const satisfies readonly Tool[];
 const ACTION_TOOLS = ["rotate", "translate", "scale"] as const satisfies readonly Tool[];
+/** #336 item 1: its own group rather than folded into Objects/Actions -- Select is a distinct MODE (click toggles membership in a multi-select set instead of building anything), not another one-click-per-point construction or typed-parameter action. */
+const SELECT_TOOLS = ["select"] as const satisfies readonly Tool[];
 const TOOL_GROUPS: { label: string; tools: readonly Tool[] }[] = [
   { label: "Objects", tools: OBJECT_TOOLS },
   { label: "Actions", tools: ACTION_TOOLS },
+  { label: "Select", tools: SELECT_TOOLS },
 ];
 
 /**
@@ -144,10 +151,10 @@ export function replayGeometryOps(graph: CellGraph, listIds: CellIdsGeometry, op
         addPoint(graph, listIds, op.x, op.y, op.id);
         break;
       case "line":
-        addLine(graph, listIds, op.a, op.b, op.id);
+        addLine(graph, listIds, op.a, op.b, op.id, op.color);
         break;
       case "circle":
-        addCircle(graph, listIds, op.center, op.radiusPoint, op.id);
+        addCircle(graph, listIds, op.center, op.radiusPoint, op.id, op.color);
         break;
       case "reflection":
         addReflection(graph, listIds, op.source, op.center, op.id);
@@ -165,7 +172,7 @@ export function replayGeometryOps(graph: CellGraph, listIds: CellIdsGeometry, op
         addAngle(graph, listIds, op.a, op.vertex, op.c, op.id);
         break;
       case "polygon":
-        addPolygon(graph, listIds, op.points, op.id);
+        addPolygon(graph, listIds, op.points, op.id, op.color);
         break;
     }
   }
@@ -194,6 +201,7 @@ function clearGeometryState(graph: CellGraph, listIds: CellIdsGeometry): void {
     graph.delete(polygonCellId(id));
     graph.delete(areaCellId(id));
     graph.delete(polygonSelfIntersectingCellId(id));
+    graph.delete(colorCellId(id));
   }
   graph.set(listIds.objectList, [] as string[], { auxiliary: true });
   graph.set(listIds.opsLog, [] as GeometryOp[], { auxiliary: true });
@@ -224,6 +232,95 @@ export function editGeometryOp(graph: CellGraph, listIds: CellIdsGeometry, opId:
   const current = getCurrentGeometryState(graph, listIds);
   const ops = current.ops.map((op) => (op.id === opId ? ({ ...op, ...patch } as GeometryOp) : op));
   applyGeometryState(graph, listIds, { v: 1, ops });
+}
+
+/**
+ * #336 item 2: unlike `editGeometryOp`'s transform-parameter edit, a color
+ * has no downstream `graph.define` dependents to re-derive -- it's a leaf
+ * value read only at draw/export time -- so this skips the full clear-and-
+ * replay rebuild entirely: `graph.set(colorCellId(id), color)` is enough
+ * for the live canvas to pick it up (already subscribed via subscribeAll),
+ * and the op-log entry is patched in place (a plain `graph.set` on the same
+ * cell `pushOp` itself writes to) purely so the color survives save/undo/
+ * URL-hash round-trips.
+ *
+ * Only meaningful for line/circle/polygon ops -- points keep their fixed
+ * free/dependent coloring (a meaningful signal, not decoration) and angle
+ * markers keep their fixed measurement-arc color; the UI never offers this
+ * for those object types, but a caller passing a mismatched id is a no-op
+ * here (the `.map` below simply finds nothing to patch).
+ */
+export function recolorGeometryObject(graph: CellGraph, listIds: CellIdsGeometry, id: string, color: string): void {
+  graph.set(colorCellId(id), color);
+  const ops = graph.get<GeometryOp[]>(listIds.opsLog).map((op) => (op.id === id ? ({ ...op, color } as GeometryOp) : op));
+  graph.set(listIds.opsLog, ops, { auxiliary: true });
+}
+
+/** Every point id an op directly reads -- every op type's reference fields point at point ids only (never at another line/circle/polygon/angle id), so this is the sole primitive `computeCascadeDeleteIds` needs to walk the whole dependency graph. */
+function referencedPointIds(op: GeometryOp): string[] {
+  switch (op.tool) {
+    case "point":
+      return [];
+    case "line":
+      return [op.a, op.b];
+    case "circle":
+      return [op.center, op.radiusPoint];
+    case "reflection":
+    case "rotation":
+    case "scale":
+      return [op.source, op.center];
+    case "translation":
+      return [op.source];
+    case "angle":
+      return [op.a, op.vertex, op.c];
+    case "polygon":
+      return [...op.points];
+  }
+}
+
+/**
+ * #336 item 3: deleting a point that a line/circle/transform/angle/polygon
+ * still references would leave that dependent reading a now-gone
+ * `pointCellId` -- so a delete has to cascade to every op that (directly or
+ * transitively, e.g. deleting a rotation's own result point cascades to
+ * whatever THAT point feeds) references the target, not just remove the
+ * one op. Fixed-point expansion over the ops list rather than a bespoke
+ * graph walk against CellGraph internals -- simple, and correct regardless
+ * of how deep the chain runs. Deleting a line/circle/polygon (nothing else
+ * ever references those ids, only point ids) is the trivial one-op case of
+ * the same algorithm, not a special case.
+ */
+function computeCascadeDeleteIds(ops: GeometryOp[], rootId: string): Set<string> {
+  const toDelete = new Set<string>([rootId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const op of ops) {
+      if (toDelete.has(op.id)) continue;
+      if (referencedPointIds(op).some((refId) => toDelete.has(refId))) {
+        toDelete.add(op.id);
+        changed = true;
+      }
+    }
+  }
+  return toDelete;
+}
+
+/**
+ * Removes `targetId` and everything that depends on it (see
+ * `computeCascadeDeleteIds`), via the same clear-and-replay
+ * `applyGeometryState` uses for undo/redo and `editGeometryOp` -- correct
+ * for however deep the dependency chain runs, and undoable for free via
+ * the same subscribeAll-driven history recording. Returns the full set of
+ * removed ids so the caller can prune its own selection state of ids that
+ * no longer exist.
+ */
+export function deleteGeometryObject(graph: CellGraph, listIds: CellIdsGeometry, targetId: string): Set<string> {
+  const current = getCurrentGeometryState(graph, listIds);
+  const toDelete = computeCascadeDeleteIds(current.ops, targetId);
+  const ops = current.ops.filter((op) => !toDelete.has(op.id));
+  applyGeometryState(graph, listIds, { v: 1, ops });
+  return toDelete;
 }
 
 /** A short, stable-enough label for a point id in this editor -- its 1-based position in construction order (points have no user-facing name anywhere else in this panel either). Falls back to a truncated id if somehow not in the object list (shouldn't happen for a live reference). */
@@ -327,6 +424,67 @@ function TransformParamsEditor({ graph, listIds, angleUnit }: { graph: CellGraph
 }
 
 /**
+ * #336 items 2-3: recolor + delete for whatever's currently in `selected`.
+ * Delete applies to any selected object (points included -- cascading to
+ * whatever else references it, see `deleteGeometryObject`'s own doc
+ * comment). Recolor only lists a color picker when the selection includes
+ * at least one line/circle/polygon -- points keep their fixed free/
+ * dependent coloring (a meaningful signal) and angle markers keep their
+ * fixed measurement-arc color, so recoloring a selection that's ONLY
+ * points/angles has nothing to offer a color picker for.
+ */
+function SelectionControls({
+  graph,
+  listIds,
+  selected,
+  setSelected,
+}: {
+  graph: CellGraph;
+  listIds: CellIdsGeometry;
+  selected: Set<string>;
+  setSelected: (next: Set<string>) => void;
+}) {
+  if (selected.size === 0) return null;
+  const ids = [...selected];
+  const recolorable = ids.filter((id) => graph.has(lineCellId(id)) || graph.has(circleCellId(id)) || graph.has(polygonCellId(id)));
+
+  function handleDelete() {
+    // deleteGeometryObject re-reads the ops log fresh each call and no-ops
+    // if the target's already gone -- safe to call for every originally-
+    // selected id even when an earlier call in this same loop already
+    // cascade-removed it (e.g. selecting both a point and a line built
+    // from it).
+    for (const id of ids) deleteGeometryObject(graph, listIds, id);
+    setSelected(new Set());
+  }
+
+  return (
+    <div style={{ margin: "0.5rem 0", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.85rem" }}>
+      <span style={{ fontWeight: 600 }}>{selected.size} selected:</span>
+      {recolorable.length > 0 && (
+        <label>
+          Recolor:{" "}
+          <input
+            type="color"
+            defaultValue="#2563eb"
+            onChange={(e) => {
+              for (const id of recolorable) recolorGeometryObject(graph, listIds, id, e.target.value);
+            }}
+            title={`Applies to the ${recolorable.length} selected line(s)/circle(s)/polygon(s) -- points keep their fixed color.`}
+          />
+        </label>
+      )}
+      <button type="button" onClick={handleDelete}>
+        Delete selected
+      </button>
+      <button type="button" onClick={() => setSelected(new Set())}>
+        Clear selection
+      </button>
+    </div>
+  );
+}
+
+/**
  * Shares an `externalGraph` when supplied (e.g. a notebook block) instead of
  * creating a private one, mirroring Graph3DCanvas's `useExpressionGraph3D`.
  * URL-hash hydration (replaying a saved construction log) only applies to
@@ -379,6 +537,56 @@ function nearestPointId(graph: CellGraph, listIds: CellIdsGeometry, x: number, y
   return best;
 }
 
+/**
+ * #336 item 1: every other tool's click-handling only ever needs
+ * `nearestPointId` (line/circle/reflect/rotate/scale/angle/polygon all
+ * connect existing POINTS), so this broader hit test -- checking lines,
+ * circles, and polygons too, via `pointToSegmentDistance`/circle-boundary-
+ * distance/`pointInPolygon` -- is scoped to the select tool only, not
+ * threaded into the other tools' construction flows. Points are checked
+ * first (smallest, most precise target); a click "inside" a polygon or
+ * "near" a line/circle's boundary within the hit radius counts as a hit.
+ * Angle markers aren't hit-tested here (#336's stated v1 scope cut -- see
+ * the OBJECT_TOOLS doc comment above for how angle already sits apart from
+ * the other construction tools).
+ */
+function nearestObjectId(graph: CellGraph, listIds: CellIdsGeometry, x: number, y: number, maxDistance: number): string | null {
+  const point = nearestPointId(graph, listIds, x, y, maxDistance);
+  if (point) return point;
+  let best: string | null = null;
+  let bestDist = maxDistance;
+  for (const id of graph.get<string[]>(listIds.objectList)) {
+    if (graph.has(lineCellId(id))) {
+      const { a, b } = graph.get<LineRecord>(lineCellId(id));
+      const d = pointToSegmentDistance({ x, y }, graph.get<PointRecord>(pointCellId(a)), graph.get<PointRecord>(pointCellId(b)));
+      if (d < bestDist) {
+        bestDist = d;
+        best = id;
+      }
+    } else if (graph.has(circleCellId(id))) {
+      const { center } = graph.get<CircleRecord>(circleCellId(id));
+      const pc = graph.get<PointRecord>(pointCellId(center));
+      const radius = graph.get<number>(radiusCellId(id));
+      const d = Math.abs(Math.hypot(pc.x - x, pc.y - y) - radius);
+      if (d < bestDist) {
+        bestDist = d;
+        best = id;
+      }
+    } else if (graph.has(polygonCellId(id))) {
+      const { points } = graph.get<PolygonRecord>(polygonCellId(id));
+      const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
+      if (pointInPolygon({ x, y }, pts)) {
+        // Interior click has no natural "distance" to compare against a
+        // boundary miss elsewhere -- treat any interior hit as exact (0)
+        // so it wins over anything found so far within maxDistance.
+        bestDist = 0;
+        best = id;
+      }
+    }
+  }
+  return best;
+}
+
 function addPoint(graph: CellGraph, listIds: CellIdsGeometry, x: number, y: number, id: string = crypto.randomUUID()): string {
   graph.set(pointCellId(id), { x, y });
   pushObject(graph, listIds, id);
@@ -386,26 +594,35 @@ function addPoint(graph: CellGraph, listIds: CellIdsGeometry, x: number, y: numb
   return id;
 }
 
-function addLine(graph: CellGraph, listIds: CellIdsGeometry, a: string, b: string, id: string = crypto.randomUUID()): void {
+function addLine(graph: CellGraph, listIds: CellIdsGeometry, a: string, b: string, id: string = crypto.randomUUID(), color?: string): void {
   graph.set(lineCellId(id), { a, b });
   graph.define(lengthCellId(id), () => {
     const pa = graph.get<PointRecord>(pointCellId(a));
     const pb = graph.get<PointRecord>(pointCellId(b));
     return Math.hypot(pa.x - pb.x, pa.y - pb.y);
   });
+  if (color !== undefined) graph.set(colorCellId(id), color);
   pushObject(graph, listIds, id);
-  pushOp(graph, listIds, { tool: "line", id, a, b });
+  pushOp(graph, listIds, color !== undefined ? { tool: "line", id, a, b, color } : { tool: "line", id, a, b });
 }
 
-function addCircle(graph: CellGraph, listIds: CellIdsGeometry, center: string, radiusPoint: string, id: string = crypto.randomUUID()): void {
+function addCircle(
+  graph: CellGraph,
+  listIds: CellIdsGeometry,
+  center: string,
+  radiusPoint: string,
+  id: string = crypto.randomUUID(),
+  color?: string,
+): void {
   graph.set(circleCellId(id), { center, radiusPoint });
   graph.define(radiusCellId(id), () => {
     const pc = graph.get<PointRecord>(pointCellId(center));
     const pr = graph.get<PointRecord>(pointCellId(radiusPoint));
     return Math.hypot(pc.x - pr.x, pc.y - pr.y);
   });
+  if (color !== undefined) graph.set(colorCellId(id), color);
   pushObject(graph, listIds, id);
-  pushOp(graph, listIds, { tool: "circle", id, center, radiusPoint });
+  pushOp(graph, listIds, color !== undefined ? { tool: "circle", id, center, radiusPoint, color } : { tool: "circle", id, center, radiusPoint });
 }
 
 /** Point reflection: the new point is as far past `center` as `source` is before it. */
@@ -502,7 +719,7 @@ function addAngle(graph: CellGraph, listIds: CellIdsGeometry, a: string, vertex:
  * false -- the flag is the caveat, per this panel's flag-don't-block
  * convention (a degenerate line isn't prevented either, just recolored).
  */
-function addPolygon(graph: CellGraph, listIds: CellIdsGeometry, points: string[], id: string = crypto.randomUUID()): void {
+function addPolygon(graph: CellGraph, listIds: CellIdsGeometry, points: string[], id: string = crypto.randomUUID(), color?: string): void {
   graph.set(polygonCellId(id), { points } as PolygonRecord);
   graph.define(areaCellId(id), (): number => {
     const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
@@ -512,8 +729,9 @@ function addPolygon(graph: CellGraph, listIds: CellIdsGeometry, points: string[]
     const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
     return isSelfIntersecting(pts);
   });
+  if (color !== undefined) graph.set(colorCellId(id), color);
   pushObject(graph, listIds, id);
-  pushOp(graph, listIds, { tool: "polygon", id, points });
+  pushOp(graph, listIds, color !== undefined ? { tool: "polygon", id, points, color } : { tool: "polygon", id, points });
 }
 
 export interface GeometryPanelProps {
@@ -543,6 +761,7 @@ export function drawGeometryPanel(
   pendingAngle: string[],
   pendingPolygon: string[],
   angleUnit: AngleUnit = "radians",
+  selected: ReadonlySet<string> = new Set(),
 ): void {
   ctx.clearRect(0, 0, width, height);
   drawAxes(ctx, VIEWPORT, width, height);
@@ -551,19 +770,21 @@ export function drawGeometryPanel(
       const p = graph.get<PointRecord>(pointCellId(id));
       const isFree = graph.role(pointCellId(id)) === "free";
       const isPendingSelection = id === pending || pendingAngle.includes(id) || pendingPolygon.includes(id);
-      const color = isPendingSelection ? "#dc2626" : isFree ? "#2563eb" : "var(--muted)";
+      const color = isPendingSelection || selected.has(id) ? SELECTED_HIGHLIGHT_COLOR : isFree ? "#2563eb" : "var(--muted)";
       drawDot(ctx, p.x, p.y, color);
     } else if (graph.has(lineCellId(id))) {
       const { a, b } = graph.get<LineRecord>(lineCellId(id));
       const pa = graph.get<PointRecord>(pointCellId(a));
       const pb = graph.get<PointRecord>(pointCellId(b));
       const length = graph.get<number>(lengthCellId(id));
-      drawLine(ctx, pa, pb, length < DEGENERATE_EPSILON);
+      const customColor = graph.has(colorCellId(id)) ? graph.get<string>(colorCellId(id)) : null;
+      drawLine(ctx, pa, pb, length < DEGENERATE_EPSILON, customColor, selected.has(id));
     } else if (graph.has(circleCellId(id))) {
       const { center, radiusPoint } = graph.get<CircleRecord>(circleCellId(id));
       const pc = graph.get<PointRecord>(pointCellId(center));
       const radius = graph.get<number>(radiusCellId(id));
-      drawCircle(ctx, pc, radius, radius < DEGENERATE_EPSILON);
+      const customColor = graph.has(colorCellId(id)) ? graph.get<string>(colorCellId(id)) : null;
+      drawCircle(ctx, pc, radius, radius < DEGENERATE_EPSILON, customColor, selected.has(id));
     } else if (graph.has(angleRecordCellId(id))) {
       const { a, vertex, c } = graph.get<AngleRecord>(angleRecordCellId(id));
       const pa = graph.get<PointRecord>(pointCellId(a));
@@ -576,7 +797,8 @@ export function drawGeometryPanel(
       const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
       const area = graph.get<number>(areaCellId(id));
       const selfIntersecting = graph.get<boolean>(polygonSelfIntersectingCellId(id));
-      drawPolygon(ctx, pts, area, selfIntersecting);
+      const customColor = graph.has(colorCellId(id)) ? graph.get<string>(colorCellId(id)) : null;
+      drawPolygon(ctx, pts, area, selfIntersecting, customColor, selected.has(id));
     }
   }
 }
@@ -604,6 +826,12 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   // panel next time it renders.
   const [angleUnit, setAngleUnitState] = useState<AngleUnit>(getAngleUnit());
   useEffect(() => subscribeToAngleUnit(setAngleUnitState), []);
+  // #336 item 1: a real multi-select set, distinct from `pending`/
+  // `pendingAngle`/`pendingPolygon` above (those are transient in-progress-
+  // construction state, cleared the moment a construction completes or the
+  // tool changes; a selection persists across redraws until the user
+  // deselects). Only ever populated while `tool === "select"`.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const dragRef = useRef<{ id: string; moved: boolean; startSx: number; startSy: number } | null>(null);
 
   useCellGraphTools(toolPrefix, graph);
@@ -613,9 +841,10 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   // NotebookPanel's own useUndoHistory, so a second independent history
   // here would double-fire on Ctrl+Z. applyState also resets any
   // in-progress multi-click selection (pending/pendingAngle/pendingPolygon)
-  // -- those hold point ids that may not exist in the restored snapshot,
-  // so completing an in-progress construction across an undo/redo would
-  // reference a stale or now-nonexistent point.
+  // and the select-tool `selected` set (#336 item 1) -- all of those hold
+  // ids that may not exist in the restored snapshot, so completing an
+  // in-progress construction (or recoloring/deleting a stale selection)
+  // across an undo/redo would reference a now-nonexistent object.
   const history = useUndoHistory(
     graph,
     () => getCurrentGeometryState(graph, listIds),
@@ -624,6 +853,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       setPending(null);
       setPendingAngle([]);
       setPendingPolygon([]);
+      setSelected(new Set());
     },
     250,
     undefined,
@@ -799,8 +1029,22 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
     return { x: toDataX(sx, VIEWPORT, WIDTH), y: toDataY(sy, VIEWPORT, HEIGHT) };
   }
 
+  /** Toggles `id`'s selection membership -- shared by both a point hit (via handlePointClick below) and a line/circle/polygon hit (via handlePointerUp's own select-tool branch), since selection doesn't care about object type. */
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   /** A plain (no-drag) click landing on an existing point -- free or dependent. */
   function handlePointClick(hitId: string) {
+    if (tool === "select") {
+      toggleSelected(hitId);
+      return;
+    }
     if (tool === "point") return; // clicking an existing point with the Point tool is a no-op; drag it instead
     if (tool === "translate") {
       addTranslation(graph, listIds, hitId, Number(dxInput) || 0, Number(dyInput) || 0);
@@ -894,6 +1138,15 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       return;
     }
     const { x, y } = dataCoordsFromEvent(e);
+    if (tool === "select") {
+      // #336 item 1: the broader hit test (lines/circles/polygons, not just
+      // points) is scoped to this branch only -- every other tool's click
+      // handling only ever needs point hits.
+      const hit = nearestObjectId(graph, listIds, x, y, currentHitDataRadius());
+      if (hit) toggleSelected(hit);
+      else setSelected(new Set()); // empty click clears the selection
+      return;
+    }
     const hit = nearestPointId(graph, listIds, x, y, currentHitDataRadius());
     if (hit) handlePointClick(hit);
     else handleEmptyClick(x, y);
@@ -908,15 +1161,16 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    const redraw = () => drawGeometryPanel(ctx, WIDTH, HEIGHT, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit);
+    const redraw = () => drawGeometryPanel(ctx, WIDTH, HEIGHT, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit, selected);
     redraw();
     return graph.subscribeAll(redraw);
-    // `pending`/`pendingAngle`/`pendingPolygon`/`angleUnit` aren't graph
-    // state, so they can't trigger a redraw via subscribeAll -- re-running
-    // this effect (which calls redraw() once immediately) on selection
-    // change (or a live angle-unit toggle) is what keeps the canvas in sync.
+    // `pending`/`pendingAngle`/`pendingPolygon`/`angleUnit`/`selected` aren't
+    // graph state, so they can't trigger a redraw via subscribeAll --
+    // re-running this effect (which calls redraw() once immediately) on
+    // selection change (or a live angle-unit toggle) is what keeps the
+    // canvas in sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, pending, pendingAngle, pendingPolygon, angleUnit]);
+  }, [graph, pending, pendingAngle, pendingPolygon, angleUnit, selected]);
 
   /**
    * Builds the exported SVG's layer list -- a `layersToSvgDocument`-ready
@@ -950,12 +1204,26 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         const pa = graph.get<PointRecord>(pointCellId(a));
         const pb = graph.get<PointRecord>(pointCellId(b));
         const length = graph.get<number>(lengthCellId(id));
-        layers.push({ kind: "polyline", points: [pa, pb], color: length < DEGENERATE_EPSILON ? DEGENERATE_COLOR : getThemeColors().ink, strokeWidth: 2 });
+        const customColor = graph.has(colorCellId(id)) ? graph.get<string>(colorCellId(id)) : null;
+        layers.push({
+          kind: "polyline",
+          points: [pa, pb],
+          color: length < DEGENERATE_EPSILON ? DEGENERATE_COLOR : (customColor ?? getThemeColors().ink),
+          strokeWidth: 2,
+        });
       } else if (graph.has(circleCellId(id))) {
         const { center, radiusPoint } = graph.get<CircleRecord>(circleCellId(id));
         const pc = graph.get<PointRecord>(pointCellId(center));
         const radius = graph.get<number>(radiusCellId(id));
-        layers.push({ kind: "circle", cx: pc.x, cy: pc.y, radius, color: radius < DEGENERATE_EPSILON ? DEGENERATE_COLOR : "#16a34a", strokeWidth: 2 });
+        const customColor = graph.has(colorCellId(id)) ? graph.get<string>(colorCellId(id)) : null;
+        layers.push({
+          kind: "circle",
+          cx: pc.x,
+          cy: pc.y,
+          radius,
+          color: radius < DEGENERATE_EPSILON ? DEGENERATE_COLOR : (customColor ?? "#16a34a"),
+          strokeWidth: 2,
+        });
       } else if (graph.has(angleRecordCellId(id))) {
         const { a, vertex, c } = graph.get<AngleRecord>(angleRecordCellId(id));
         const pa = graph.get<PointRecord>(pointCellId(a));
@@ -968,7 +1236,8 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
         const area = graph.get<number>(areaCellId(id));
         const selfIntersecting = graph.get<boolean>(polygonSelfIntersectingCellId(id));
-        layers.push(...polygonExportLayers(pts, area, selfIntersecting));
+        const customColor = graph.has(colorCellId(id)) ? graph.get<string>(colorCellId(id)) : null;
+        layers.push(...polygonExportLayers(pts, area, selfIntersecting, customColor));
       }
     }
 
@@ -980,7 +1249,11 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   }
 
   const hint =
-    tool === "point"
+    tool === "select"
+      ? selected.size === 0
+        ? "Click a point, line, circle, or polygon to select it (click again to deselect); click empty space to clear the selection."
+        : `${selected.size} selected -- click to add/remove, or click empty space to clear.`
+      : tool === "point"
       ? "Click empty space to place a point, or drag an existing one."
       : tool === "translate"
         ? "Click a point to translate it by (dx, dy)."
@@ -1040,6 +1313,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
                     setPending(null);
                     setPendingAngle([]);
                     setPendingPolygon([]);
+                    if (t !== "select") setSelected(new Set());
                   }}
                 />{" "}
                 {t}
@@ -1083,7 +1357,9 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         <PngExportButton
           getCanvas={() => canvasRef.current}
           label="geometry"
-          renderAtScale={(ctx, width, height) => drawGeometryPanel(ctx, width, height, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit)}
+          renderAtScale={(ctx, width, height) =>
+            drawGeometryPanel(ctx, width, height, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit, selected)
+          }
           baseWidth={WIDTH}
           baseHeight={HEIGHT}
         />
@@ -1096,6 +1372,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{hint}</p>
+      <SelectionControls graph={graph} listIds={listIds} selected={selected} setSelected={setSelected} />
       <TransformParamsEditor graph={graph} listIds={listIds} angleUnit={angleUnit} />
       <div style={{ margin: "0.5rem 0" }}>
         <AlgebraView graph={graph} />
@@ -1129,10 +1406,17 @@ function drawDot(ctx: CanvasRenderingContext2D, x: number, y: number, color: str
   ctx.restore();
 }
 
-function drawLine(ctx: CanvasRenderingContext2D, a: PointRecord, b: PointRecord, degenerate = false): void {
+function drawLine(
+  ctx: CanvasRenderingContext2D,
+  a: PointRecord,
+  b: PointRecord,
+  degenerate = false,
+  customColor: string | null = null,
+  selected = false,
+): void {
   ctx.save();
-  ctx.strokeStyle = degenerate ? DEGENERATE_COLOR : getThemeColors().ink;
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = degenerate ? DEGENERATE_COLOR : selected ? SELECTED_HIGHLIGHT_COLOR : (customColor ?? getThemeColors().ink);
+  ctx.lineWidth = selected ? 3 : 2;
   ctx.beginPath();
   ctx.moveTo(toScreenX(a.x, VIEWPORT, WIDTH), toScreenY(a.y, VIEWPORT, HEIGHT));
   ctx.lineTo(toScreenX(b.x, VIEWPORT, WIDTH), toScreenY(b.y, VIEWPORT, HEIGHT));
@@ -1140,13 +1424,20 @@ function drawLine(ctx: CanvasRenderingContext2D, a: PointRecord, b: PointRecord,
   ctx.restore();
 }
 
-function drawCircle(ctx: CanvasRenderingContext2D, center: PointRecord, radius: number, degenerate = false): void {
+function drawCircle(
+  ctx: CanvasRenderingContext2D,
+  center: PointRecord,
+  radius: number,
+  degenerate = false,
+  customColor: string | null = null,
+  selected = false,
+): void {
   const sx = toScreenX(center.x, VIEWPORT, WIDTH);
   const sy = toScreenY(center.y, VIEWPORT, HEIGHT);
   const screenRadius = (radius / (VIEWPORT.xMax - VIEWPORT.xMin)) * WIDTH;
   ctx.save();
-  ctx.strokeStyle = degenerate ? DEGENERATE_COLOR : "#16a34a";
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = degenerate ? DEGENERATE_COLOR : selected ? SELECTED_HIGHLIGHT_COLOR : (customColor ?? "#16a34a");
+  ctx.lineWidth = selected ? 3 : 2;
   ctx.beginPath();
   ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
   ctx.stroke();
@@ -1232,11 +1523,18 @@ function angleExportLayers(a: PointRecord, vertex: PointRecord, c: PointRecord, 
  * drawAngle's vertex label; when self-intersecting, the label says so
  * explicitly rather than presenting the number as trustworthy.
  */
-function drawPolygon(ctx: CanvasRenderingContext2D, points: PointRecord[], area: number, selfIntersecting: boolean): void {
+function drawPolygon(
+  ctx: CanvasRenderingContext2D,
+  points: PointRecord[],
+  area: number,
+  selfIntersecting: boolean,
+  customColor: string | null = null,
+  selected = false,
+): void {
   if (points.length < 2) return;
   ctx.save();
-  ctx.strokeStyle = selfIntersecting ? DEGENERATE_COLOR : "#0891b2";
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = selfIntersecting ? DEGENERATE_COLOR : selected ? SELECTED_HIGHLIGHT_COLOR : (customColor ?? "#0891b2");
+  ctx.lineWidth = selected ? 3 : 2;
   ctx.beginPath();
   const first = points[0] as PointRecord;
   ctx.moveTo(toScreenX(first.x, VIEWPORT, WIDTH), toScreenY(first.y, VIEWPORT, HEIGHT));
@@ -1257,13 +1555,13 @@ function drawPolygon(ctx: CanvasRenderingContext2D, points: PointRecord[], area:
 }
 
 /** `drawPolygon`'s exact closed-loop + centroid-label logic, re-emitted as a closed `"polyline"` + `"text"` SvgLayer pair instead of Canvas2D calls -- the polyline is closed by re-appending the first point (mirroring `ctx.closePath()`), since `"polyline"` never auto-closes the way Canvas2D paths do. */
-function polygonExportLayers(points: PointRecord[], area: number, selfIntersecting: boolean): SvgLayer[] {
+function polygonExportLayers(points: PointRecord[], area: number, selfIntersecting: boolean, customColor: string | null = null): SvgLayer[] {
   if (points.length < 2) return [];
   const first = points[0] as PointRecord;
   const centroid = polygonCentroid(points);
   const label = selfIntersecting ? `${area.toFixed(2)} (self-intersecting)` : area.toFixed(2);
   return [
-    { kind: "polyline", points: [...points, first], color: selfIntersecting ? DEGENERATE_COLOR : "#0891b2", strokeWidth: 2 },
+    { kind: "polyline", points: [...points, first], color: selfIntersecting ? DEGENERATE_COLOR : (customColor ?? "#0891b2"), strokeWidth: 2 },
     {
       kind: "text",
       xPx: toScreenX(centroid.x, VIEWPORT, WIDTH),
