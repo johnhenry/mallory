@@ -45,6 +45,42 @@ test("parseCompoundTileSetText: rejects a malformed offset", () => {
   assert.throws(() => parseCompoundTileSetText("A@x,y 1 2 3 4"), /invalid offset/);
 });
 
+test("parseCompoundTileSetText: a continuation line with the id omitted (4 fields) stacks below the previous line, same tile (issue #390)", () => {
+  // Vertical stacking: (0,0)'s internal side is S, (1,0)'s is N.
+  const text = "A 1 2 ? 4\n? 6 7 8";
+  const { tiles } = parseCompoundTileSetText(text);
+  assert.equal(tiles.length, 1);
+  const [tile] = tiles;
+  assert.equal(tile!.id, "A");
+  assert.deepEqual(
+    [...tile!.footprint].sort((a, b) => a.row - b.row),
+    [
+      { row: 0, col: 0 },
+      { row: 1, col: 0 },
+    ],
+  );
+  assert.deepEqual(tile!.cells.get("1,0")!.edges, { N: "?", E: "6", S: "7", W: "8" });
+});
+
+test("parseCompoundTileSetText: a continuation line with a bare '?' id (5 fields) means the same as omitting it entirely", () => {
+  const withoutId = parseCompoundTileSetText("A 1 2 ? 4\n? 6 7 8");
+  const withQuestionId = parseCompoundTileSetText("A 1 2 ? 4\n? ? 6 7 8");
+  assert.deepEqual(withQuestionId, withoutId);
+});
+
+test("parseCompoundTileSetText: three continuation lines stack three rows deep under the same base id", () => {
+  const { tiles } = parseCompoundTileSetText("A 1 x x x\nx x x x\nx x x x");
+  assert.equal(tiles.length, 1);
+  assert.deepEqual(
+    [...tiles[0]!.footprint].sort((a, b) => a.row - b.row).map((o) => o.row),
+    [0, 1, 2],
+  );
+});
+
+test("parseCompoundTileSetText: a continuation line with nothing preceding it is a parse error", () => {
+  assert.throws(() => parseCompoundTileSetText("1 2 3 4"), /needs a preceding tile line/);
+});
+
 test("compoundTileSetToText round-trips through parseCompoundTileSetText", () => {
   const text = "A@0,0 1 ? 3 4\nA@0,1 5 6 7 ?\nB 9 9 9 9";
   const parsed = parseCompoundTileSetText(text);

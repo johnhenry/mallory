@@ -27,6 +27,19 @@ import { buildCompoundTile, type CellOffset, type CompoundTile, type CompoundTil
  *    that ISN'T geometrically internal (no footprint-mate on that side) is
  *    a parse error -- almost always a copy-paste offset typo, better
  *    caught here than as a silently-ignored edge label.
+ * 3. A CONTINUATION line (issue #390): either a bare `?` id field (5
+ *    fields total) or the id field omitted entirely (4 fields) both mean
+ *    "the next cell of whichever tile the line above just declared, one
+ *    row further down" -- `A@0,0 1 2 ? 4` / `? ? 5 6 7` is exactly
+ *    `A@0,0 1 2 ? 4` / `A@1,0 ? 5 6 7`, just without spelling out the
+ *    offset. Vertical stacking is the only shape this shorthand can
+ *    express (each continuation line is always the PREVIOUS line's offset
+ *    plus one row) -- anything else (side-by-side, an L-shape, skipping a
+ *    row) still needs the explicit `id@row,col` form. Two DIFFERENT ids
+ *    can never fuse into one compound tile no matter what their edge
+ *    labels are (even if both happen to say `?1`/some matching string) --
+ *    fusion is driven by sharing one base id, never by edge-label
+ *    coincidence, which has no position information to fuse from.
  */
 const DIRECTIONS: Direction[] = ["N", "E", "S", "W"];
 const WELD_MARKER = "?";
@@ -49,19 +62,43 @@ function parseIdAndOffset(idField: string, lineNumber: number): { baseId: string
   return { baseId, offset: { row: Number(match[1]), col: Number(match[2]) } };
 }
 
+const CONTINUATION_MARKER = "?";
+
 export function parseCompoundTileSetText(text: string): CompoundTileSet {
   const rawByBaseId = new Map<string, RawCellLine[]>();
   const lines = text.split("\n");
+  let previous: { baseId: string; offset: CellOffset } | null = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!.trim();
     if (line === "" || line.startsWith("#")) continue;
     const parts = line.split(/\s+/);
-    if (parts.length !== 5) {
-      throw new Error(`Line ${i + 1}: expected "id[@row,col] N E S W" (5 fields), got ${parts.length}: "${line}"`);
+
+    let idField: string;
+    let edgeFields: string[];
+    if (parts.length === 4) {
+      // Continuation shorthand, id field omitted entirely.
+      idField = CONTINUATION_MARKER;
+      edgeFields = parts;
+    } else if (parts.length === 5) {
+      idField = parts[0]!;
+      edgeFields = parts.slice(1);
+    } else {
+      throw new Error(`Line ${i + 1}: expected "id[@row,col] N E S W" (5 fields, or 4 with the id omitted as continuation shorthand -- see #390), got ${parts.length}: "${line}"`);
     }
-    const [idField, n, e, s, w] = parts as [string, string, string, string, string];
-    const { baseId, offset } = parseIdAndOffset(idField, i + 1);
+    const [n, e, s, w] = edgeFields as [string, string, string, string];
     const edges: Record<Direction, string> = { N: n, E: e, S: s, W: w };
+
+    let baseId: string;
+    let offset: CellOffset;
+    if (idField === CONTINUATION_MARKER) {
+      if (!previous) throw new Error(`Line ${i + 1}: continuation shorthand ("?" id, or id omitted) needs a preceding tile line to continue`);
+      baseId = previous.baseId;
+      offset = { row: previous.offset.row + 1, col: previous.offset.col };
+    } else {
+      ({ baseId, offset } = parseIdAndOffset(idField, i + 1));
+    }
+    previous = { baseId, offset };
+
     const raw = rawByBaseId.get(baseId) ?? [];
     if (raw.some((r) => offsetKey(r.offset) === offsetKey(offset))) {
       throw new Error(`Line ${i + 1}: tile "${baseId}" already has a cell at offset (${offset.row},${offset.col})`);
