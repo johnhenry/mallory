@@ -6,6 +6,7 @@ import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { interiorAngleRadians, isSelfIntersecting, pointInPolygon, pointToSegmentDistance, polygonCentroid, shoelaceArea } from "../lib/geometry.ts";
+import { deriveIKChain, solveIKChainCCD, type IKJointSpec } from "../lib/ik-chain.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
@@ -229,8 +230,23 @@ export function applyGeometryState(graph: CellGraph, listIds: CellIdsGeometry, s
  * an edit is itself undoable with no extra wiring.
  */
 export function editGeometryOp(graph: CellGraph, listIds: CellIdsGeometry, opId: string, patch: Partial<GeometryOp>): void {
+  editGeometryOps(graph, listIds, [{ opId, patch }]);
+}
+
+/**
+ * Same shape as `editGeometryOp` but applies every patch in ONE clear-and-
+ * replay instead of one rebuild per op -- the IK solver (#336 item 6) calls
+ * this once per drag frame to update every joint in a chain together,
+ * where N separate `editGeometryOp` calls would mean N full rebuilds per
+ * frame instead of 1.
+ */
+export function editGeometryOps(graph: CellGraph, listIds: CellIdsGeometry, patches: { opId: string; patch: Partial<GeometryOp> }[]): void {
+  const patchByOpId = new Map(patches.map((p) => [p.opId, p.patch]));
   const current = getCurrentGeometryState(graph, listIds);
-  const ops = current.ops.map((op) => (op.id === opId ? ({ ...op, ...patch } as GeometryOp) : op));
+  const ops = current.ops.map((op) => {
+    const patch = patchByOpId.get(op.id);
+    return patch ? ({ ...op, ...patch } as GeometryOp) : op;
+  });
   applyGeometryState(graph, listIds, { v: 1, ops });
 }
 
@@ -433,6 +449,52 @@ function TransformParamsEditor({ graph, listIds, angleUnit }: { graph: CellGraph
  * fixed measurement-arc color, so recoloring a selection that's ONLY
  * points/angles has nothing to offer a color picker for.
  */
+/**
+ * #336 item 6: an IK chain is derived from `selected` (see ik-chain.ts's
+ * deriveIKChain), not carried in it -- once designated, the chain outlives
+ * the selection that produced it (clearing selected/switching tools
+ * shouldn't drop the chain, since it's a distinct interaction affordance,
+ * not a selection). This renders even with an empty selection, whenever a
+ * chain is currently active, unlike the recolor/delete controls above it.
+ */
+function IKChainControls({
+  graph,
+  listIds,
+  selected,
+  ikChain,
+  setIkChain,
+}: {
+  graph: CellGraph;
+  listIds: CellIdsGeometry;
+  selected: Set<string>;
+  ikChain: string[] | null;
+  setIkChain: (next: string[] | null) => void;
+}) {
+  const candidate = selected.size > 0 ? deriveIKChain(getCurrentGeometryState(graph, listIds).ops, selected) : null;
+
+  if (!ikChain && !candidate) return null;
+  return (
+    <div style={{ margin: "0.5rem 0", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.85rem" }}>
+      {ikChain && (
+        <>
+          <span>
+            IK chain active ({ikChain.length} joint{ikChain.length === 1 ? "" : "s"}) -- drag the dashed teal point to solve.
+          </span>
+          <button type="button" onClick={() => setIkChain(null)}>
+            Clear IK chain
+          </button>
+        </>
+      )}
+      {candidate?.ok && (
+        <button type="button" onClick={() => setIkChain(candidate.chain)} title="The selected rotations must form one unbroken sequence.">
+          Set as IK chain ({candidate.chain.length} joint{candidate.chain.length === 1 ? "" : "s"})
+        </button>
+      )}
+      {candidate && !candidate.ok && <span style={{ color: "var(--danger)" }}>{candidate.message}</span>}
+    </div>
+  );
+}
+
 function SelectionControls({
   graph,
   listIds,
@@ -762,6 +824,7 @@ export function drawGeometryPanel(
   pendingPolygon: string[],
   angleUnit: AngleUnit = "radians",
   selected: ReadonlySet<string> = new Set(),
+  ikEndEffectorId: string | null = null,
 ): void {
   ctx.clearRect(0, 0, width, height);
   drawAxes(ctx, VIEWPORT, width, height);
@@ -772,6 +835,11 @@ export function drawGeometryPanel(
       const isPendingSelection = id === pending || pendingAngle.includes(id) || pendingPolygon.includes(id);
       const color = isPendingSelection || selected.has(id) ? SELECTED_HIGHLIGHT_COLOR : isFree ? "#2563eb" : "var(--muted)";
       drawDot(ctx, p.x, p.y, color);
+      // #336 item 6: a ring around the IK chain's end effector -- the one
+      // dependent point in this panel that's draggable, so it needs its
+      // own visual cue distinguishing it from every other (non-draggable)
+      // dependent point drawn with the same muted color above.
+      if (id === ikEndEffectorId) drawIKEndEffectorRing(ctx, p.x, p.y);
     } else if (graph.has(lineCellId(id))) {
       const { a, b } = graph.get<LineRecord>(lineCellId(id));
       const pa = graph.get<PointRecord>(pointCellId(a));
@@ -832,7 +900,14 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   // tool changes; a selection persists across redraws until the user
   // deselects). Only ever populated while `tool === "select"`.
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const dragRef = useRef<{ id: string; moved: boolean; startSx: number; startSy: number } | null>(null);
+  // #336 item 6: an ordered base-to-end-effector list of rotation op ids
+  // (see ik-chain.ts's deriveIKChain), designated from a valid selection.
+  // Not persisted to the graph/URL -- it's a pure interaction affordance
+  // ("dragging this specific already-existing point now solves instead of
+  // being a no-op"), not new geometry, so it lives here alongside
+  // pending/selected rather than in opsLog.
+  const [ikChain, setIkChain] = useState<string[] | null>(null);
+  const dragRef = useRef<{ id: string; moved: boolean; startSx: number; startSy: number; kind: "free" | "solve" } | null>(null);
 
   useCellGraphTools(toolPrefix, graph);
 
@@ -840,11 +915,12 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   // panel adoptions): a notebook-embedded instance shares its graph with
   // NotebookPanel's own useUndoHistory, so a second independent history
   // here would double-fire on Ctrl+Z. applyState also resets any
-  // in-progress multi-click selection (pending/pendingAngle/pendingPolygon)
-  // and the select-tool `selected` set (#336 item 1) -- all of those hold
-  // ids that may not exist in the restored snapshot, so completing an
-  // in-progress construction (or recoloring/deleting a stale selection)
-  // across an undo/redo would reference a now-nonexistent object.
+  // in-progress multi-click selection (pending/pendingAngle/pendingPolygon),
+  // the select-tool `selected` set (#336 item 1), and any designated IK
+  // chain (#336 item 6) -- all of those hold ids that may not exist in the
+  // restored snapshot, so completing an in-progress construction (or
+  // recoloring/deleting/solving against a stale reference) across an
+  // undo/redo would reference a now-nonexistent object.
   const history = useUndoHistory(
     graph,
     () => getCurrentGeometryState(graph, listIds),
@@ -854,6 +930,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       setPendingAngle([]);
       setPendingPolygon([]);
       setSelected(new Set());
+      setIkChain(null);
     },
     250,
     undefined,
@@ -1098,13 +1175,58 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
     // every other tool only connects existing points -- clicking empty space is a no-op
   }
 
+  /**
+   * #336 item 6: reads the chain's current joints (center point positions
+   * + angleDegrees) and base point straight off the live graph, runs CCD
+   * toward `(targetX, targetY)`, and applies every solved angle in ONE
+   * `editGeometryOps` call -- a live-drag callback fires every pointermove,
+   * so batching avoids one full clear-and-replay rebuild per joint per
+   * frame (see editGeometryOps's own doc comment).
+   */
+  function solveIKChainToTarget(targetX: number, targetY: number) {
+    if (!ikChain || ikChain.length === 0) return;
+    const ops = getCurrentGeometryState(graph, listIds).ops;
+    const opById = new Map(ops.map((op) => [op.id, op]));
+    const firstJoint = opById.get(ikChain[0] as string) as GeometryOpRotation | undefined;
+    if (!firstJoint) return;
+    const basePoint = graph.get<PointRecord>(pointCellId(firstJoint.source));
+    const joints: IKJointSpec[] = [];
+    for (const opId of ikChain) {
+      const op = opById.get(opId) as GeometryOpRotation | undefined;
+      if (!op) return; // a joint no longer exists (deleted) -- bail rather than solve a stale/partial chain
+      joints.push({ opId, center: graph.get<PointRecord>(pointCellId(op.center)), angleDegrees: op.angleDegrees });
+    }
+    const solvedAngles = solveIKChainCCD(basePoint, joints, { x: targetX, y: targetY });
+    editGeometryOps(
+      graph,
+      listIds,
+      joints.map((joint, i) => ({ opId: joint.opId, patch: { angleDegrees: solvedAngles[i] as number } })),
+    );
+  }
+
   function handlePointerDown(e: PointerEvent<HTMLCanvasElement>) {
     const { x, y } = dataCoordsFromEvent(e);
     const freeHit = nearestPointId(graph, listIds, x, y, currentHitDataRadius(), true);
     if (freeHit) {
       const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
-      dragRef.current = { id: freeHit, moved: false, startSx: sx, startSy: sy };
+      dragRef.current = { id: freeHit, moved: false, startSx: sx, startSy: sy, kind: "free" };
       e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+    // #336 item 6: the chain's end-effector point is otherwise a plain
+    // dependent (non-free) point, normally excluded from dragging entirely
+    // -- this is the one deliberate exception, and only while a chain is
+    // actively designated.
+    if (ikChain && ikChain.length > 0) {
+      const endEffectorId = ikChain[ikChain.length - 1] as string;
+      if (graph.has(pointCellId(endEffectorId))) {
+        const p = graph.get<PointRecord>(pointCellId(endEffectorId));
+        if (Math.hypot(p.x - x, p.y - y) <= currentHitDataRadius()) {
+          const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+          dragRef.current = { id: endEffectorId, moved: false, startSx: sx, startSy: sy, kind: "solve" };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }
+      }
     }
   }
 
@@ -1126,7 +1248,8 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       drag.moved = true;
     }
     const { x, y } = dataCoordsFromEvent(e);
-    graph.set(pointCellId(drag.id), { x, y });
+    if (drag.kind === "solve") solveIKChainToTarget(x, y);
+    else graph.set(pointCellId(drag.id), { x, y });
   }
 
   function handlePointerUp(e: PointerEvent<HTMLCanvasElement>) {
@@ -1158,19 +1281,22 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   // real gap this panel had: every cell already recomputed correctly on a
   // drag, but nothing had told the canvas to repaint. Matches
   // GraphCanvasMulti's identical redraw pattern.
+  const ikEndEffectorId = ikChain && ikChain.length > 0 ? (ikChain[ikChain.length - 1] as string) : null;
+
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    const redraw = () => drawGeometryPanel(ctx, WIDTH, HEIGHT, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit, selected);
+    const redraw = () =>
+      drawGeometryPanel(ctx, WIDTH, HEIGHT, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit, selected, ikEndEffectorId);
     redraw();
     return graph.subscribeAll(redraw);
-    // `pending`/`pendingAngle`/`pendingPolygon`/`angleUnit`/`selected` aren't
-    // graph state, so they can't trigger a redraw via subscribeAll --
-    // re-running this effect (which calls redraw() once immediately) on
-    // selection change (or a live angle-unit toggle) is what keeps the
-    // canvas in sync.
+    // `pending`/`pendingAngle`/`pendingPolygon`/`angleUnit`/`selected`/
+    // `ikEndEffectorId` aren't graph state, so they can't trigger a redraw
+    // via subscribeAll -- re-running this effect (which calls redraw() once
+    // immediately) on selection change (or a live angle-unit toggle, or an
+    // IK chain being designated/cleared) is what keeps the canvas in sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, pending, pendingAngle, pendingPolygon, angleUnit, selected]);
+  }, [graph, pending, pendingAngle, pendingPolygon, angleUnit, selected, ikEndEffectorId]);
 
   /**
    * Builds the exported SVG's layer list -- a `layersToSvgDocument`-ready
@@ -1358,7 +1484,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
           getCanvas={() => canvasRef.current}
           label="geometry"
           renderAtScale={(ctx, width, height) =>
-            drawGeometryPanel(ctx, width, height, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit, selected)
+            drawGeometryPanel(ctx, width, height, graph, listIds, pending, pendingAngle, pendingPolygon, angleUnit, selected, ikEndEffectorId)
           }
           baseWidth={WIDTH}
           baseHeight={HEIGHT}
@@ -1373,6 +1499,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{hint}</p>
       <SelectionControls graph={graph} listIds={listIds} selected={selected} setSelected={setSelected} />
+      <IKChainControls graph={graph} listIds={listIds} selected={selected} ikChain={ikChain} setIkChain={setIkChain} />
       <TransformParamsEditor graph={graph} listIds={listIds} angleUnit={angleUnit} />
       <div style={{ margin: "0.5rem 0" }}>
         <AlgebraView graph={graph} />
@@ -1403,6 +1530,20 @@ function drawDot(ctx: CanvasRenderingContext2D, x: number, y: number, color: str
   ctx.beginPath();
   ctx.arc(sx, sy, 5, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
+}
+
+/** #336 item 6: an open ring around the IK chain's end-effector point, distinguishing it from every other (non-draggable) dependent point. */
+function drawIKEndEffectorRing(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  const sx = toScreenX(x, VIEWPORT, WIDTH);
+  const sy = toScreenY(y, VIEWPORT, HEIGHT);
+  ctx.save();
+  ctx.strokeStyle = "#0d9488";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([3, 2]);
+  ctx.beginPath();
+  ctx.arc(sx, sy, 9, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }
 

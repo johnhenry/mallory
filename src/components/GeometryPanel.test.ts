@@ -3,7 +3,15 @@ import { test } from "node:test";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsGeometry } from "../lib/cell-ids.ts";
 import type { GeometryOp } from "../lib/geometry-state.ts";
-import { applyGeometryState, deleteGeometryObject, editGeometryOp, getCurrentGeometryState, recolorGeometryObject, replayGeometryOps } from "./GeometryPanel.tsx";
+import {
+  applyGeometryState,
+  deleteGeometryObject,
+  editGeometryOp,
+  editGeometryOps,
+  getCurrentGeometryState,
+  recolorGeometryObject,
+  replayGeometryOps,
+} from "./GeometryPanel.tsx";
 
 function freshGraph() {
   const graph = new CellGraph();
@@ -186,4 +194,28 @@ test("deleteGeometryObject: a no-op for an id that's already gone (idempotent, s
 
   assert.deepEqual(removedAgain, new Set(["p1"]));
   assert.deepEqual(graph.get<string[]>(listIds.objectList), []);
+});
+
+test("editGeometryOps: #336 item 6's IK solve path -- updates every joint in a chain in ONE rebuild, all applied together", () => {
+  const { graph, listIds } = freshGraph();
+  const ops: GeometryOp[] = [
+    { tool: "point", id: "base", x: 1, y: 0 },
+    { tool: "point", id: "c1", x: 0, y: 0 },
+    { tool: "point", id: "c2", x: 2, y: 0 },
+    { tool: "rotation", id: "r1", source: "base", center: "c1", angleDegrees: 0 },
+    { tool: "rotation", id: "r2", source: "r1", center: "c2", angleDegrees: 0 },
+  ];
+  replayGeometryOps(graph, listIds, ops);
+
+  editGeometryOps(graph, listIds, [
+    { opId: "r1", patch: { angleDegrees: 90 } },
+    { opId: "r2", patch: { angleDegrees: 45 } },
+  ]);
+
+  const updated = getCurrentGeometryState(graph, listIds).ops;
+  assert.equal((updated.find((op) => op.id === "r1") as { angleDegrees: number }).angleDegrees, 90);
+  assert.equal((updated.find((op) => op.id === "r2") as { angleDegrees: number }).angleDegrees, 45);
+  // r1: (1,0) rotated 90 degrees around (0,0) -> (0,1)
+  const r1Point = graph.get<{ x: number; y: number }>("geomPoint:r1");
+  assert.ok(Math.abs(r1Point.x - 0) < 1e-9 && Math.abs(r1Point.y - 1) < 1e-9);
 });
