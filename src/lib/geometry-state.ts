@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for GeometryPanel -- unlike every other panel's flat
  * free-cell dump, this is a **replay-based (construction-log) schema**:
@@ -90,13 +91,13 @@ export type GeometryState = GeometryStateV1;
 export const DEFAULT_GEOMETRY_STATE: GeometryState = { v: 1, ops: [] };
 
 export function encodeGeometryState(state: GeometryState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. */
 export function decodeGeometryState(fragment: string): GeometryState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     return isGeometryStateV1(parsed) ? parsed : null;
   } catch {
     return null;
@@ -144,16 +145,3 @@ export function isGeometryStateV1(value: unknown): value is GeometryStateV1 {
   return v.v === 1 && Array.isArray(v.ops) && v.ops.every(isGeometryOp);
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

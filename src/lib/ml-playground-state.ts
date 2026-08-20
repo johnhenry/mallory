@@ -1,4 +1,5 @@
 import type { DatasetType, LabeledPoint } from "./ml-playground.ts";
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 
 /**
  * URL-state schema for MlPlaygroundPanel -- the CONFIG inputs only (see
@@ -93,13 +94,13 @@ export const DEFAULT_ML_PLAYGROUND_STATE: MlPlaygroundState = {
 };
 
 export function encodeMlPlaygroundState(state: MlPlaygroundState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades a v1/v2 payload to v3 with dropout (v1 only) and csvPoints/classNames defaulted off. */
 export function decodeMlPlaygroundState(fragment: string): MlPlaygroundState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     if (isMlPlaygroundStateV3(parsed)) return parsed;
     if (isMlPlaygroundStateV2(parsed)) return { ...parsed, v: 3 };
     if (isMlPlaygroundStateV1(parsed)) return { ...parsed, v: 3, dropout: DEFAULT_ML_PLAYGROUND_STATE.dropout };
@@ -168,16 +169,3 @@ export function isMlPlaygroundStateV3(value: unknown): value is MlPlaygroundStat
   return v.classNames === undefined || isStringArray(v.classNames);
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

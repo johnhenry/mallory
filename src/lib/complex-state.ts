@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for ComplexPanel -- the raw inputs only (see
  * cell-ids.ts's cellIdsComplex); every result cell is purely derived.
@@ -56,13 +57,13 @@ export const DEFAULT_COMPLEX_STATE: ComplexState = {
 };
 
 export function encodeComplexState(state: ComplexState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades a v1/v2 payload up to v3 with the newer fields defaulted off. */
 export function decodeComplexState(fragment: string): ComplexState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     if (isComplexStateV3(parsed)) return parsed;
     if (isComplexStateV2(parsed)) return upgradeV2ToV3(parsed);
     if (isComplexStateV1(parsed)) return upgradeV2ToV3(upgradeV1ToV2(parsed));
@@ -122,16 +123,3 @@ export function isComplexStateV3(value: unknown): value is ComplexStateV3 {
   return typeof v.showZeros === "boolean" && typeof v.showPoles === "boolean";
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

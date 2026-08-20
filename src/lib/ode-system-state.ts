@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for OdeSystemPanel -- a flat dump of its 11 free string
  * cells (see cell-ids.ts's cellIdsOdeSystem). Same shape/convention as
@@ -37,13 +38,13 @@ export const DEFAULT_ODE_SYSTEM_STATE: OdeSystemState = {
 };
 
 export function encodeOdeSystemState(state: OdeSystemState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. */
 export function decodeOdeSystemState(fragment: string): OdeSystemState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     return isOdeSystemStateV1(parsed) ? parsed : null;
   } catch {
     return null;
@@ -57,16 +58,3 @@ export function isOdeSystemStateV1(value: unknown): value is OdeSystemStateV1 {
   return v.v === 1 && fields.every((f) => typeof v[f] === "string");
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for SpaceCurvePanel (issue #30 item 2) -- a flat dump of
  * its free string cells (see cell-ids.ts's cellIdsSpaceCurve). Same shape/
@@ -55,13 +56,13 @@ function upgradeV1ToV2(v1: SpaceCurveStateV1): SpaceCurveStateV2 {
 }
 
 export function encodeSpaceCurveState(state: SpaceCurveState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. */
 export function decodeSpaceCurveState(fragment: string): SpaceCurveState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     if (isSpaceCurveStateV2(parsed)) return parsed;
     if (isSpaceCurveStateV1(parsed)) return upgradeV1ToV2(parsed);
     return null;
@@ -90,16 +91,3 @@ export function isSpaceCurveStateV2(value: unknown): value is SpaceCurveStateV2 
   });
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}

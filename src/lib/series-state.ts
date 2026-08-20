@@ -1,3 +1,4 @@
+import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for SeriesPanel -- a flat dump of its free string cells
  * (see cell-ids.ts's cellIdsSeries). Same shape/convention as
@@ -66,13 +67,13 @@ function upgradeV1ToV2(v1: SeriesStateV1): SeriesStateV2 {
 }
 
 export function encodeSeriesState(state: SeriesState): string {
-  return base64UrlEncode(JSON.stringify(state));
+  return encodeStateFragment(state);
 }
 
 /** Returns null on any malformed/unrecognized fragment rather than throwing. */
 export function decodeSeriesState(fragment: string): SeriesState | null {
   try {
-    const parsed: unknown = JSON.parse(base64UrlDecode(fragment));
+    const parsed: unknown = decodeStateFragment(fragment);
     if (isSeriesStateV2(parsed)) return parsed;
     if (isSeriesStateV1(parsed)) return upgradeV1ToV2(parsed);
     return null;
@@ -101,16 +102,3 @@ export function isSeriesStateV2(value: unknown): value is SeriesStateV2 {
   });
 }
 
-function base64UrlEncode(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
