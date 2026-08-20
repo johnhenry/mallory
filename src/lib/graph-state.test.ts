@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { encodeStateFragment } from "./url-fragment.ts";
 import { test } from "node:test";
 import { DEFAULT_GRAPH_STATE, decodeGraphState, encodeGraphState, type GraphState } from "./graph-state.ts";
 
@@ -24,10 +25,7 @@ test("decode returns null for malformed input instead of throwing", () => {
 });
 
 test("decode rejects a differently-shaped payload", () => {
-  const notAGraphState = btoa(JSON.stringify({ hello: "world" }))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const notAGraphState = encodeStateFragment({ hello: "world" });
   assert.equal(decodeGraphState(notAGraphState), null);
 });
 
@@ -57,10 +55,7 @@ test("round-trips multiple panes, each with independent params/structureModulus"
 
 test("upgrades a v1 fragment (no params/structureModulus/mode) to v3 defaults", () => {
   const v1 = { v: 1, cells: [{ id: "f", source: "x^2" }], viewport: DEFAULT_GRAPH_STATE.viewport };
-  const fragment = btoa(JSON.stringify(v1))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const fragment = encodeStateFragment(v1);
   assert.deepEqual(decodeGraphState(fragment), {
     v: 3,
     cells: [{ id: "f", source: "x^2", params: {}, structureModulus: null }],
@@ -81,10 +76,7 @@ test("upgrades a v2 fragment, folding its global params/structureModulus into th
     structureModulus: 7,
     mode: "exact" as const,
   };
-  const fragment = btoa(JSON.stringify(v2))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const fragment = encodeStateFragment(v2);
   assert.deepEqual(decodeGraphState(fragment), {
     v: 3,
     cells: [

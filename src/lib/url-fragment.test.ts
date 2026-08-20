@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 
-/** The exact legacy encoder every codec privately carried before #320 step 2 -- kept here (only) to prove old shared URLs still decode. */
+/** The pre-compression transport (base64url over UTF-8 JSON) -- kept here purely as the size baseline the compression test measures against, and to pin down that old-format fragments now REJECT rather than decode. */
 function legacyEncode(state: unknown): string {
   const bytes = new TextEncoder().encode(JSON.stringify(state));
   let binary = "";
@@ -26,16 +26,11 @@ test("compressed fragments carry the z: version marker and stay URL-fragment-saf
   assert.match(fragment.slice(2), /^[A-Za-z0-9_-]*$/, "payload must be pure base64url");
 });
 
-test("legacy (uncompressed) fragments still decode -- every URL ever shared keeps working", () => {
-  const state = { v: 1, rows: [{ exprText: "x^2", visible: true }] };
-  assert.deepEqual(decodeStateFragment(legacyEncode(state)), state);
+test("legacy (pre-compression, unprefixed) fragments are rejected -- support was deliberately dropped", () => {
+  assert.throws(() => decodeStateFragment(legacyEncode({ v: 1, rows: [] })), /Unrecognized state-fragment format/);
 });
 
-test("legacy fragments can never collide with the marker (base64url has no colon)", () => {
-  assert.ok(!legacyEncode({ z: "z:z:z" }).includes(":"));
-});
-
-test("compression genuinely shrinks a realistic repetitive state (vs the legacy encoding of the same state)", () => {
+test("compression genuinely shrinks a realistic repetitive state (vs the old uncompressed encoding of the same state)", () => {
   const state = {
     v: 2,
     rows: Array.from({ length: 12 }, (_, i) => ({ exprText: `sin(${i + 1}*x) + cos(${i + 1}*x)`, visible: true, color: 2563 + i, fromN: "1", toN: "50", plotCount: "40" })),

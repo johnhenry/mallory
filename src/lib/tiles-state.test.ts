@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { encodeStateFragment } from "./url-fragment.ts";
 import { test } from "node:test";
 import { DEFAULT_CUBE_TILES_TEXT } from "./cube-tile-set-text.ts";
 import { DEFAULT_HEX_TILES_TEXT } from "./hex-tile-set-text.ts";
@@ -41,7 +42,7 @@ test("decodeTilesState upgrades a v3 payload to v4 with cubeTilesText/depth defa
     hexTilesText: "A 1 2 3 4 5 6",
     triTilesText: "B 1 2 3 4",
   };
-  const fragment = btoa(JSON.stringify(v3)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const fragment = encodeStateFragment(v3);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v3,
     v: 4,
@@ -60,7 +61,7 @@ test("decodeTilesState upgrades a v2 payload all the way to v4", () => {
     showAnimation: false,
     symmetry: "rotations-reflections" as const,
   };
-  const fragment = btoa(JSON.stringify(v2)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const fragment = encodeStateFragment(v2);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v2,
     v: 4,
@@ -74,7 +75,7 @@ test("decodeTilesState upgrades a v2 payload all the way to v4", () => {
 
 test("decodeTilesState upgrades a v1 payload all the way to v4", () => {
   const v1 = { v: 1 as const, tilesText: "A 1 2 3 4", width: 6, height: 2, solver: "torus" as const, showAnimation: false };
-  const fragment = btoa(JSON.stringify(v1)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const fragment = encodeStateFragment(v1);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v1,
     v: 4,

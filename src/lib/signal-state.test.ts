@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { encodeStateFragment } from "./url-fragment.ts";
 import { test } from "node:test";
 import {
   DEFAULT_SIGNAL_STATE,
@@ -21,7 +22,7 @@ test("decodeSignalState: returns null for garbage input rather than throwing", (
 
 test("decodeSignalState: upgrades a v1 payload to v2, defaulting the spectrogram fields", () => {
   const v1: SignalStateV1 = { v: 1, exprText: "sin(2*pi*3*t)", sampleRate: "128", duration: "2" };
-  const encoded = Buffer.from(JSON.stringify(v1)).toString("base64url");
+  const encoded = encodeStateFragment(v1);
   const decoded = decodeSignalState(encoded);
   assert.ok(decoded);
   assert.equal(decoded.v, 2);
@@ -52,7 +53,7 @@ test("isSignalStateV2: rejects a peak-finding field with the wrong type when pre
 
 test("decodeSignalState: a pre-#31 encoded fragment (no peak-finding fields) decodes successfully rather than falling back to defaults", () => {
   const prePeaksState = { v: 2, exprText: "sin(t)", sampleRate: "64", duration: "1", nperseg: "16", noverlap: "8" };
-  const encoded = Buffer.from(JSON.stringify(prePeaksState)).toString("base64url");
+  const encoded = encodeStateFragment(prePeaksState);
   const decoded = decodeSignalState(encoded);
   assert.notEqual(decoded, null);
   assert.equal(decoded?.exprText, "sin(t)");

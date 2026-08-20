@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { encodeStateFragment } from "./url-fragment.ts";
 import { test } from "node:test";
 import {
   DEFAULT_MONTE_CARLO_STATE,
@@ -35,7 +36,7 @@ test("decodeMonteCarloState: upgrades a v1 payload to v2, defaulting the integra
     distLambda: "4",
     sampleCount: "500",
   };
-  const encoded = Buffer.from(JSON.stringify(v1)).toString("base64url");
+  const encoded = encodeStateFragment(v1);
   const decoded = decodeMonteCarloState(encoded);
   assert.ok(decoded);
   assert.equal(decoded.v, 2);
