@@ -10,7 +10,7 @@ import { parseCompoundTileSetText } from "../lib/compound-tile-set-text.ts";
 import { DEFAULT_CUBE_TILES_TEXT, parseCubeTileSetText } from "../lib/cube-tile-set-text.ts";
 import { startTilesExportJob } from "../lib/export-tiles-video.ts";
 import { DEFAULT_HEX_TILES_TEXT, parseHexTileSetText } from "../lib/hex-tile-set-text.ts";
-import { DEFAULT_TILES_TEXT, parseTileSetText } from "../lib/tile-set-text.ts";
+import { DEFAULT_TILES_TEXT, parseTileSetText, tileSetToText } from "../lib/tile-set-text.ts";
 import {
   DEFAULT_TILES_STATE,
   decodeTilesState,
@@ -27,6 +27,7 @@ import { edgeLabelColor } from "../lib/tiles/edge-colors.ts";
 import { hexCenter, hexCorners, hexEdgeSegment } from "../lib/tiles/hex-geometry.ts";
 import { solveHex, type HexGrid, type HexTile, type HexTileSet } from "../lib/tiles/hex-tile-model.ts";
 import { expandTileSetSymmetry, type SymmetryGroup } from "../lib/tiles/symmetry.ts";
+import { TILE_SET_CORPUS } from "../lib/tiles/tile-set-corpus.ts";
 import {
   isBoundaryEdge,
   offsetKey,
@@ -1562,10 +1563,31 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
               rows={5}
               style={{ font: "inherit", fontFamily: "monospace", width: "24ch" }}
             />
-            <div>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
               <button type="button" onClick={() => updateText(DEFAULT_TILES_TEXT)}>
                 Reset to default set
               </button>
+              <label title="Canonical tile sets from the literature (#387) -- loading one also sets the symmetry dropdown below to its recommended setting.">
+                load preset:{" "}
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const entry = TILE_SET_CORPUS.find((p) => p.id === e.target.value);
+                    if (!entry) return;
+                    updateText(tileSetToText(entry.tileSet as TileSet));
+                    graph.set(ids.symmetry, entry.recommendedSymmetry);
+                  }}
+                >
+                  <option value="" disabled>
+                    (choose a preset…)
+                  </option>
+                  {TILE_SET_CORPUS.map((entry) => (
+                    <option key={entry.id} value={entry.id} title={entry.description}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
           {tileSetResult.ok && (
