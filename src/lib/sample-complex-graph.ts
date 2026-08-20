@@ -61,14 +61,34 @@ export function isValidComplexAxisAssignment(assignment: ComplexGraphAxisAssignm
 }
 
 /**
- * Which of the 2 domain components (Re(x)/Im(x)) are assigned to at least
- * one screen axis -- drives `sampleComplexGraph`'s 0D/1D/2D sampling and
+ * Explicit per-domain-component "sweep even if not shown on any screen
+ * axis" flags (issue #365) -- independent from axis assignment. Today's
+ * default behavior (both false) means a domain component that isn't
+ * assigned to a screen axis is implicitly held fixed at 0, which is what
+ * makes `{Re(x), Re(y), None}` for `e^(i*x)` trace a clean curve rather
+ * than scatter (Im(x) never actually varies). Setting a flag to true
+ * sweeps that component across the domain range regardless of whether
+ * it's assigned to an axis -- the way to deliberately reproduce the
+ * "hidden dimension shows up as scatter" case #359's own design comment
+ * anticipated, distinct from today's implicit real-only default.
+ */
+export interface DomainSweepFlags {
+  reX: boolean;
+  imX: boolean;
+}
+
+const NO_FORCED_SWEEP: DomainSweepFlags = { reX: false, imX: false };
+
+/**
+ * Which of the 2 domain components (Re(x)/Im(x)) are EFFECTIVELY swept --
+ * assigned to at least one screen axis, OR explicitly forced via `sweep`
+ * (issue #365) -- drives `sampleComplexGraph`'s 0D/1D/2D sampling and
  * curve-vs-scatter choice below. Exported so the panel's own UI hint can
  * describe the same 0/1/2-used cases without duplicating the rule.
  */
-export function usedDomainComponents(assignment: ComplexGraphAxisAssignment): Array<"reX" | "imX"> {
-  const used = new Set([assignment.x, assignment.y, assignment.z]);
-  return (["reX", "imX"] as const).filter((c) => used.has(c));
+export function usedDomainComponents(assignment: ComplexGraphAxisAssignment, sweep: DomainSweepFlags = NO_FORCED_SWEEP): Array<"reX" | "imX"> {
+  const assigned = new Set([assignment.x, assignment.y, assignment.z]);
+  return (["reX", "imX"] as const).filter((c) => assigned.has(c) || sweep[c]);
 }
 
 /** Grid side length for the 2-domain-components-used (surface-shaped) case -- squared, so kept far below the 1D curve case's `resolution` to stay responsive (60^2 = 3721 points, plenty dense for a scatter). */
@@ -109,6 +129,7 @@ export function sampleComplexGraph(
   assignment: ComplexGraphAxisAssignment,
   tDomain: Domain1D,
   resolution = 300,
+  sweep: DomainSweepFlags = NO_FORCED_SWEEP,
 ): ComplexGraphSampleResult {
   if (!isValidComplexAxisAssignment(assignment)) {
     throw new Error("Assign at least one axis to a component, and don't assign the same component to two axes.");
@@ -131,7 +152,7 @@ export function sampleComplexGraph(
     return Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z) ? point : null;
   }
 
-  const domainUsed = usedDomainComponents(assignment);
+  const domainUsed = usedDomainComponents(assignment, sweep);
   const points: SpaceCurvePoint[] = [];
 
   if (domainUsed.length === 0) {

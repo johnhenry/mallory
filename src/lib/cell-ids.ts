@@ -173,6 +173,11 @@ export function cellIdsComplexGraph3D(cellId: string) {
     axisX: `complexGraph3dAxisX:${cellId}`,
     axisY: `complexGraph3dAxisY:${cellId}`,
     axisZ: `complexGraph3dAxisZ:${cellId}`,
+    // Explicit "sweep even if unassigned" domain toggles (#365) --
+    // container-level, alongside axisX/Y/Z, not per-row: see
+    // complex-graph-state.ts's ComplexGraphStateV3 doc comment for why.
+    sweepReX: `complexGraph3dSweepReX:${cellId}`,
+    sweepImX: `complexGraph3dSweepImX:${cellId}`,
     list: `complexGraph3dList:${cellId}`,
   };
 }

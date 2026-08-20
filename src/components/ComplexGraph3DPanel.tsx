@@ -11,6 +11,7 @@ import {
   usedDomainComponents,
   type AxisChoice,
   type ComplexGraphSampleResult,
+  type DomainSweepFlags,
 } from "../lib/sample-complex-graph.ts";
 import {
   DEFAULT_COMPLEX_GRAPH_STATE,
@@ -35,8 +36,10 @@ const TUBE_RADIUS = 0.05;
 const TUBE_RADIAL_SEGMENTS = 8;
 const POINT_SIZE = 0.06;
 
-/** Seeds one function row's own cells: its own y(x), t domain, color and visibility, and its own derived points -- reads the SHARED (container-level) axis assignment via `axisIds`, so every row replots automatically when the shared view changes. */
-function seedComplexGraphRow(graph: CellGraph, rowId: string, axisIds: { axisX: string; axisY: string; axisZ: string }, row: ComplexGraphRowState): void {
+type SharedAxisIds = { axisX: string; axisY: string; axisZ: string; sweepReX: string; sweepImX: string };
+
+/** Seeds one function row's own cells: its own y(x), t domain, color and visibility, and its own derived points -- reads the SHARED (container-level) axis assignment and domain-sweep toggles (#365) via `axisIds`, so every row replots automatically when the shared view changes. */
+function seedComplexGraphRow(graph: CellGraph, rowId: string, axisIds: SharedAxisIds, row: ComplexGraphRowState): void {
   const ids = cellIdsComplexGraph3D(rowId);
   graph.set(ids.yExpr, row.yExpr);
   graph.set(ids.tMin, row.tMin);
@@ -58,7 +61,8 @@ function seedComplexGraphRow(graph: CellGraph, rowId: string, axisIds: { axisX: 
       const tMax = Number(graph.get<string>(ids.tMax));
       if (Number.isNaN(tMin) || Number.isNaN(tMax)) throw new Error("t-min and t-max must both be numbers.");
       if (tMin >= tMax) throw new Error("t-min must be less than t-max.");
-      const sample = sampleComplexGraph(graph.get<string>(ids.yExpr), assignment, { min: tMin, max: tMax }, RESOLUTION);
+      const sweep: DomainSweepFlags = { reX: graph.get<boolean>(axisIds.sweepReX), imX: graph.get<boolean>(axisIds.sweepImX) };
+      const sample = sampleComplexGraph(graph.get<string>(ids.yExpr), assignment, { min: tMin, max: tMax }, RESOLUTION, sweep);
       return { ok: true, value: sample };
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -66,7 +70,7 @@ function seedComplexGraphRow(graph: CellGraph, rowId: string, axisIds: { axisX: 
   });
 }
 
-function seedComplexGraphRowDefault(graph: CellGraph, rowId: string, axisIds: { axisX: string; axisY: string; axisZ: string }, index: number): void {
+function seedComplexGraphRowDefault(graph: CellGraph, rowId: string, axisIds: SharedAxisIds, index: number): void {
   seedComplexGraphRow(graph, rowId, axisIds, { ...(DEFAULT_COMPLEX_GRAPH_STATE.rows[0] as ComplexGraphRowState), color: paletteColor(index) });
 }
 
@@ -81,6 +85,8 @@ function useComplexGraphGraph(containerId: string): { graph: CellGraph; containe
     graph.set(containerIds.axisX, state.axisX);
     graph.set(containerIds.axisY, state.axisY);
     graph.set(containerIds.axisZ, state.axisZ);
+    graph.set(containerIds.sweepReX, state.sweepReX);
+    graph.set(containerIds.sweepImX, state.sweepImX);
 
     const rowIds = state.rows.map(() => crypto.randomUUID());
     rowIds.forEach((id, i) => seedComplexGraphRow(graph, id, containerIds, state.rows[i] as ComplexGraphRowState));
@@ -213,6 +219,8 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
   const axisX = useCell<AxisChoice>(graph, containerIds.axisX);
   const axisY = useCell<AxisChoice>(graph, containerIds.axisY);
   const axisZ = useCell<AxisChoice>(graph, containerIds.axisZ);
+  const sweepReX = useCell<boolean>(graph, containerIds.sweepReX);
+  const sweepImX = useCell<boolean>(graph, containerIds.sweepImX);
 
   function addFunction() {
     const { id, index } = appendRow(graph, containerIds.list);
@@ -226,10 +234,12 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
   useEffect(() => {
     function writeUrl() {
       const state: ComplexGraphState = {
-        v: 2,
+        v: 3,
         axisX: graph.get<AxisChoice>(containerIds.axisX),
         axisY: graph.get<AxisChoice>(containerIds.axisY),
         axisZ: graph.get<AxisChoice>(containerIds.axisZ),
+        sweepReX: graph.get<boolean>(containerIds.sweepReX),
+        sweepImX: graph.get<boolean>(containerIds.sweepImX),
         rows: graph.get<string[]>(containerIds.list).map((rowId) => {
           const ids = cellIdsComplexGraph3D(rowId);
           return {
@@ -362,7 +372,7 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
     return graph.subscribeAll(rebuild);
   }, [graph, containerIds]);
 
-  const domainUsed = usedDomainComponents({ x: axisX, y: axisY, z: axisZ });
+  const domainUsed = usedDomainComponents({ x: axisX, y: axisY, z: axisZ }, { reX: sweepReX, imX: sweepImX });
   const modeHint =
     domainUsed.length === 1
       ? `${COMPONENT_LABELS[domainUsed[0] as "reX" | "imX"]} sweeps t; the other domain component is held fixed at 0. Curve.`
@@ -381,6 +391,19 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
         </label>
         <label>
           Axis Z: <AxisSelect value={axisZ} otherA={axisX} otherB={axisY} onChange={(v) => graph.set(containerIds.axisZ, v)} />
+        </label>
+      </div>
+      <div
+        style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}
+        title="Off (default): a domain component not assigned to any axis stays fixed at 0 (e.g. exp(i*x) with only Re(x)/Re(y)/Im(y) shown traces a clean curve, since Im(x) never varies). On: sweep that component across t even when it isn't shown -- lets its hidden variation show up as scatter on the visible axes (#365)."
+      >
+        <label>
+          <input type="checkbox" checked={sweepReX} onChange={(e) => graph.set(containerIds.sweepReX, e.target.checked)} /> Re(x): complex (sweep even
+          if unassigned)
+        </label>
+        <label>
+          <input type="checkbox" checked={sweepImX} onChange={(e) => graph.set(containerIds.sweepImX, e.target.checked)} /> Im(x): complex (sweep even
+          if unassigned)
         </label>
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{modeHint}</p>

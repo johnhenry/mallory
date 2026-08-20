@@ -49,7 +49,28 @@ export interface ComplexGraphStateV2 {
   rows: ComplexGraphRowState[];
 }
 
-export type ComplexGraphState = ComplexGraphStateV2;
+/**
+ * v3 (issue #365): adds `sweepReX`/`sweepImX`, the explicit "sweep this
+ * domain component even if it isn't assigned to a screen axis" toggles --
+ * see sample-complex-graph.ts's `DomainSweepFlags`. Shared/container-level
+ * like the axis assignment (not per-row): both govern the same "what does
+ * the domain sampling actually explore" question the shared curve-vs-
+ * scatter render mode already depends on, so every row stays in sync the
+ * same way it already does for axis assignment. Default `false` for both
+ * matches today's implicit behavior exactly, so existing saved/shared
+ * graphs are unaffected by the upgrade.
+ */
+export interface ComplexGraphStateV3 {
+  v: 3;
+  axisX: AxisChoice;
+  axisY: AxisChoice;
+  axisZ: AxisChoice;
+  sweepReX: boolean;
+  sweepImX: boolean;
+  rows: ComplexGraphRowState[];
+}
+
+export type ComplexGraphState = ComplexGraphStateV3;
 
 /** y = e^(i*x): the issue's own worked example, so the panel opens already showing the spiral rather than a blank/degenerate default. */
 const DEFAULT_ROW: ComplexGraphRowState = {
@@ -61,10 +82,12 @@ const DEFAULT_ROW: ComplexGraphRowState = {
 };
 
 export const DEFAULT_COMPLEX_GRAPH_STATE: ComplexGraphState = {
-  v: 2,
+  v: 3,
   axisX: "reX",
   axisY: "reY",
   axisZ: "imY",
+  sweepReX: false,
+  sweepImX: false,
   rows: [DEFAULT_ROW],
 };
 
@@ -78,6 +101,10 @@ function upgradeV1ToV2(v1: ComplexGraphStateV1): ComplexGraphStateV2 {
   };
 }
 
+function upgradeV2ToV3(v2: ComplexGraphStateV2): ComplexGraphStateV3 {
+  return { ...v2, v: 3, sweepReX: false, sweepImX: false };
+}
+
 export function encodeComplexGraphState(state: ComplexGraphState): string {
   return encodeStateFragment(state);
 }
@@ -86,8 +113,9 @@ export function encodeComplexGraphState(state: ComplexGraphState): string {
 export function decodeComplexGraphState(fragment: string): ComplexGraphState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
-    if (isComplexGraphStateV2(parsed)) return parsed;
-    if (isComplexGraphStateV1(parsed)) return upgradeV1ToV2(parsed);
+    if (isComplexGraphStateV3(parsed)) return parsed;
+    if (isComplexGraphStateV2(parsed)) return upgradeV2ToV3(parsed);
+    if (isComplexGraphStateV1(parsed)) return upgradeV2ToV3(upgradeV1ToV2(parsed));
     return null;
   } catch {
     return null;
@@ -108,13 +136,31 @@ export function isComplexGraphStateV1(value: unknown): value is ComplexGraphStat
   );
 }
 
-export function isComplexGraphStateV2(value: unknown): value is ComplexGraphStateV2 {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  if (v.v !== 2 || !isAxisChoice(v.axisX) || !isAxisChoice(v.axisY) || !isAxisChoice(v.axisZ) || !Array.isArray(v.rows)) return false;
+function hasValidRows(v: Record<string, unknown>): boolean {
+  if (!Array.isArray(v.rows)) return false;
   return v.rows.every((row) => {
     if (typeof row !== "object" || row === null) return false;
     const r = row as Record<string, unknown>;
     return typeof r.yExpr === "string" && typeof r.tMin === "string" && typeof r.tMax === "string" && typeof r.color === "number" && typeof r.visible === "boolean";
   });
+}
+
+export function isComplexGraphStateV2(value: unknown): value is ComplexGraphStateV2 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return v.v === 2 && isAxisChoice(v.axisX) && isAxisChoice(v.axisY) && isAxisChoice(v.axisZ) && hasValidRows(v);
+}
+
+export function isComplexGraphStateV3(value: unknown): value is ComplexGraphStateV3 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.v === 3 &&
+    isAxisChoice(v.axisX) &&
+    isAxisChoice(v.axisY) &&
+    isAxisChoice(v.axisZ) &&
+    typeof v.sweepReX === "boolean" &&
+    typeof v.sweepImX === "boolean" &&
+    hasValidRows(v)
+  );
 }
