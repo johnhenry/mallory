@@ -2,11 +2,24 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   droppedComponent,
+  isAxisChoice,
+  isComplexComponent,
   isValidAxisTriple,
   isValidCurveAxisAssignment,
   sampleComplexGraphCurve,
   type ComplexGraphAxisAssignment,
 } from "./sample-complex-graph.ts";
+
+test("isComplexComponent/isAxisChoice: the 4 real components pass both; 'none' passes only isAxisChoice; garbage passes neither", () => {
+  for (const c of ["reX", "imX", "reY", "imY"]) {
+    assert.equal(isComplexComponent(c), true);
+    assert.equal(isAxisChoice(c), true);
+  }
+  assert.equal(isComplexComponent("none"), false);
+  assert.equal(isAxisChoice("none"), true);
+  assert.equal(isComplexComponent("bogus"), false);
+  assert.equal(isAxisChoice("bogus"), false);
+});
 
 test("isValidCurveAxisAssignment: accepts a well-formed assignment implicitly dropping Im(x)", () => {
   const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "reY", z: "imY" };
