@@ -1,7 +1,9 @@
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { metric } from "mallory-telemetry";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMlPlayground, type CellIdsMlPlayground } from "../lib/cell-ids.ts";
+import { startMlExportJob } from "../lib/export-ml-video.ts";
 import {
   DEFAULT_ML_PLAYGROUND_STATE,
   decodeMlPlaygroundState,
@@ -25,6 +27,7 @@ import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewpo
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
+import { VideoExportControls } from "./VideoExportControls.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -257,6 +260,7 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
   const boundaryCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const lossCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const modelRef = useRef<TinyMlp | null>(null);
+  const startMlExportJobFn = useServerFn(startMlExportJob);
 
   const dataset = useCell<DatasetType>(graph, ids.dataset);
   const pointsPerClass = useCell<string>(graph, ids.pointsPerClass);
@@ -628,6 +632,27 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
               baseHeight={BOUNDARY_SIZE}
             />
           </div>
+          {pointsResult.ok && pointsResult.value.length > 0 && (
+            <VideoExportControls
+              filenameStem="mallory-graph-ml-training"
+              start={(format, videoDuration) =>
+                startMlExportJobFn({
+                  data: {
+                    points: pointsResult.value,
+                    hidden: Number(hidden),
+                    modelSeed: Number(modelSeed),
+                    dropout: Number(dropout),
+                    numClasses,
+                    lr: Number(lr),
+                    epochs: Number(epochs),
+                    schedule: useSchedule ? { stepSize: Number(stepSize), gamma: Number(gamma) } : undefined,
+                    duration: videoDuration,
+                    format,
+                  },
+                })
+              }
+            />
+          )}
         </div>
         <div>
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>
