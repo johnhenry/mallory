@@ -429,3 +429,47 @@ body:has(.app-shell) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* Floating cross-page calculator (issue #340): a fixed-position dock,
+   collapsed to a small toggle by default so it never covers canvas-heavy
+   pages (Graphing, 3D, Geometry, ...) uninvited -- the user opts in per
+   session by clicking it, not something that persists across reloads (see
+   _app.tsx's own doc comment). z-index above .app-main's content but below
+   nothing else fixed-position currently exists in this app. */
+.floating-calculator-toggle {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 20;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+.floating-calculator-panel {
+  position: fixed;
+  right: 1rem;
+  bottom: 4.25rem;
+  z-index: 20;
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: min(32rem, calc(100vh - 6rem));
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  padding: 0.6rem;
+}
+.floating-calculator-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border-soft);
+  font-weight: 600;
+}

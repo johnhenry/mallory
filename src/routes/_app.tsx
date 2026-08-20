@@ -6,6 +6,7 @@ import { useSymbolicTools } from "../hooks/use-symbolic-tools.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { NAV_SECTIONS, SECTION_PATHS } from "../lib/nav-sections.ts";
 import { getWorkspaceGraph } from "../lib/workspace-graph.ts";
+import { CalculatorPanel } from "../components/CalculatorPanel.tsx";
 
 export const Route = createFileRoute("/_app")({
   component: AppShell,
@@ -49,6 +50,15 @@ export function themeLabel(theme: "light" | "dark" | null): string {
 function AppShell() {
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
   const [agentMode, setAgentMode] = useState(false);
+  // Floating cross-page calculator (issue #340): collapsed by default,
+  // session-only (not persisted to localStorage/URL) -- a page reload is a
+  // fresh start, matching the design's own "opt in per session" framing
+  // rather than something that follows the user around forever once opened
+  // once. Mounted here (a sibling of <Outlet/> below, not inside any
+  // individual route) so it survives navigation between routes for free:
+  // AppShell itself never remounts on a /_app/* route change, only
+  // <Outlet/>'s own content does.
+  const [floatingCalcOpen, setFloatingCalcOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -188,6 +198,33 @@ function AppShell() {
       <main className="app-main">
         <Outlet />
       </main>
+
+      {floatingCalcOpen && (
+        <div className="floating-calculator-panel" role="dialog" aria-label="Floating calculator">
+          <div className="floating-calculator-header">
+            <span>Calculator</span>
+            <button type="button" onClick={() => setFloatingCalcOpen(false)} aria-label="Close floating calculator" title="Close">
+              ✕
+            </button>
+          </div>
+          {/* `instanceId="floating"` (the same scoping mechanism issue #255's
+              notebook calculator block already uses) gives this its own
+              independent localStorage history and WebMCP tool names,
+              distinct from the standalone /calculator route's instance --
+              no changes to CalculatorPanel itself needed. */}
+          <CalculatorPanel instanceId="floating" />
+        </div>
+      )}
+      <button
+        type="button"
+        className="floating-calculator-toggle"
+        onClick={() => setFloatingCalcOpen((open) => !open)}
+        aria-label={floatingCalcOpen ? "Hide floating calculator" : "Show floating calculator"}
+        aria-pressed={floatingCalcOpen}
+        title="Calculator (available on every page)"
+      >
+        <span aria-hidden="true">🧮</span>
+      </button>
     </div>
   );
 }
