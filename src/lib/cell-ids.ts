@@ -53,6 +53,20 @@ export type CellIds = ReturnType<typeof cellIds>;
  * `derivative`/`structure`, since dragging a curve point, exact-mode
  * readouts, finite-structure scatter, and the derivative accordion are all
  * single-axis-variable 2D concepts that don't have a 3D analog here yet.
+ *
+ * Unlimited overlaid surfaces (#336 item 7): `list` (the ordered row-id
+ * list) and `combinedTimelineDuration` (Math.max across every row's own
+ * `timelineDuration`, for the one shared transport widget to scrub the full
+ * length of whichever row's animation is longest -- same shape
+ * Linked3DView's own `COMBINED_DURATION_CELL` already established, just
+ * generalized from 2 fixed panes to N rows) are container-level, called
+ * with the panel's own container id. Every other field -- `expr`/
+ * `freeVars`/`params`/`mesh`/`timelineDuration`/`color`/`visible`/`param`/
+ * `track` -- is per-row, called with a row id: one z=f(x,y) surface per
+ * row, each with its own expression, free-variable sliders/keyframe
+ * tracks, sampled mesh, and own-animation duration. Same "same factory,
+ * container id vs. row id" split cellIdsParametricSurface/
+ * cellIdsComplexGraph3D already use.
  */
 export function cellIds3D(cellId: string) {
   return {
@@ -61,8 +75,12 @@ export function cellIds3D(cellId: string) {
     params: `params3d:${cellId}`,
     mesh: `mesh3d:${cellId}`,
     timelineDuration: `timelineDuration3d:${cellId}`,
+    color: `color3d:${cellId}`,
+    visible: `visible3d:${cellId}`,
     param: (name: string) => `param3d:${cellId}:${name}`,
     track: (name: string) => `track3d:${cellId}:${name}`,
+    list: `list3d:${cellId}`,
+    combinedTimelineDuration: `combinedTimelineDuration3d:${cellId}`,
   };
 }
 

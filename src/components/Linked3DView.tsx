@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIds, cellIds3D } from "../lib/cell-ids.ts";
-import { Graph3DCanvas } from "./Graph3DCanvas.tsx";
+import { Graph3DCanvas, getCurrentGraph3DRows, seedGraph3DRows } from "./Graph3DCanvas.tsx";
 import { GraphCanvas } from "./GraphCanvas.tsx";
 import { decodeLinked3DState, encodeLinked3DState, type Linked3DState } from "../lib/linked3d-state.ts";
 
@@ -15,17 +15,14 @@ function getCurrentLinked3DState(graph: CellGraph, crossSectionY: number): Linke
   const names2D = graph.hasValue(ids2D.freeVars) ? graph.get<string[]>(ids2D.freeVars) : [];
   const params2D: Record<string, number> = {};
   for (const name of names2D) params2D[name] = graph.get<number>(ids2D.param(name));
-  const names3D = graph.hasValue(ids3D.freeVars) ? graph.get<string[]>(ids3D.freeVars) : [];
-  const params3D: Record<string, number> = {};
-  for (const name of names3D) params3D[name] = graph.get<number>(ids3D.param(name));
   return {
-    v: 1,
+    v: 2,
     pane2d: {
       source: graph.get<string>(ids2D.expr),
       params: params2D,
       structureModulus: graph.hasValue(ids2D.structure) ? graph.get<number | null>(ids2D.structure) : null,
     },
-    pane3d: { source: graph.get<string>(ids3D.expr), params: params3D },
+    pane3d: { rows: getCurrentGraph3DRows(graph, ids3D) },
     crossSectionY,
   };
 }
@@ -81,7 +78,12 @@ export function Linked3DView() {
     const ids3D = cellIds3D("pane-3d");
     graph.define(COMBINED_DURATION_CELL, () => {
       const a = graph.get<number>(ids2D.timelineDuration);
-      const b = graph.get<number>(ids3D.timelineDuration);
+      // Graph3DCanvas's own container-level `combinedTimelineDuration` is
+      // already the Math.max across every one of ITS rows' own durations
+      // (#336 item 7) -- this cell just folds that single number in
+      // alongside the 2D pane's, same two-value max as before the 3D pane
+      // went multi-row.
+      const b = graph.get<number>(ids3D.combinedTimelineDuration);
       return Math.max(Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : 0);
     });
     graphRef.current = graph;
@@ -97,9 +99,14 @@ export function Linked3DView() {
     const ids3D = cellIds3D("pane-3d");
     for (const [name, value] of Object.entries(decoded.pane2d.params)) graph.set(ids2D.param(name), value);
     graph.set(ids2D.structure, decoded.pane2d.structureModulus);
-    for (const [name, value] of Object.entries(decoded.pane3d.params)) graph.set(ids3D.param(name), value);
+    // Full re-seed of the 3D pane's row list (unlimited overlaid surfaces,
+    // #336 item 7) -- Graph3DCanvas's own lazy graph construction has
+    // already run by the time this effect fires (it runs during render, not
+    // an effect), seeding one default row; `seedGraph3DRows` clears that and
+    // replays `decoded.pane3d.rows` in full, same "delete then replay" shape
+    // its own doc comment documents.
+    seedGraph3DRows(graph, ids3D, decoded.pane3d.rows);
     graph.set(ids2D.expr, decoded.pane2d.source);
-    graph.set(ids3D.expr, decoded.pane3d.source);
     setCrossSectionY(decoded.crossSectionY);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
