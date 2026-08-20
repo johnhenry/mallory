@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { interiorAngleRadians, isSelfIntersecting, pointInPolygon, pointToSegmentDistance, polygonCentroid, shoelaceArea } from "./geometry.ts";
+import {
+  interiorAngleRadians,
+  isSelfIntersecting,
+  pointInPolygon,
+  pointToSegmentDistance,
+  polygonCentroid,
+  projectFractionOntoSegment,
+  shoelaceArea,
+} from "./geometry.ts";
 
 test("interiorAngleRadians reports 90 degrees for a right angle", () => {
   const a = { x: 1, y: 0 };
@@ -175,4 +183,24 @@ test("pointInPolygon: false for a point outside a triangle", () => {
   ];
   assert.equal(pointInPolygon({ x: 3, y: 3 }, triangle), false); // outside the hypotenuse
   assert.equal(pointInPolygon({ x: 1, y: 1 }, triangle), true);
+});
+
+test("projectFractionOntoSegment: 0 at a, 1 at b, 0.5 at the midpoint", () => {
+  const a = { x: 0, y: 0 };
+  const b = { x: 10, y: 0 };
+  assert.equal(projectFractionOntoSegment(a, a, b), 0);
+  assert.equal(projectFractionOntoSegment(b, a, b), 1);
+  assert.equal(projectFractionOntoSegment({ x: 5, y: 3 }, a, b), 0.5); // off-line, but projects to the midpoint
+});
+
+test("projectFractionOntoSegment: clamps to [0, 1] past either endpoint, unlike pointToSegmentDistance's internal unclamped projection", () => {
+  const a = { x: 0, y: 0 };
+  const b = { x: 10, y: 0 };
+  assert.equal(projectFractionOntoSegment({ x: -5, y: 0 }, a, b), 0);
+  assert.equal(projectFractionOntoSegment({ x: 15, y: 0 }, a, b), 1);
+});
+
+test("projectFractionOntoSegment: a degenerate segment (a === b) doesn't divide by zero", () => {
+  const a = { x: 3, y: 3 };
+  assert.equal(projectFractionOntoSegment({ x: 9, y: 9 }, a, a), 0);
 });

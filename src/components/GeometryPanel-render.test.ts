@@ -58,7 +58,7 @@ test("GeometryPanel: tool palette is split into Objects, Actions, and Select gro
   const actionLabels = radioLabels(actionsGroup as Element);
   const selectLabels = radioLabels(selectGroup as Element);
 
-  for (const t of ["point", "line", "circle", "reflect", "polygon", "angle"]) {
+  for (const t of ["point", "line", "circle", "reflect", "polygon", "angle", "anchor"]) {
     assert.ok(objectLabels.includes(t), `expected "${t}" in the Objects group, got: ${objectLabels.join(", ")}`);
   }
   for (const t of ["rotate", "translate", "scale"]) {
@@ -66,7 +66,7 @@ test("GeometryPanel: tool palette is split into Objects, Actions, and Select gro
   }
   assert.deepEqual(selectLabels, ["select"]);
   // No overlap, and no tool dropped in the split.
-  assert.equal(objectLabels.length, 6);
+  assert.equal(objectLabels.length, 7);
   assert.equal(actionLabels.length, 3);
 
   assert.equal(graph.has(listIds.objectList), true);

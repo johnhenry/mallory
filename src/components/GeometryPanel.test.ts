@@ -219,3 +219,79 @@ test("editGeometryOps: #336 item 6's IK solve path -- updates every joint in a c
   const r1Point = graph.get<{ x: number; y: number }>("geomPoint:r1");
   assert.ok(Math.abs(r1Point.x - 0) < 1e-9 && Math.abs(r1Point.y - 1) < 1e-9);
 });
+
+test("anchor: a point pinned to a circle sits at center + radius*(cos param, sin param)", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "center", x: 0, y: 0 },
+    { tool: "point", id: "rim", x: 2, y: 0 },
+    { tool: "circle", id: "c1", center: "center", radiusPoint: "rim" }, // radius 2
+    { tool: "anchor", id: "anc1", target: "c1", param: Math.PI / 2 }, // top of the circle
+  ]);
+  const p = graph.get<{ x: number; y: number }>("geomPoint:anc1");
+  assert.ok(Math.abs(p.x - 0) < 1e-9 && Math.abs(p.y - 2) < 1e-9);
+});
+
+test("anchor: a point pinned to a line sits at a + param*(b-a)", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "a", x: 0, y: 0 },
+    { tool: "point", id: "b", x: 10, y: 0 },
+    { tool: "line", id: "l1", a: "a", b: "b" },
+    { tool: "anchor", id: "anc1", target: "l1", param: 0.25 },
+  ]);
+  const p = graph.get<{ x: number; y: number }>("geomPoint:anc1");
+  assert.ok(Math.abs(p.x - 2.5) < 1e-9 && Math.abs(p.y - 0) < 1e-9);
+});
+
+test("anchor: moving the circle's OWN defining points moves the anchored point too (live, not frozen at construction)", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "center", x: 0, y: 0 },
+    { tool: "point", id: "rim", x: 1, y: 0 },
+    { tool: "circle", id: "c1", center: "center", radiusPoint: "rim" },
+    { tool: "anchor", id: "anc1", target: "c1", param: 0 }, // rightmost point, (1, 0)
+  ]);
+  assert.deepEqual(graph.get<{ x: number; y: number }>("geomPoint:anc1"), { x: 1, y: 0 });
+
+  // Translate the WHOLE circle (both its defining points, by the same
+  // delta) rather than just the center -- moving center alone would also
+  // change the radius (it's the live distance to rim, not a fixed value),
+  // which is correct circle behavior but not what this test is about.
+  graph.set("geomPoint:center", { x: 5, y: 5 });
+  graph.set("geomPoint:rim", { x: 6, y: 5 });
+
+  assert.deepEqual(graph.get<{ x: number; y: number }>("geomPoint:anc1"), { x: 6, y: 5 });
+});
+
+test("editGeometryOp: re-solving an anchor's param moves it along the same circle without touching anything else", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "center", x: 0, y: 0 },
+    { tool: "point", id: "rim", x: 1, y: 0 },
+    { tool: "circle", id: "c1", center: "center", radiusPoint: "rim" },
+    { tool: "anchor", id: "anc1", target: "c1", param: 0 },
+  ]);
+
+  editGeometryOp(graph, listIds, "anc1", { param: Math.PI } as Partial<GeometryOp>);
+
+  const p = graph.get<{ x: number; y: number }>("geomPoint:anc1");
+  assert.ok(Math.abs(p.x - -1) < 1e-9 && Math.abs(p.y - 0) < 1e-9);
+});
+
+test("deleteGeometryObject: deleting a circle cascades to delete every point anchored to it", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "center", x: 0, y: 0 },
+    { tool: "point", id: "rim", x: 1, y: 0 },
+    { tool: "circle", id: "c1", center: "center", radiusPoint: "rim" },
+    { tool: "anchor", id: "anc1", target: "c1", param: 0 },
+    { tool: "point", id: "unrelated", x: 9, y: 9 },
+  ]);
+
+  const removed = deleteGeometryObject(graph, listIds, "c1");
+
+  assert.deepEqual(removed, new Set(["c1", "anc1"]));
+  assert.equal(graph.has("geomPoint:anc1"), false);
+  assert.equal(graph.has("geomPoint:unrelated"), true, "an unrelated point survives");
+});

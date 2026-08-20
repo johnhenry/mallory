@@ -155,3 +155,22 @@ export function pointInPolygon(p: Point2D, points: Point2D[]): boolean {
   }
   return inside;
 }
+
+/**
+ * Where along segment `ab` the perpendicular projection of `p` falls, as a
+ * fraction clamped to [0, 1] (0 = exactly at `a`, 1 = exactly at `b`) --
+ * used for anchoring a point to a specific spot on a line, both to seed
+ * its initial position from a click and to re-solve that position while
+ * dragging. Clamped (not the unbounded projection `pointToSegmentDistance`
+ * computes internally) since an anchored point should stay ON the visible
+ * segment, not slide past its endpoints onto the segment's infinite
+ * extension.
+ */
+export function projectFractionOntoSegment(p: Point2D, a: Point2D, b: Point2D): number {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const lengthSq = abx * abx + aby * aby;
+  if (lengthSq === 0) return 0;
+  const t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSq;
+  return Math.max(0, Math.min(1, t));
+}
