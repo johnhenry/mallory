@@ -75,6 +75,21 @@ export interface GeometryOpPolygon {
   /** See GeometryOpLine.color's doc comment -- same "omitted means auto" convention. */
   color?: string;
 }
+/**
+ * A point anchored to a specific spot on an existing circle or line --
+ * `target` is that circle's/line's own id, `param` is an angle in radians
+ * (circle) or a 0..1 fraction along the segment (line); which one applies
+ * is derived from what `target` currently is, not stored separately.
+ * Dragging this point moves it ALONG the constraint (re-solving `param`
+ * from the drag position) rather than freely in 2D -- see
+ * GeometryPanel.tsx's `dragAnchorToTarget`.
+ */
+export interface GeometryOpAnchor {
+  tool: "anchor";
+  id: string;
+  target: string;
+  param: number;
+}
 
 export type GeometryOp =
   | GeometryOpPoint
@@ -85,7 +100,8 @@ export type GeometryOp =
   | GeometryOpTranslation
   | GeometryOpScale
   | GeometryOpAngle
-  | GeometryOpPolygon;
+  | GeometryOpPolygon
+  | GeometryOpAnchor;
 
 export interface GeometryStateV1 {
   v: 1;
@@ -140,6 +156,8 @@ function isGeometryOp(value: unknown): value is GeometryOp {
       return isString(op.a) && isString(op.vertex) && isString(op.c);
     case "polygon":
       return Array.isArray(op.points) && op.points.every(isString) && (op.color === undefined || isString(op.color));
+    case "anchor":
+      return isString(op.target) && isNumber(op.param);
     default:
       return false;
   }

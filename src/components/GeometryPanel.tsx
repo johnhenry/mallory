@@ -5,7 +5,15 @@ import { AlgebraView } from "./AlgebraView.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { CellGraph } from "../lib/cell-graph.ts";
-import { interiorAngleRadians, isSelfIntersecting, pointInPolygon, pointToSegmentDistance, polygonCentroid, shoelaceArea } from "../lib/geometry.ts";
+import {
+  interiorAngleRadians,
+  isSelfIntersecting,
+  pointInPolygon,
+  pointToSegmentDistance,
+  polygonCentroid,
+  projectFractionOntoSegment,
+  shoelaceArea,
+} from "../lib/geometry.ts";
 import { deriveIKChain, solveIKChainCCD, type IKJointSpec } from "../lib/ik-chain.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
@@ -89,7 +97,7 @@ interface PolygonRecord {
   points: string[];
 }
 
-type Tool = "point" | "line" | "circle" | "reflect" | "rotate" | "translate" | "scale" | "angle" | "polygon" | "select";
+type Tool = "point" | "line" | "circle" | "reflect" | "rotate" | "translate" | "scale" | "angle" | "polygon" | "anchor" | "select";
 
 /**
  * Tool palette groups (issue #252): "objects" are one-click-per-point
@@ -117,7 +125,7 @@ type Tool = "point" | "line" | "circle" | "reflect" | "rotate" | "translate" | "
  * construct a new dependent-value object" tools) rather than with the
  * point-producing transforms.
  */
-const OBJECT_TOOLS = ["point", "line", "circle", "reflect", "polygon", "angle"] as const satisfies readonly Tool[];
+const OBJECT_TOOLS = ["point", "line", "circle", "reflect", "polygon", "angle", "anchor"] as const satisfies readonly Tool[];
 const ACTION_TOOLS = ["rotate", "translate", "scale"] as const satisfies readonly Tool[];
 /** #336 item 1: its own group rather than folded into Objects/Actions -- Select is a distinct MODE (click toggles membership in a multi-select set instead of building anything), not another one-click-per-point construction or typed-parameter action. */
 const SELECT_TOOLS = ["select"] as const satisfies readonly Tool[];
@@ -174,6 +182,9 @@ export function replayGeometryOps(graph: CellGraph, listIds: CellIdsGeometry, op
         break;
       case "polygon":
         addPolygon(graph, listIds, op.points, op.id, op.color);
+        break;
+      case "anchor":
+        addAnchor(graph, listIds, op.target, op.param, op.id);
         break;
     }
   }
@@ -272,7 +283,15 @@ export function recolorGeometryObject(graph: CellGraph, listIds: CellIdsGeometry
   graph.set(listIds.opsLog, ops, { auxiliary: true });
 }
 
-/** Every point id an op directly reads -- every op type's reference fields point at point ids only (never at another line/circle/polygon/angle id), so this is the sole primitive `computeCascadeDeleteIds` needs to walk the whole dependency graph. */
+/**
+ * Every id an op directly reads -- every op type's reference fields point
+ * at point ids, EXCEPT `anchor`, whose `target` is a circle's or line's
+ * own id (the one exception to the "only point ids" rule this function's
+ * name still describes for every other op type; `computeCascadeDeleteIds`
+ * doesn't care what TYPE a referenced id is, only whether it's being
+ * deleted, so returning a non-point id here is enough for a deleted
+ * circle/line to correctly cascade-delete any point anchored to it).
+ */
 function referencedPointIds(op: GeometryOp): string[] {
   switch (op.tool) {
     case "point":
@@ -291,6 +310,8 @@ function referencedPointIds(op: GeometryOp): string[] {
       return [op.a, op.vertex, op.c];
     case "polygon":
       return [...op.points];
+    case "anchor":
+      return [op.target];
   }
 }
 
@@ -649,6 +670,61 @@ function nearestObjectId(graph: CellGraph, listIds: CellIdsGeometry, x: number, 
   return best;
 }
 
+/** Circle/line hits only (no points, no polygons) -- the anchor tool's own click target, a click on empty space or on a point/polygon is a miss. */
+function nearestCircleOrLineId(graph: CellGraph, listIds: CellIdsGeometry, x: number, y: number, maxDistance: number): string | null {
+  let best: string | null = null;
+  let bestDist = maxDistance;
+  for (const id of graph.get<string[]>(listIds.objectList)) {
+    if (graph.has(lineCellId(id))) {
+      const { a, b } = graph.get<LineRecord>(lineCellId(id));
+      const d = pointToSegmentDistance({ x, y }, graph.get<PointRecord>(pointCellId(a)), graph.get<PointRecord>(pointCellId(b)));
+      if (d < bestDist) {
+        bestDist = d;
+        best = id;
+      }
+    } else if (graph.has(circleCellId(id))) {
+      const { center } = graph.get<CircleRecord>(circleCellId(id));
+      const pc = graph.get<PointRecord>(pointCellId(center));
+      const radius = graph.get<number>(radiusCellId(id));
+      const d = Math.abs(Math.hypot(pc.x - x, pc.y - y) - radius);
+      if (d < bestDist) {
+        bestDist = d;
+        best = id;
+      }
+    }
+  }
+  return best;
+}
+
+/** The nearest currently-anchored point within `maxDistance` -- checked separately from `nearestPointId`'s free-point check, since an anchored point is a dependent (`graph.define`d) cell, deliberately excluded from ordinary free-point dragging. */
+function nearestAnchorPointId(graph: CellGraph, listIds: CellIdsGeometry, x: number, y: number, maxDistance: number): string | null {
+  let best: string | null = null;
+  let bestDist = maxDistance;
+  for (const op of getCurrentGeometryState(graph, listIds).ops) {
+    if (op.tool !== "anchor" || !graph.has(pointCellId(op.id))) continue;
+    const p = graph.get<PointRecord>(pointCellId(op.id));
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = op.id;
+    }
+  }
+  return best;
+}
+
+/** Computes the `param` (angle for a circle target, clamped 0..1 fraction for a line target) that puts an anchored point as close as possible to `(x, y)` -- shared by the anchor tool's click-to-create flow and drag-to-reposition. */
+function anchorParamForPosition(graph: CellGraph, target: string, x: number, y: number): number {
+  if (graph.has(circleCellId(target))) {
+    const { center } = graph.get<CircleRecord>(circleCellId(target));
+    const c = graph.get<PointRecord>(pointCellId(center));
+    return Math.atan2(y - c.y, x - c.x);
+  }
+  const { a, b } = graph.get<LineRecord>(lineCellId(target));
+  const pa = graph.get<PointRecord>(pointCellId(a));
+  const pb = graph.get<PointRecord>(pointCellId(b));
+  return projectFractionOntoSegment({ x, y }, pa, pb);
+}
+
 function addPoint(graph: CellGraph, listIds: CellIdsGeometry, x: number, y: number, id: string = crypto.randomUUID()): string {
   graph.set(pointCellId(id), { x, y });
   pushObject(graph, listIds, id);
@@ -796,6 +872,37 @@ function addPolygon(graph: CellGraph, listIds: CellIdsGeometry, points: string[]
   pushOp(graph, listIds, color !== undefined ? { tool: "polygon", id, points, color } : { tool: "polygon", id, points });
 }
 
+/**
+ * A point pinned to a specific spot on an existing circle or line --
+ * `param` is an angle in radians (circle) or a 0..1 fraction along the
+ * segment (line), read live off `target`'s CURRENT geometry, so it moves
+ * correctly if the circle/line's own defining points move. Which
+ * interpretation applies is derived from what `target` currently is
+ * (`graph.has(circleCellId(target))` vs `lineCellId(target)`), not stored
+ * separately -- an anchor can't outlive its target anyway (deleting the
+ * target cascades to delete every point anchored to it, see
+ * `referencedPointIds`'s "anchor" case).
+ */
+function addAnchor(graph: CellGraph, listIds: CellIdsGeometry, target: string, param: number, id: string = crypto.randomUUID()): void {
+  graph.define(pointCellId(id), (): PointRecord => {
+    if (graph.has(circleCellId(target))) {
+      const { center } = graph.get<CircleRecord>(circleCellId(target));
+      const c = graph.get<PointRecord>(pointCellId(center));
+      const radius = graph.get<number>(radiusCellId(target));
+      return { x: c.x + radius * Math.cos(param), y: c.y + radius * Math.sin(param) };
+    }
+    if (graph.has(lineCellId(target))) {
+      const { a, b } = graph.get<LineRecord>(lineCellId(target));
+      const pa = graph.get<PointRecord>(pointCellId(a));
+      const pb = graph.get<PointRecord>(pointCellId(b));
+      return { x: pa.x + param * (pb.x - pa.x), y: pa.y + param * (pb.y - pa.y) };
+    }
+    throw new Error("An anchor's target must be an existing circle or line.");
+  });
+  pushObject(graph, listIds, id);
+  pushOp(graph, listIds, { tool: "anchor", id, target, param });
+}
+
 export interface GeometryPanelProps {
   /** Share an existing CellGraph (e.g. from a notebook block) instead of creating a private one. */
   graph?: CellGraph;
@@ -907,7 +1014,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   // being a no-op"), not new geometry, so it lives here alongside
   // pending/selected rather than in opsLog.
   const [ikChain, setIkChain] = useState<string[] | null>(null);
-  const dragRef = useRef<{ id: string; moved: boolean; startSx: number; startSy: number; kind: "free" | "solve" } | null>(null);
+  const dragRef = useRef<{ id: string; moved: boolean; startSx: number; startSy: number; kind: "free" | "solve" | "anchor" } | null>(null);
 
   useCellGraphTools(toolPrefix, graph);
 
@@ -1101,6 +1208,27 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
     },
   });
 
+  useModelContextTool({
+    name: `${toolPrefix}_add_anchor`,
+    description:
+      "Pin a point to a specific spot on an existing circle or line (by id) -- an angle in radians for a circle, or a 0..1 fraction along the segment for a line. Returns the new point's id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target: { type: "string", description: "An existing circle or line's id." },
+        param: { type: "number", description: "Angle in radians (circle) or 0..1 fraction along the segment (line)." },
+      },
+      required: ["target", "param"],
+    },
+    handler: (input: Record<string, unknown>) => {
+      const target = String(input.target);
+      if (!graph.has(circleCellId(target)) && !graph.has(lineCellId(target))) throw new Error(`"${target}" is not an existing circle or line.`);
+      const id = crypto.randomUUID();
+      addAnchor(graph, listIds, target, Number(input.param), id);
+      return { id };
+    },
+  });
+
   function dataCoordsFromEvent(e: PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
     const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
     return { x: toDataX(sx, VIEWPORT, WIDTH), y: toDataY(sy, VIEWPORT, HEIGHT) };
@@ -1225,8 +1353,19 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
           const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
           dragRef.current = { id: endEffectorId, moved: false, startSx: sx, startSy: sy, kind: "solve" };
           e.currentTarget.setPointerCapture(e.pointerId);
+          return;
         }
       }
+    }
+    // An anchored point is otherwise a plain dependent point too, same
+    // deliberate exception as the IK end effector above -- but this one
+    // always works, regardless of any tool or designated chain, since an
+    // anchor's whole point is being draggable along its constraint.
+    const anchorHit = nearestAnchorPointId(graph, listIds, x, y, currentHitDataRadius());
+    if (anchorHit) {
+      const { sx, sy } = canvasEventPoint(e, e.currentTarget, WIDTH, HEIGHT);
+      dragRef.current = { id: anchorHit, moved: false, startSx: sx, startSy: sy, kind: "anchor" };
+      e.currentTarget.setPointerCapture(e.pointerId);
     }
   }
 
@@ -1249,7 +1388,16 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
     }
     const { x, y } = dataCoordsFromEvent(e);
     if (drag.kind === "solve") solveIKChainToTarget(x, y);
+    else if (drag.kind === "anchor") dragAnchorToTarget(drag.id, x, y);
     else graph.set(pointCellId(drag.id), { x, y });
+  }
+
+  /** Re-solves an anchored point's `param` from the drag cursor's position, via the same clear-and-replay `editGeometryOp` uses -- so it's undoable for free, same as every other op edit. */
+  function dragAnchorToTarget(anchorId: string, x: number, y: number) {
+    const op = getCurrentGeometryState(graph, listIds).ops.find((o) => o.id === anchorId);
+    if (!op || op.tool !== "anchor") return; // the target (or the anchor itself) was deleted mid-drag
+    if (!graph.has(circleCellId(op.target)) && !graph.has(lineCellId(op.target))) return;
+    editGeometryOp(graph, listIds, anchorId, { param: anchorParamForPosition(graph, op.target, x, y) } as Partial<GeometryOp>);
   }
 
   function handlePointerUp(e: PointerEvent<HTMLCanvasElement>) {
@@ -1268,6 +1416,12 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       const hit = nearestObjectId(graph, listIds, x, y, currentHitDataRadius());
       if (hit) toggleSelected(hit);
       else setSelected(new Set()); // empty click clears the selection
+      return;
+    }
+    if (tool === "anchor") {
+      const target = nearestCircleOrLineId(graph, listIds, x, y, currentHitDataRadius());
+      if (target) addAnchor(graph, listIds, target, anchorParamForPosition(graph, target, x, y));
+      // a miss (empty space, or a point/polygon) is a no-op -- an anchor needs a circle or line to attach to
       return;
     }
     const hit = nearestPointId(graph, listIds, x, y, currentHitDataRadius());
@@ -1381,6 +1535,8 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         : `${selected.size} selected -- click to add/remove, or click empty space to clear.`
       : tool === "point"
       ? "Click empty space to place a point, or drag an existing one."
+      : tool === "anchor"
+      ? "Click on an existing circle or line to pin a point there -- it'll stay on that circle/line, draggable only along it."
       : tool === "translate"
         ? "Click a point to translate it by (dx, dy)."
         : tool === "angle"
