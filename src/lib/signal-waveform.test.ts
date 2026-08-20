@@ -200,3 +200,15 @@ test("findSpectrumPeaks: an amplitude array with no local maxima returns no peak
   const spectrum = { frequencies: [0, 1, 2, 3], amplitudes: [0, 1, 2, 3] }; // monotonically increasing, no interior peak
   assert.deepEqual(findSpectrumPeaks(spectrum), []);
 });
+
+test("findSpectrumPeaks: zero-amplitude bins are never peaks, even with no thresholds at all (#313)", () => {
+  // A flat-zero spectrum with two real tones -- raw findPeaks with default
+  // (all-undefined) options used to report zero bins as peaks.
+  const spectrum = {
+    frequencies: [0, 1, 2, 3, 4, 5, 6],
+    amplitudes: [0, 0, 1, 0, 0.5, 0, 0],
+  };
+  const peaks = findSpectrumPeaks(spectrum);
+  assert.ok(peaks.length >= 1);
+  for (const p of peaks) assert.ok(p.amplitude > 0, `zero-amplitude bin at ${p.frequency}Hz reported as a peak`);
+});
