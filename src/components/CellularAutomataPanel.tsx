@@ -1,3 +1,4 @@
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -42,11 +43,13 @@ import {
 } from "../lib/ca/totalistic-3d.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsCellularAutomata, TIME_CELL, type CellIdsCellularAutomata } from "../lib/cell-ids.ts";
+import { startCa2dExportJob, startCa3dExportJob } from "../lib/export-ca-video.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
+import { VideoExportControls } from "./VideoExportControls.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -724,6 +727,8 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
   const spacetime3dResult = useCell<Result<Spacetime3D>>(graph, ids.spacetime3dResult);
 
   const time = useCell<number>(graph, TIME_CELL);
+  const startCa2dExportJobFn = useServerFn(startCa2dExportJob);
+  const startCa3dExportJobFn = useServerFn(startCa3dExportJob);
   const [bsRuleInput, setBsRuleInput] = useState(bsRule);
   useEffect(() => setBsRuleInput(bsRule), [bsRule]);
   const [rule3dInput, setRule3dInput] = useState(rule3d);
@@ -1148,6 +1153,26 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
               <p style={{ fontSize: "0.85rem", color: "var(--muted)" }} aria-live="polite">
                 Generation {currentGeneration} of {spacetime2dResult.value.length - 1}
               </p>
+              <VideoExportControls
+                filenameStem="mallory-graph-ca-life-like"
+                start={(format, videoDuration) =>
+                  startCa2dExportJobFn({
+                    data: {
+                      bsRule,
+                      width: width2d,
+                      height: height2d,
+                      boundary: boundary2d,
+                      initial: initial2d,
+                      seed: seed2d,
+                      density: density2d,
+                      customGrid: customGrid2d,
+                      generations: generations2d,
+                      duration: videoDuration,
+                      format,
+                    },
+                  })
+                }
+              />
             </>
           )}
 
@@ -1265,6 +1290,25 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
               <p style={{ fontSize: "0.85rem", color: "var(--muted)" }} aria-live="polite">
                 Generation {currentGeneration3d} of {spacetime3dResult.value.length - 1}
               </p>
+              <VideoExportControls
+                filenameStem="mallory-graph-ca-totalistic-3d"
+                start={(format, videoDuration) =>
+                  startCa3dExportJobFn({
+                    data: {
+                      rule: rule3d,
+                      width: width3d,
+                      height: height3d,
+                      depth: depth3d,
+                      boundary: boundary3d,
+                      seed: seed3d,
+                      density: density3d,
+                      generations: generations3d,
+                      duration: videoDuration,
+                      format,
+                    },
+                  })
+                }
+              />
             </>
           )}
         </>
