@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { stepLabel, tileColor } from "./TilesPanel.tsx";
+import { compoundStepLabel, stepLabel, tileColor } from "./TilesPanel.tsx";
 
 test("tileColor: the same tile id always produces the same color", () => {
   assert.equal(tileColor("A"), tileColor("A"));
@@ -20,4 +20,12 @@ test("stepLabel: a non-contradiction step reads as a placement at its (row, col)
 
 test("stepLabel: a contradiction step reads as a backtrack at its (row, col)", () => {
   assert.equal(stepLabel({ grid: [], row: 1, col: 0, contradiction: true }), "Backtrack at (1, 0)");
+});
+
+test("compoundStepLabel: a non-contradiction step names the placed tile and its anchor", () => {
+  assert.equal(compoundStepLabel({ grid: [], anchorRow: 2, anchorCol: 3, tileId: "AB", contradiction: false }), 'Place tile "AB" at anchor (2, 3)');
+});
+
+test("compoundStepLabel: a contradiction step reads as a backtrack at its anchor", () => {
+  assert.equal(compoundStepLabel({ grid: [], anchorRow: 1, anchorCol: 0, tileId: null, contradiction: true }), "Backtrack at anchor (1, 0)");
 });
