@@ -138,7 +138,6 @@ export type CellIdsSpaceCurve = ReturnType<typeof cellIdsSpaceCurve>;
 export function cellIdsComplexGraph3D(cellId: string) {
   return {
     yExpr: `complexGraph3dYExpr:${cellId}`,
-    drop: `complexGraph3dDrop:${cellId}`,
     axisX: `complexGraph3dAxisX:${cellId}`,
     axisY: `complexGraph3dAxisY:${cellId}`,
     axisZ: `complexGraph3dAxisZ:${cellId}`,

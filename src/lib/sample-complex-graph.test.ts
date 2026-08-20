@@ -1,24 +1,52 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isValidCurveAxisAssignment, sampleComplexGraphCurve, type ComplexGraphAxisAssignment } from "./sample-complex-graph.ts";
+import {
+  droppedComponent,
+  isValidAxisTriple,
+  isValidCurveAxisAssignment,
+  sampleComplexGraphCurve,
+  type ComplexGraphAxisAssignment,
+} from "./sample-complex-graph.ts";
 
-test("isValidCurveAxisAssignment: accepts a well-formed assignment dropping Im(x)", () => {
-  const assignment: ComplexGraphAxisAssignment = { drop: "imX", x: "reX", y: "reY", z: "imY" };
+test("isValidCurveAxisAssignment: accepts a well-formed assignment implicitly dropping Im(x)", () => {
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "reY", z: "imY" };
   assert.equal(isValidCurveAxisAssignment(assignment), true);
 });
 
-test("isValidCurveAxisAssignment: rejects dropping a range component (that's the surface case, not curve)", () => {
-  const assignment: ComplexGraphAxisAssignment = { drop: "reY", x: "reX", y: "imX", z: "imY" };
+test("isValidCurveAxisAssignment: rejects an assignment that would drop a range component (that's the surface case, not curve)", () => {
+  // Both reX and imX assigned -> the omitted 4th component is reY, a range component.
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "imX", z: "imY" };
   assert.equal(isValidCurveAxisAssignment(assignment), false);
 });
 
 test("isValidCurveAxisAssignment: rejects a repeated component", () => {
-  const assignment: ComplexGraphAxisAssignment = { drop: "imX", x: "reX", y: "reY", z: "reY" };
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "reY", z: "reY" };
   assert.equal(isValidCurveAxisAssignment(assignment), false);
 });
 
+test("droppedComponent: reports the one component not assigned to any axis", () => {
+  assert.equal(droppedComponent({ x: "reX", y: "reY", z: "imY" }), "imX");
+  assert.equal(droppedComponent({ x: "imX", y: "reY", z: "imY" }), "reX");
+});
+
+test("droppedComponent: null for a not-yet-valid (duplicate) mid-edit assignment", () => {
+  assert.equal(droppedComponent({ x: "reX", y: "reX", z: "reY" }), null);
+});
+
+test("isValidAxisTriple: the UI's own per-option disabling check -- would picking `c` alongside `a`,`b` be valid", () => {
+  // a=Re(x), b=Re(y) already chosen: Im(x) would leave BOTH domain
+  // components used (invalid, surface-shaped); Im(y) is the only valid pick.
+  assert.equal(isValidAxisTriple("reX", "reY", "imX"), false);
+  assert.equal(isValidAxisTriple("reX", "reY", "imY"), true);
+  // a=Re(y), b=Im(y) already chosen (both range): either domain component works.
+  assert.equal(isValidAxisTriple("reY", "imY", "reX"), true);
+  assert.equal(isValidAxisTriple("reY", "imY", "imX"), true);
+  // order independence
+  assert.equal(isValidAxisTriple("imY", "reX", "reY"), true);
+});
+
 test("sampleComplexGraphCurve throws for an invalid (surface-shaped) assignment rather than silently sampling garbage", () => {
-  const assignment: ComplexGraphAxisAssignment = { drop: "reY", x: "reX", y: "imX", z: "imY" };
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "imX", z: "imY" };
   assert.throws(() => sampleComplexGraphCurve("x", assignment, { min: 0, max: 1 }));
 });
 
@@ -26,7 +54,7 @@ test("sampleComplexGraphCurve: y = e^(i*x) with axes {Re(x)=t, Re(y), Im(y)} tra
   // e^(i*t) = cos(t) + i*sin(t): a unit circle in the (Re y, Im y) plane
   // while t itself runs along the x axis -- exactly the spiral the issue
   // describes, hand-verified at a few sample points below.
-  const assignment: ComplexGraphAxisAssignment = { drop: "imX", x: "reX", y: "reY", z: "imY" };
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "reY", z: "imY" };
   const points = sampleComplexGraphCurve("exp(i*x)", assignment, { min: 0, max: 2 * Math.PI }, 360);
 
   assert.ok(points.length > 300, "expects a fully-sampled curve (no unexpected poles)");
@@ -48,9 +76,9 @@ test("sampleComplexGraphCurve: y = e^(i*x) with axes {Re(x)=t, Re(y), Im(y)} tra
   assert.ok(Math.abs(quarterPoint.z - 1) < 1e-3);
 });
 
-test("sampleComplexGraphCurve: dropping Re(x) instead sweeps Im(x) as the free parameter", () => {
+test("sampleComplexGraphCurve: implicitly dropping Re(x) instead sweeps Im(x) as the free parameter", () => {
   // x = i*t (pure imaginary), y = x^2 = -t^2 -- real-valued and negative for t != 0.
-  const assignment: ComplexGraphAxisAssignment = { drop: "reX", x: "imX", y: "reY", z: "imY" };
+  const assignment: ComplexGraphAxisAssignment = { x: "imX", y: "reY", z: "imY" };
   const points = sampleComplexGraphCurve("x^2", assignment, { min: 1, max: 2 }, 10);
   assert.ok(points.length > 0);
   for (const p of points) {
@@ -61,7 +89,7 @@ test("sampleComplexGraphCurve: dropping Re(x) instead sweeps Im(x) as the free p
 
 test("sampleComplexGraphCurve: a pole is skipped, not fatal to the rest of the curve", () => {
   // y = 1/x has a pole exactly at x=0, which sits inside t in [-1, 1].
-  const assignment: ComplexGraphAxisAssignment = { drop: "imX", x: "reX", y: "reY", z: "imY" };
+  const assignment: ComplexGraphAxisAssignment = { x: "reX", y: "reY", z: "imY" };
   const points = sampleComplexGraphCurve("1/x", assignment, { min: -1, max: 1 }, 20);
   assert.ok(points.length > 0, "expects most samples to still succeed");
   assert.ok(points.length < 21, "expects at least the exact pole sample to be skipped");
