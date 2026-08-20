@@ -1,5 +1,5 @@
-import { type PointerEvent, useEffect, useRef, useState } from "react";
-import { type AngleUnit, angleUnitSuffix, formatAngle, getAngleUnit, setAngleUnit, subscribeToAngleUnit, unitToDegrees } from "../lib/angle-unit.ts";
+import { type PointerEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type AngleUnit, angleUnitSuffix, formatAngle, getAngleUnit, radiansToUnit, setAngleUnit, subscribeToAngleUnit, unitToDegrees, unitToRadians } from "../lib/angle-unit.ts";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
@@ -20,6 +20,9 @@ import {
   decodeGeometryState,
   encodeGeometryState,
   type GeometryOp,
+  type GeometryOpRotation,
+  type GeometryOpScale,
+  type GeometryOpTranslation,
   type GeometryState,
 } from "../lib/geometry-state.ts";
 
@@ -200,6 +203,127 @@ function clearGeometryState(graph: CellGraph, listIds: CellIdsGeometry): void {
 export function applyGeometryState(graph: CellGraph, listIds: CellIdsGeometry, state: GeometryState): void {
   clearGeometryState(graph, listIds);
   replayGeometryOps(graph, listIds, state.ops);
+}
+
+/**
+ * #336 item 4: a transform's op-log entry is the only place its numeric
+ * parameters live -- `addRotation`/`addTranslate`/`addScale` bake them into
+ * a `graph.define` closure at construction time, so mutating the op alone
+ * wouldn't move the already-defined dependent point. Reusing
+ * `applyGeometryState`'s full clear-and-replay (the same mechanism undo/
+ * redo and hash-hydration already rely on) is what actually re-derives
+ * every downstream cell against the new parameter -- more work than a
+ * targeted single-cell update, but geometry construction logs are small
+ * (an interactive tool, not a bulk import), so the O(n) rebuild is cheap,
+ * and it's guaranteed correct for however deep the dependency chain runs.
+ * Reusing the existing subscribeAll-driven undo recording for free: this
+ * flows through the same graph.set calls applyGeometryState always did, so
+ * an edit is itself undoable with no extra wiring.
+ */
+export function editGeometryOp(graph: CellGraph, listIds: CellIdsGeometry, opId: string, patch: Partial<GeometryOp>): void {
+  const current = getCurrentGeometryState(graph, listIds);
+  const ops = current.ops.map((op) => (op.id === opId ? ({ ...op, ...patch } as GeometryOp) : op));
+  applyGeometryState(graph, listIds, { v: 1, ops });
+}
+
+/** A short, stable-enough label for a point id in this editor -- its 1-based position in construction order (points have no user-facing name anywhere else in this panel either). Falls back to a truncated id if somehow not in the object list (shouldn't happen for a live reference). */
+function pointLabel(graph: CellGraph, listIds: CellIdsGeometry, id: string): string {
+  const index = graph.get<string[]>(listIds.objectList).indexOf(id);
+  return index >= 0 ? `point ${index + 1}` : id.slice(0, 6);
+}
+
+/**
+ * #336 item 4: rotation/translation/scale ops carry the only editable
+ * numeric parameters this panel has (angle, dx/dy, factor) -- everything
+ * else about an object (which points it references) is fixed at
+ * construction. Lists every such op with a live-editable input, applying
+ * through `editGeometryOp` on change (debounced so a drag/type doesn't
+ * fire a full rebuild per keystroke).
+ *
+ * Subscribes narrowly to `listIds.opsLog` (not the whole graph, unlike
+ * `AlgebraView`) since that's the one cell this editor's own list depends
+ * on -- `graph.subscribeMany` fires only on an actual write to that id.
+ */
+function TransformParamsEditor({ graph, listIds, angleUnit }: { graph: CellGraph; listIds: CellIdsGeometry; angleUnit: AngleUnit }) {
+  const ops = useSyncExternalStore(
+    useCallback((onChange) => graph.subscribeMany([listIds.opsLog], onChange), [graph, listIds.opsLog]),
+    () => graph.get<GeometryOp[]>(listIds.opsLog),
+    () => graph.get<GeometryOp[]>(listIds.opsLog),
+  );
+  const editable = ops.filter((op): op is GeometryOpRotation | GeometryOpTranslation | GeometryOpScale =>
+    op.tool === "rotation" || op.tool === "translation" || op.tool === "scale",
+  );
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function debouncedEdit(opId: string, patch: Partial<GeometryOp>) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => editGeometryOp(graph, listIds, opId, patch), 200);
+  }
+
+  if (editable.length === 0) return null;
+  return (
+    <div style={{ margin: "0.5rem 0" }}>
+      <div style={{ fontWeight: 600, fontSize: "0.85rem", marginBottom: "0.25rem" }}>Adjust transforms</div>
+      <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.85rem" }}>
+        {editable.map((op) => (
+          <li key={op.id} style={{ margin: "0.2rem 0" }}>
+            {op.tool === "rotation" && (
+              <label>
+                Rotation of {pointLabel(graph, listIds, op.source)} around {pointLabel(graph, listIds, op.center)}, angle (
+                {angleUnitSuffix(angleUnit).trim() || "rad"}):{" "}
+                <input
+                  type="number"
+                  defaultValue={radiansToUnit(unitToRadians(op.angleDegrees, "degrees"), angleUnit)}
+                  onChange={(e) => {
+                    const typed = Number(e.target.value);
+                    if (Number.isFinite(typed)) debouncedEdit(op.id, { angleDegrees: unitToDegrees(typed, angleUnit) } as Partial<GeometryOp>);
+                  }}
+                  style={{ font: "inherit", width: "6ch" }}
+                />
+              </label>
+            )}
+            {op.tool === "translation" && (
+              <label>
+                Translation of {pointLabel(graph, listIds, op.source)}, dx:{" "}
+                <input
+                  type="number"
+                  defaultValue={op.dx}
+                  onChange={(e) => {
+                    const typed = Number(e.target.value);
+                    if (Number.isFinite(typed)) debouncedEdit(op.id, { dx: typed } as Partial<GeometryOp>);
+                  }}
+                  style={{ font: "inherit", width: "6ch" }}
+                />{" "}
+                dy:{" "}
+                <input
+                  type="number"
+                  defaultValue={op.dy}
+                  onChange={(e) => {
+                    const typed = Number(e.target.value);
+                    if (Number.isFinite(typed)) debouncedEdit(op.id, { dy: typed } as Partial<GeometryOp>);
+                  }}
+                  style={{ font: "inherit", width: "6ch" }}
+                />
+              </label>
+            )}
+            {op.tool === "scale" && (
+              <label>
+                Scale of {pointLabel(graph, listIds, op.source)} from {pointLabel(graph, listIds, op.center)}, factor:{" "}
+                <input
+                  type="number"
+                  defaultValue={op.factor}
+                  onChange={(e) => {
+                    const typed = Number(e.target.value);
+                    if (Number.isFinite(typed)) debouncedEdit(op.id, { factor: typed } as Partial<GeometryOp>);
+                  }}
+                  style={{ font: "inherit", width: "6ch" }}
+                />
+              </label>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 /**
@@ -972,6 +1096,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
         />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{hint}</p>
+      <TransformParamsEditor graph={graph} listIds={listIds} angleUnit={angleUnit} />
       <div style={{ margin: "0.5rem 0" }}>
         <AlgebraView graph={graph} />
       </div>
