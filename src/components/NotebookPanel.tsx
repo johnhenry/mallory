@@ -859,6 +859,31 @@ export function NotebookPanel() {
   });
 
   useModelContextTool({
+    name: "notebook_add_curve_transform_block",
+    description:
+      'Append a numeric derivative/integral/difference block, computed from one or two previously-published curve names (a graph row\'s own "name" field) -- issue #338, filling a gap where this block type had a UI button but no WebMCP tool.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        curveName: { type: "string", description: "A previously-published curve's name (a graph row's own \"name\" field)." },
+        op: { type: "string", enum: ["derivative", "integral", "difference"] },
+        curveName2: { type: "string", description: 'Only meaningful for op: "difference" -- the second published curve name.' },
+      },
+      required: ["curveName", "op"],
+    },
+    handler: (input: Record<string, unknown>) => {
+      const op = input.op;
+      if (op !== "derivative" && op !== "integral" && op !== "difference") throw new Error('op must be "derivative", "integral", or "difference".');
+      const id = crypto.randomUUID();
+      setBlocks((prev) => [
+        ...prev,
+        { id, type: "curve-transform", initialCurveName: String(input.curveName ?? ""), initialOp: op, initialCurveName2: String(input.curveName2 ?? "") },
+      ]);
+      return { id };
+    },
+  });
+
+  useModelContextTool({
     name: "notebook_add_value_block",
     description: 'Append a named value block, referenceable by name (e.g. "k") from any graph block\'s expressions in this notebook. Name must be a single lowercase letter other than x/y (this app\'s expression parser splits any longer name into single-letter variables multiplied together).',
     inputSchema: {
