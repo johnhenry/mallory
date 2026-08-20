@@ -1,4 +1,13 @@
-import { isComplexStateV1, isComplexStateV2, isComplexStateV3, upgradeComplexV1ToV2, upgradeComplexV2ToV3, type ComplexState } from "./complex-state.ts";
+import {
+  isComplexStateV1,
+  isComplexStateV2,
+  isComplexStateV3,
+  isComplexStateV4,
+  upgradeComplexV1ToV2,
+  upgradeComplexV2ToV3,
+  upgradeComplexV3ToV4,
+  type ComplexState,
+} from "./complex-state.ts";
 import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 import { isGeometryStateV1, type GeometryState } from "./geometry-state.ts";
 import { TENSOR_OP_LABELS, type TensorOpType } from "./tensor-block.ts";
@@ -199,8 +208,9 @@ function upgradeNotebookBlock(block: NotebookBlockStateV1): NotebookBlockStateV1
   if (block.type === "regression" && isRegressionStateV1(block.state)) return { ...block, state: upgradeRegressionV1ToV2(block.state) };
   if (block.type === "statistics" && isStatisticsStateV1(block.state)) return { ...block, state: upgradeStatisticsV1ToV2(block.state) };
   if (block.type === "complex") {
-    if (isComplexStateV1(block.state)) return { ...block, state: upgradeComplexV2ToV3(upgradeComplexV1ToV2(block.state)) };
-    if (isComplexStateV2(block.state)) return { ...block, state: upgradeComplexV2ToV3(block.state) };
+    if (isComplexStateV1(block.state)) return { ...block, state: upgradeComplexV3ToV4(upgradeComplexV2ToV3(upgradeComplexV1ToV2(block.state))) };
+    if (isComplexStateV2(block.state)) return { ...block, state: upgradeComplexV3ToV4(upgradeComplexV2ToV3(block.state)) };
+    if (isComplexStateV3(block.state)) return { ...block, state: upgradeComplexV3ToV4(block.state) };
   }
   return block;
 }
@@ -255,10 +265,12 @@ function isNotebookBlockStateV1(value: unknown): value is NotebookBlockStateV1 {
   if (b.type === "statistics") return isStatisticsStateV1(b.state) || isStatisticsStateV2(b.state);
   if (b.type === "systems") return isSystemStateV1(b.state);
   if (b.type === "geometry") return isGeometryStateV1(b.state);
-  // ComplexState is now v3 -- v1/v2 stay accepted so a complex block saved
-  // before those bumps still decodes (upgraded to v3 by upgradeNotebookBlock
+  // ComplexState is now v4 (#336 item 7, unlimited functions) -- v1/v2/v3
+  // stay accepted so a complex block saved before those bumps still decodes
+  // (upgraded to v4 by upgradeNotebookBlock
   // before NotebookComplexBlock hands it to seedComplexState).
-  if (b.type === "complex") return isComplexStateV1(b.state) || isComplexStateV2(b.state) || isComplexStateV3(b.state);
+  if (b.type === "complex")
+    return isComplexStateV1(b.state) || isComplexStateV2(b.state) || isComplexStateV3(b.state) || isComplexStateV4(b.state);
   if (b.type === "tensor") {
     if (typeof b.source !== "string" || typeof b.op !== "string" || !(b.op in TENSOR_OP_LABELS)) return false;
     if (b.opArg !== undefined && typeof b.opArg !== "number") return false;
