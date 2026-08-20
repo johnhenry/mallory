@@ -1,3 +1,4 @@
+import { useServerFn } from "@tanstack/react-start";
 import type { Mesh } from "mallory-math";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
@@ -5,6 +6,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsGradientDescent, TIME_CELL, type CellIdsGradientDescent } from "../lib/cell-ids.ts";
 import { computeContourLevels, type ContourLevel } from "../lib/contour-plot.ts";
+import { startGradientDescentExportJob } from "../lib/export-gradient-descent-video.ts";
 import {
   DEFAULT_GRADIENT_DESCENT_STATE,
   decodeGradientDescentState,
@@ -23,6 +25,7 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
+import { VideoExportControls } from "./VideoExportControls.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -278,6 +281,7 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
   const descentResults = useCell<Result<OptimizerRun[]>>(graph, ids.descentResults);
   const surfaceMeshResult = useCell<Result<Mesh[]>>(graph, ids.surfaceMesh);
   const time = useCell<number>(graph, TIME_CELL);
+  const startGradientDescentExportJobFn = useServerFn(startGradientDescentExportJob);
 
   const [exprInput, setExprInput] = useState(exprText);
   useEffect(() => {
@@ -620,6 +624,32 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
         setLoop={setLoop}
         speed={speed}
         setSpeed={setSpeed}
+      />
+      <VideoExportControls
+        filenameStem="mallory-graph-gradient-descent"
+        start={(format, videoDuration) =>
+          startGradientDescentExportJobFn({
+            data: {
+              exprText,
+              startX: Number(startX),
+              startY: Number(startY),
+              lr: Number(lr),
+              steps: Number(steps),
+              optimizers: [
+                ...(showSgd ? (["sgd"] as const) : []),
+                ...(showAdam ? (["adam"] as const) : []),
+                ...(showRmsprop ? (["rmsprop"] as const) : []),
+              ],
+              useSchedule,
+              stepSize: useSchedule ? Number(stepSize) : undefined,
+              gamma: useSchedule ? Number(gamma) : undefined,
+              momentum: Number(momentum),
+              nesterov,
+              duration: videoDuration,
+              format,
+            },
+          })
+        }
       />
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>Click or drag on the plot to move the start point.</p>
       {descentResults.ok && (
