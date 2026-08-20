@@ -297,6 +297,19 @@ body:has(.app-shell) {
   gap: 0.3rem;
   border-bottom: 1px solid var(--border);
   margin-bottom: 1.1rem;
+  /* #378: on a narrow (mobile) viewport this row is often wider than the
+     screen -- without this, flex's default nowrap kept every button on one
+     line but let the ROW itself overflow the page (nothing to scroll it
+     into view), while each button's own label text wrapped onto 2 lines
+     instead (no `white-space: nowrap` below), producing the "neither fits
+     nor scrolls" layout the issue's screenshot shows. `overflow-x: auto`
+     turns the row itself into the thing that scrolls horizontally; -webkit-
+     overflow-scrolling gives that scroll the native momentum/inertia feel
+     on iOS Safari (elsewhere, this property does nothing at all -- it's not
+     part of the CSS overflow shorthand family, so no `overflow-y` couples
+     to it, it's a plain no-op on browsers that never implemented it). */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .tab-button {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -307,6 +320,12 @@ body:has(.app-shell) {
   border-bottom: 2px solid transparent;
   background: none;
   cursor: pointer;
+  /* Keeps each label on one line (see .tab-row's own comment) and stops a
+     button from being squeezed by its flex siblings once the row is
+     scrollable instead of wrapping -- every button keeps its natural
+     content width regardless of how many siblings it has. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .tab-button.active {
   color: var(--accent);
