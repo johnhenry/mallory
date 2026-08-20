@@ -295,3 +295,56 @@ test("deleteGeometryObject: deleting a circle cascades to delete every point anc
   assert.equal(graph.has("geomPoint:anc1"), false);
   assert.equal(graph.has("geomPoint:unrelated"), true, "an unrelated point survives");
 });
+
+test("applyGeometryState: a subscribeAll listener (e.g. the canvas redraw) never observes objectList referencing a deleted point cell, and fires exactly once per call (#374/#375)", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "p1", x: 0, y: 0 },
+    { tool: "point", id: "p2", x: 3, y: 4 },
+    { tool: "line", id: "l1", a: "p1", b: "p2" },
+    { tool: "circle", id: "c1", center: "p1", radiusPoint: "p2" },
+  ]);
+
+  let notifyCount = 0;
+  const unsubscribe = graph.subscribeAll(() => {
+    notifyCount++;
+    // Mirror drawGeometryPanel/geometryExportLayers's own read pattern: for
+    // every id still listed in objectList, if it's a line/circle, its
+    // referenced point cells must exist. Before wrapping clearGeometryState
+    // + replayGeometryOps in graph.transaction, a listener firing mid-clear
+    // could observe objectList still listing "l1" after "geomPoint:p1" (an
+    // earlier loop iteration) had already been deleted -- reproducing
+    // exactly the reported "Cannot read properties of undefined" crash.
+    for (const id of graph.get<string[]>(listIds.objectList)) {
+      if (graph.has(`geomLine:${id}`)) {
+        const { a, b } = graph.get<{ a: string; b: string }>(`geomLine:${id}`);
+        assert.ok(graph.has(`geomPoint:${a}`), `line ${id} references deleted point ${a}`);
+        assert.ok(graph.has(`geomPoint:${b}`), `line ${id} references deleted point ${b}`);
+      } else if (graph.has(`geomCircle:${id}`)) {
+        const { center, radiusPoint } = graph.get<{ center: string; radiusPoint: string }>(`geomCircle:${id}`);
+        assert.ok(graph.has(`geomPoint:${center}`), `circle ${id} references deleted point ${center}`);
+        assert.ok(graph.has(`geomPoint:${radiusPoint}`), `circle ${id} references deleted point ${radiusPoint}`);
+      }
+    }
+  });
+
+  // Restoring an EARLIER (blank) snapshot exercises the full clear (with
+  // nothing to replay) -- the widest possible window for a mid-clear
+  // inconsistency, since replay adds nothing back until clear fully finishes.
+  applyGeometryState(graph, listIds, { v: 1, ops: [] });
+  assert.equal(notifyCount, 1, "clear-and-replay-to-blank must be one logical write, not one notification per deleted cell");
+
+  notifyCount = 0;
+  applyGeometryState(graph, listIds, {
+    v: 1,
+    ops: [
+      { tool: "point", id: "p1", x: 0, y: 0 },
+      { tool: "point", id: "p2", x: 3, y: 4 },
+      { tool: "line", id: "l1", a: "p1", b: "p2" },
+      { tool: "circle", id: "c1", center: "p1", radiusPoint: "p2" },
+    ],
+  });
+  assert.equal(notifyCount, 1, "clear-and-replay must be one logical write, not one notification per rebuilt cell");
+
+  unsubscribe();
+});

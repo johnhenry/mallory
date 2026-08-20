@@ -520,6 +520,24 @@ export class CellGraph {
   }
 
   /**
+   * Run `fn`, a sequence of otherwise-independent `set`/`define`/`delete`
+   * calls, as a SINGLE logical write for `subscribeAll` purposes (see
+   * {@link runBatched}/{@link scheduleGlobalNotify}). Without this, a
+   * multi-step mutation like a clear-then-replay (#374/#375) fires a
+   * `subscribeAll` notification after each individual call, so a listener
+   * that reads back across multiple cells (e.g. a canvas redraw walking an
+   * object-list cell and dereferencing each entry's point cells) can
+   * observe a transient state mid-sequence -- e.g. an id still listed in
+   * one cell whose corresponding point cell has already been deleted by an
+   * earlier call in the same `fn`. Wrapping the whole sequence here defers
+   * every `subscribeAll` notification until `fn` fully returns, so
+   * listeners only ever see the state before or after, never in between.
+   */
+  transaction<T>(fn: () => T): T {
+    return this.runBatched(fn);
+  }
+
+  /**
    * Request a `subscribeAll` notification. While a logical write is still
    * in progress ({@link globalNotifyDepth} > 0), the request is only
    * recorded ({@link globalNotifyPending}) -- {@link runBatched} flushes it

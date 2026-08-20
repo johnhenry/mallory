@@ -219,10 +219,30 @@ function clearGeometryState(graph: CellGraph, listIds: CellIdsGeometry): void {
   graph.set(listIds.opsLog, [] as GeometryOp[], { auxiliary: true });
 }
 
-/** `useUndoHistory`'s `applyState`: reset to blank, then replay the target snapshot's ops in order (issue #43's geometry adoption). */
+/**
+ * `useUndoHistory`'s `applyState`: reset to blank, then replay the target
+ * snapshot's ops in order (issue #43's geometry adoption).
+ *
+ * #374/#375: `clearGeometryState`/`replayGeometryOps` each mutate many cells
+ * one at a time (e.g. deleting every object's point cell in a loop, only
+ * setting `objectList` back to `[]` at the very end). Without a single
+ * `graph.transaction` around the whole sequence, `CellGraph`'s `subscribeAll`
+ * notification -- which drives this panel's own canvas redraw -- fires after
+ * EVERY individual `delete`/`set`/`define` call, not once at the end. That
+ * let a redraw land mid-clear, where `objectList` still listed an id (e.g. a
+ * line) whose referenced point cell had already been deleted by an earlier
+ * iteration of the same loop -- `drawGeometryPanel`/`geometryExportLayers`
+ * then read `.x`/`.y` off `graph.get`'s `undefined` for that missing cell,
+ * producing exactly the reported "Cannot read properties of undefined"
+ * crash. Wrapping the whole clear+replay as one logical write defers every
+ * `subscribeAll` notification (and thus every redraw) until the graph is
+ * fully consistent again.
+ */
 export function applyGeometryState(graph: CellGraph, listIds: CellIdsGeometry, state: GeometryState): void {
-  clearGeometryState(graph, listIds);
-  replayGeometryOps(graph, listIds, state.ops);
+  graph.transaction(() => {
+    clearGeometryState(graph, listIds);
+    replayGeometryOps(graph, listIds, state.ops);
+  });
 }
 
 /**
@@ -1038,6 +1058,22 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       setPendingPolygon([]);
       setSelected(new Set());
       setIkChain(null);
+      // #374/#375: undo/redo is a DOCUMENT-level Ctrl/Cmd+Z listener (see
+      // useUndoHistory's own doc comment), entirely independent of this
+      // canvas's own pointer handlers -- it can fire mid-drag (a natural
+      // "abort this drag" instinct: hit Cmd+Z while still holding the mouse
+      // button down). `dragRef` holds the id being dragged and, unlike
+      // pending/pendingAngle/pendingPolygon/selected/ikChain above, was
+      // never cleared here -- the NEXT pointermove/pointerup after an
+      // undo/redo would then read a point cell for an id the restored
+      // snapshot may no longer contain. `CellGraph.get` on a nonexistent
+      // cell returns `undefined` rather than throwing (see cell-graph.ts's
+      // own `ensure`), so every one of `handlePointerMove`'s three drag
+      // kinds ends up reading `.x`/`.y` off `undefined` -- exactly the
+      // "Cannot read properties of undefined (reading 'x'/'y')" crash both
+      // issues reported. Resetting it here closes the gap the same way
+      // every other piece of transient interaction state already does.
+      dragRef.current = null;
     },
     250,
     undefined,
