@@ -1,6 +1,6 @@
 import { NonLinearSystemError, Symbolic } from "mallory-math";
+import { addLocalSave } from "../lib/local-saves.ts";
 import { useEffect, useRef, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsSystem, type CellIdsSystem } from "../lib/cell-ids.ts";
 import { equationToImplicitZero } from "../lib/equation-to-zero.ts";
@@ -8,7 +8,6 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { DEFAULT_SYSTEM_STATE, decodeSystemState, encodeSystemState, type SystemState } from "../lib/system-state.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCell } from "../lib/use-cell.ts";
 
 type SolutionResult =
@@ -129,15 +128,13 @@ export function SystemSolverPanel({ cellId = "system-1", graph: externalGraph, s
     setVariablesInput(variablesText);
   }, [variablesText]);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const saveGraphFn = useServerFn(saveGraph);
 
   async function handleSave() {
     const title = window.prompt("Title for this saved system:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "systems", state: getCurrentSystemState(graph, ids) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "systems", state: getCurrentSystemState(graph, ids) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -236,7 +233,7 @@ export function SystemSolverPanel({ cellId = "system-1", graph: externalGraph, s
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
-            Save to gallery
+            Save
           </button>{" "}
           <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
             ↩ Undo

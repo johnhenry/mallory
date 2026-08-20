@@ -1,6 +1,6 @@
 import { Distributions, Statistics, Vector } from "mallory-math";
+import { addLocalSave } from "../lib/local-saves.ts";
 import { useEffect, useRef, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { cellIdsStatistics, type CellIdsStatistics } from "../lib/cell-ids.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -16,7 +16,6 @@ import { buildKernel, residualSeries, smoothSeries, type KernelType, type Smooth
 import { drawAxes, drawPolyline, drawScatter } from "../lib/render-path.ts";
 import { layersToSvgDocument, polylineToSvgDocument } from "../lib/svg-export.ts";
 import type { Viewport } from "../lib/viewport.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
@@ -376,15 +375,13 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
     setDataInput(data);
   }, [data]);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const saveGraphFn = useServerFn(saveGraph);
 
   async function handleSave() {
     const title = window.prompt("Title for this saved statistics setup:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "statistics", state: getCurrentStatisticsState(graph, ids) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "statistics", state: getCurrentStatisticsState(graph, ids) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -701,7 +698,7 @@ export function StatisticsPanel({ cellId = "statistics-1", graph: externalGraph,
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
-            Save to gallery
+            Save
           </button>{" "}
           <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
             ↩ Undo

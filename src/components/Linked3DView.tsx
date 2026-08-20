@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
+import { addLocalSave } from "../lib/local-saves.ts";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIds, cellIds3D } from "../lib/cell-ids.ts";
 import { Graph3DCanvas } from "./Graph3DCanvas.tsx";
 import { GraphCanvas } from "./GraphCanvas.tsx";
 import { decodeLinked3DState, encodeLinked3DState, type Linked3DState } from "../lib/linked3d-state.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 
 const CROSS_SECTION_RANGE = { min: -5, max: 5, step: 0.1 };
 
@@ -90,7 +89,6 @@ export function Linked3DView() {
   const graph = graphRef.current;
   const [crossSectionY, setCrossSectionY] = useState(0);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const saveGraphFn = useServerFn(saveGraph);
 
   useEffect(() => {
     const decoded = decodeLinked3DState(window.location.hash.slice(1));
@@ -118,10 +116,9 @@ export function Linked3DView() {
   async function handleSave() {
     const title = window.prompt("Title for this saved 3D view:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "surface-3d", state: getCurrentLinked3DState(graph, crossSectionY) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "surface-3d", state: getCurrentLinked3DState(graph, crossSectionY) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -170,7 +167,7 @@ export function Linked3DView() {
       </label>
       <div style={{ margin: "0.5rem 0" }}>
         <button type="button" onClick={handleSave}>
-          Save to gallery
+          Save
         </button>
         {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.25rem 0" }}>{saveStatus}</p>}
       </div>

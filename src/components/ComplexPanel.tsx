@@ -1,5 +1,5 @@
 import { ComplexNumber, Symbolic, type Expr } from "mallory-math";
-import { useServerFn } from "@tanstack/react-start";
+import { addLocalSave } from "../lib/local-saves.ts";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsComplex, type CellIdsComplex } from "../lib/cell-ids.ts";
@@ -22,7 +22,6 @@ import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { polylinesToSvgDocument } from "../lib/svg-export.ts";
 import { drawAxes, drawPolyline, drawScatter } from "../lib/render-path.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewport.ts";
@@ -376,15 +375,13 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
   }, [graph, freeVars]);
 
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const saveGraphFn = useServerFn(saveGraph);
 
   async function handleSave() {
     const title = window.prompt("Title for this saved complex-plane setup:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "complex", state: getCurrentComplexState(graph, ids) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "complex", state: getCurrentComplexState(graph, ids) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -827,7 +824,7 @@ export function ComplexPanel({ cellId = "complex-1", graph: externalGraph, syncU
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
-            Save to gallery
+            Save
           </button>
           {saveStatus && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{saveStatus}</p>}
         </div>

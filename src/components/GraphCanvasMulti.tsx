@@ -1,5 +1,5 @@
 import type { Path2D } from "mallory-math";
-import { useServerFn } from "@tanstack/react-start";
+import { addLocalSave } from "../lib/local-saves.ts";
 import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState, type WheelEvent } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { cellIdsMultiRow, EXPRESSION_LIST_CELL, VIEWPORT_CELL } from "../lib/cell-ids.ts";
@@ -32,7 +32,6 @@ import { COARSE_POINTER_HIT_RADIUS_MULTIPLIER, isCoarsePointer } from "../lib/po
 import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { pathsToSvgDocument } from "../lib/svg-export.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 import { findIntersections } from "../lib/sample-function.ts";
 import { getThemeColors } from "../lib/theme-colors.ts";
 import { canvasEventPoint, toDataX, toDataY, toScreenX, toScreenY } from "../lib/viewport.ts";
@@ -410,15 +409,13 @@ export function GraphCanvasMulti() {
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("session") : null,
   );
   const collab = useCollabSession(graph, sessionId);
-  const saveGraphFn = useServerFn(saveGraph);
 
   async function handleSave() {
     const title = window.prompt("Title for this saved graph:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "multi", state: getCurrentMultiGraphState(graph) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "multi", state: getCurrentMultiGraphState(graph) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -907,7 +904,7 @@ export function GraphCanvasMulti() {
           {readingPoint ? "Click a curve to read its value…" : "Read point"}
         </button>
         <button type="button" onClick={handleSave}>
-          Save to gallery
+          Save
         </button>
         <button type="button" onClick={resetView} title="Restore the default viewport">
           Reset view

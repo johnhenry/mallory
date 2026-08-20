@@ -1,4 +1,5 @@
 import type { Path2D } from "mallory-math";
+import { addLocalSave } from "../lib/local-saves.ts";
 import { useEffect, useRef, useState } from "react";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { useServerFn } from "@tanstack/react-start";
@@ -8,7 +9,6 @@ import { VideoExportControls } from "./VideoExportControls.tsx";
 import { drawAxes, drawPath, drawSlopeField, type Viewport } from "../lib/render-path.ts";
 import { attemptOdeClosedForm, type OdeClosedFormAttempt, sampleOdeSolution, sampleSlopeField, type SlopeFieldPoint } from "../lib/sample-ode.ts";
 import { DEFAULT_ODE_STATE, decodeOdeState, encodeOdeState, type OdeState } from "../lib/ode-state.ts";
-import { saveGraph } from "../lib/saved-graphs.ts";
 import { layersToSvgDocument, type SvgLayer } from "../lib/svg-export.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
@@ -186,15 +186,13 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
   }, [expr]);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const startOdeExportJobFn = useServerFn(startOdeExportJob);
-  const saveGraphFn = useServerFn(saveGraph);
 
   async function handleSave() {
     const title = window.prompt("Title for this saved ODE setup:", "Untitled");
     if (title === null) return;
-    setSaveStatus("Saving…");
-    try {
-      await saveGraphFn({ data: { title, kind: "ode", state: getCurrentOdeState(graph, ids) } });
-      setSaveStatus(`Saved as "${title || "Untitled"}" — see the gallery to reopen it.`);
+        try {
+      addLocalSave({ title, kind: "ode", state: getCurrentOdeState(graph, ids) });
+      setSaveStatus(`Saved as "${title || "Untitled"}" to My saves on this device — reopen or publish it from the gallery.`);
     } catch (e) {
       setSaveStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -307,7 +305,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
       {syncUrl && (
         <div style={{ margin: "0.5rem 0" }}>
           <button type="button" onClick={handleSave}>
-            Save to gallery
+            Save
           </button>{" "}
           <button type="button" onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z / Cmd+Z)">
             ↩ Undo
