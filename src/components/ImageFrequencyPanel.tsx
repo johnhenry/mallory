@@ -171,6 +171,19 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
   const maskType = useCell<MaskType>(graph, ids.maskType);
   const radius = useCell<string>(graph, ids.radius);
   const radius2 = useCell<string>(graph, ids.radius2);
+  // Local-state mirrors for the radius inputs (issue #311's "typed digits
+  // inserted instead of replacing the selection" quirk): a controlled input
+  // whose value round-trips through the CellGraph's batched notification can
+  // be re-rendered with the PRE-edit value mid-keystroke (e.g. by the
+  // expensive `result` recompute landing between keydown and the radius
+  // cell's own notify), which clobbers the DOM text and drops the user's
+  // selection -- so a triple-click-then-type produced "208" instead of
+  // "20". Same mirror pattern exprInput/matrixTextInput already use for
+  // exactly this class of input.
+  const [radiusInput, setRadiusInput] = useState(radius);
+  useEffect(() => setRadiusInput(radius), [radius]);
+  const [radius2Input, setRadius2Input] = useState(radius2);
+  useEffect(() => setRadius2Input(radius2), [radius2]);
   const wedgeAngle = useCell<string>(graph, ids.wedgeAngle);
   const wedgeWidth = useCell<string>(graph, ids.wedgeWidth);
   const result = useCell<Result<FrequencyResult>>(graph, ids.result);
@@ -358,8 +371,11 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
           <input
             type="number"
             min={0}
-            value={radius}
-            onChange={(e) => graph.set(ids.radius, e.target.value)}
+            value={radiusInput}
+            onChange={(e) => {
+              setRadiusInput(e.target.value);
+              graph.set(ids.radius, e.target.value);
+            }}
             style={{ font: "inherit", width: "6ch" }}
           />
         </label>
@@ -369,8 +385,11 @@ export function ImageFrequencyPanel({ cellId = "image-freq-1" }: { cellId?: stri
             <input
               type="number"
               min={0}
-              value={radius2}
-              onChange={(e) => graph.set(ids.radius2, e.target.value)}
+              value={radius2Input}
+              onChange={(e) => {
+                setRadius2Input(e.target.value);
+                graph.set(ids.radius2, e.target.value);
+              }}
               style={{ font: "inherit", width: "6ch" }}
             />
           </label>

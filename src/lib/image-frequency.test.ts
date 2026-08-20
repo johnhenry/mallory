@@ -336,3 +336,31 @@ test("drawGrayscaleGrid: an empty grid draws nothing (no crash)", () => {
   drawGrayscaleGrid(ctx, [], 2, 2);
   assert.equal(getPutData(), null);
 });
+
+test("drawGrayscaleGrid: a constant grid renders at its own clamped value, NOT black (#311)", () => {
+  const { ctx, getPutData } = makeFakeCtx(2, 2);
+  drawGrayscaleGrid(ctx, [[127.5, 127.5], [127.5, 127.5]], 2, 2);
+  const image = getPutData();
+  assert.ok(image);
+  // Mid-gray, not the old range||1 fallback's intensity 0.
+  assert.equal(image!.data[0], 128);
+});
+
+test("#311 end-to-end: low-pass filtering a checkerboard at small radius yields the mean-brightness constant (correct math) and renders mid-gray, not solid black", () => {
+  const size = 64;
+  const checker = generatePattern("checkerboard", size);
+  const result = analyzeImageFrequency(checker, size, "lowpass", 8);
+  // A fine checkerboard's energy sits entirely above the r=8 cutoff, so the
+  // mathematically correct filtered image is CONSTANT at the mean.
+  const flat = result.filtered.flat();
+  const min = Math.min(...flat);
+  const max = Math.max(...flat);
+  assert.ok(max - min < 1e-6, `expected a constant filtered image, got range ${max - min}`);
+  assert.ok(Math.abs(flat[0]! - 127.5) < 1, `expected ~mean brightness, got ${flat[0]}`);
+  // ...and the renderer must show that constant as its own gray value.
+  const { ctx, getPutData } = makeFakeCtx(4, 4);
+  drawGrayscaleGrid(ctx, result.filtered, 4, 4);
+  const image = getPutData();
+  assert.ok(image);
+  assert.ok(image!.data[0]! > 100 && image!.data[0]! < 156, `expected mid-gray, got intensity ${image!.data[0]}`);
+});

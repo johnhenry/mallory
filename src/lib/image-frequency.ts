@@ -327,6 +327,16 @@ export function drawGrayscaleGrid(ctx: CanvasRenderingContext2D, grid: readonly 
       if (v > max) max = v;
     }
   }
+  // A (near-)constant grid is a real, legitimate output -- e.g. low-pass
+  // filtering a fine checkerboard, whose energy is entirely ABOVE the
+  // cutoff, correctly leaves a uniform image at the original's mean
+  // brightness (issue #311). Min/max normalization has no contrast to
+  // stretch there, and the old `range || 1` fallback quietly mapped every
+  // pixel to intensity 0: a mathematically-correct mid-gray result rendered
+  // as SOLID BLACK. Render the constant's own clamped value instead (the
+  // original/filtered grids live in 0-255 space; a constant log-spectrum
+  // clamps too, which is fine -- constant means featureless either way).
+  const flatRange = max - min < 1e-9;
   const range = max - min || 1;
   const image = ctx.createImageData(canvasWidth, canvasHeight);
   for (let py = 0; py < canvasHeight; py++) {
@@ -334,7 +344,9 @@ export function drawGrayscaleGrid(ctx: CanvasRenderingContext2D, grid: readonly 
     const row = grid[gy] ?? [];
     for (let px = 0; px < canvasWidth; px++) {
       const gx = Math.min(row.length - 1, Math.floor((px / canvasWidth) * row.length));
-      const intensity = Math.max(0, Math.min(255, Math.round(((row[gx]! - min) / range) * 255)));
+      const intensity = flatRange
+        ? Math.max(0, Math.min(255, Math.round(row[gx]!)))
+        : Math.max(0, Math.min(255, Math.round(((row[gx]! - min) / range) * 255)));
       const idx = (py * canvasWidth + px) * 4;
       image.data[idx] = intensity;
       image.data[idx + 1] = intensity;
