@@ -38,6 +38,7 @@ import { DEFAULT_STATISTICS_STATE, type StatisticsState } from "../lib/statistic
 import { DEFAULT_SYSTEM_STATE, type SystemState } from "../lib/system-state.ts";
 import { notebookToLatex, notebookToMarkdown, type NotebookGraphImages } from "../lib/notebook-export.ts";
 import { getCurrentComplexState } from "./ComplexPanel.tsx";
+import { getPrimaryRow3D } from "./Graph3DCanvas.tsx";
 import { getCurrentGeometryState } from "./GeometryPanel.tsx";
 import { getCurrentOdeState } from "./OdePanel.tsx";
 import { getCurrentOdeSystemState } from "./OdeSystemPanel.tsx";
@@ -169,15 +170,29 @@ export function disposeBlockCells(graph: CellGraph, block: Block, stillActiveVal
     graph.delete(blockIds.expressionList);
     graph.delete(blockIds.viewport);
   } else if (block.type === "surface3d") {
-    const ids = cellIds3D(id);
-    const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
-    for (const name of names) {
-      graph.delete(ids.param(name));
-      graph.delete(ids.track(name));
+    // #336 item 7: Graph3DCanvas is now unlimited overlaid surfaces -- `id`
+    // is the CONTAINER id (its own `list`/`combinedTimelineDuration`
+    // cells), and every actual surface lives under its own row id. Walk
+    // every row (not just the primary one this block's own persisted state
+    // reads/writes) so an interactively-added-but-never-saved second/third/
+    // ... surface still gets its cells cleaned up on removal, same
+    // "clean up everything that actually exists on the graph, not just
+    // what's serialized" reasoning `seedGraph3DRows` documents.
+    const containerIds = cellIds3D(id);
+    const rowIds = graph.hasValue(containerIds.list) ? graph.get<string[]>(containerIds.list) : [];
+    for (const rowId of rowIds) {
+      const ids = cellIds3D(rowId);
+      const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
+      for (const name of names) {
+        graph.delete(ids.param(name));
+        graph.delete(ids.track(name));
+      }
+      for (const cellId of Object.values(ids)) {
+        if (typeof cellId === "string") graph.delete(cellId);
+      }
     }
-    for (const cellId of Object.values(ids)) {
-      if (typeof cellId === "string") graph.delete(cellId);
-    }
+    graph.delete(containerIds.list);
+    graph.delete(containerIds.combinedTimelineDuration);
   } else if (block.type === "ode") {
     for (const cellId of Object.values(cellIdsOde(id))) graph.delete(cellId);
   } else if (block.type === "ode-system") {
@@ -324,7 +339,15 @@ function getCurrentNotebookState(graph: CellGraph, blocks: Block[]): NotebookSta
         return { type: "graph", rows, viewport };
       }
       if (block.type === "surface3d") {
-        const ids = cellIds3D(block.id);
+        // #336 item 7: this block's own persisted shape stays flat (one
+        // expr/params, not a row list) by design -- see
+        // NotebookGraph3DBlock's own doc comment. Reads only the PRIMARY
+        // (first) row; any additional row added interactively via
+        // Graph3DCanvas's own "+ Add surface" button is not persisted here.
+        const containerIds = cellIds3D(block.id);
+        const primary = getPrimaryRow3D(graph, containerIds);
+        if (!primary) return { type: "surface3d", expr: DEFAULT_SURFACE3D_EXPR, params: {} };
+        const ids = primary.ids;
         const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
         const params: Record<string, number> = {};
         for (const name of names) params[name] = graph.get<number>(ids.param(name));

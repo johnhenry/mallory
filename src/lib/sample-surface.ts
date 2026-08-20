@@ -25,6 +25,12 @@ export function sampleSurface(
   yDomain: SurfaceDomain,
   resolution: number,
   params: Record<string, number> = {},
+  // Unlimited overlaid surfaces (#336 item 7): each row picks its own fill
+  // color, so several overlaid surfaces in one scene stay visually
+  // distinguishable -- same optional trailing param, same default (the
+  // panel's original single-surface blue), as sampleParametricSurface's own
+  // identical addition (issue #251).
+  color = 0x2563eb,
 ): Mesh[] {
   const compiled = Symbolic.compile(preprocessImplicitMultiplication(expr));
   const xStep = (xDomain.max - xDomain.min) / resolution;
@@ -43,7 +49,7 @@ export function sampleSurface(
     yDomain.max,
     yStep,
   );
-  const meshes = Graph3DUtils.pointMatrixToMesh3D(matrix, 0x2563eb, 1, 0x93c5fd, 1);
+  const meshes = Graph3DUtils.pointMatrixToMesh3D(matrix, color, 1, 0x93c5fd, 1);
   return meshes.map((mesh) => ({
     ...mesh,
     faces: mesh.faces.filter((face) => face.every((vertex) => Number.isFinite(vertex.z))),

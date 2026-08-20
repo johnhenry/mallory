@@ -99,9 +99,9 @@ export const GALLERY_SEEDS: GallerySeed[] = [
     kind: "surface-3d",
     createdAt: 1700000003000,
     state: {
-      v: 1,
+      v: 2,
       pane2d: { source: "sin(x)", params: {}, structureModulus: null },
-      pane3d: { source: "sin(x)*cos(y)", params: {} },
+      pane3d: { rows: [{ source: "sin(x)*cos(y)", params: {}, color: 0x2563eb, visible: true }] },
       crossSectionY: 0,
     },
   },

@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CellGraph } from "../lib/cell-graph.ts";
 import { useServerFn } from "@tanstack/react-start";
-import { cellIds3D, TIME_CELL } from "../lib/cell-ids.ts";
+import { cellIds3D, TIME_CELL, type CellIds3D } from "../lib/cell-ids.ts";
 import { renderSurfacePreviewFrame, startSurfaceExportJob } from "../lib/export-surface-video.ts";
 import { ExportPreviewScrubber } from "./ExportPreviewScrubber.tsx";
 import { VideoExportControls } from "./VideoExportControls.tsx";
@@ -12,6 +12,8 @@ import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { KeyframeSliderControl } from "./KeyframeSliderControl.tsx";
 import { meshToGeometry, meshToMaterial } from "../lib/mesh-to-geometry.ts";
+import { type Graph3DRowState } from "../lib/linked3d-state.ts";
+import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";
 import { sampleSurface, type SurfaceDomain } from "../lib/sample-surface.ts";
 import { timelineDuration, type Keyframe } from "../lib/timeline.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -26,67 +28,170 @@ const WIDTH = 600;
 const HEIGHT = 600;
 const RESOLUTION = 40;
 const DOMAIN: SurfaceDomain = { min: -5, max: 5 };
+const DEFAULT_ROW_SOURCE = "x^2-y^2";
+
+export type { Graph3DRowState };
 
 /**
- * Sets up one 3D pane's reactive cells on `graph`, mirroring GraphCanvas's
- * `useExpressionGraph` but for z=f(x,y): source expr -> free-var list (both
- * `x` and `y` are axis variables here, unlike the 2D pane's single `x`) ->
- * per-variable slider cells -> params snapshot -> derived sampled-mesh cell.
- * The mesh cell falls back to the last successfully sampled mesh on a
- * parse/eval error, same reasoning as the 2D path cell.
+ * Seeds one surface row's own cells (unlimited overlaid surfaces, #336 item
+ * 7): its own z=f(x,y) expression, color and visibility, seeded free-var
+ * param values, and derived free-var list/params/sampled-mesh/own-animation
+ * duration cells -- the same per-row shape ComplexGraph3DPanel's
+ * `seedComplexGraphRow`/OdeSystemPanel's `seedOdeSystemRow` already
+ * established, applied to Graph3DCanvas's own z=f(x,y) shape. The mesh cell
+ * falls back to the last successfully sampled mesh on a parse/eval error
+ * (same reasoning as the pre-port single-surface mesh cell), and bakes this
+ * row's own `color` into the sampled mesh's material via `sampleSurface`'s
+ * own trailing `color` param (mirrors `sampleParametricSurface`'s identical
+ * addition, issue #251), so several overlaid surfaces stay visually
+ * distinguishable.
  */
-function useExpressionGraph3D(cellId: string, source: string, externalGraph?: CellGraph): CellGraph {
+export function seedGraph3DRow(graph: CellGraph, rowId: string, row: Graph3DRowState): void {
+  const ids = cellIds3D(rowId);
+  graph.set(ids.expr, row.source);
+  graph.set(ids.color, row.color);
+  graph.set(ids.visible, row.visible);
+  for (const [name, value] of Object.entries(row.params)) graph.set(ids.param(name), value);
+
+  // Kept pure -- no `graph.set()` here. This cell is read via `get()` from
+  // inside React's `getSnapshot` during render (through `params`'s own
+  // compute), and a write triggered synchronously from there trips React's
+  // "Cannot update a component while rendering a different component"
+  // guard, which silently drops the resulting update. Newly-discovered free
+  // variables get their slider cell seeded by a `useEffect` in Graph3DRow
+  // instead.
+  graph.define(ids.freeVars, () => {
+    let names: string[] = [];
+    try {
+      const expr = Symbolic.parse(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
+      names = collectFreeVars(expr, "x").filter((name) => name !== "y");
+    } catch {
+      // Leave `names` empty on a mid-typing parse error; sliders just don't update.
+    }
+    return names;
+  });
+
+  graph.define(ids.params, () => {
+    const names = graph.get<string[]>(ids.freeVars);
+    const params: Record<string, number> = {};
+    for (const name of names) params[name] = graph.get<number>(ids.param(name));
+    return params;
+  });
+
+  let lastGoodMesh: Mesh[] | null = null;
+  graph.define(ids.mesh, () => {
+    try {
+      const params = graph.get<Record<string, number>>(ids.params);
+      const color = graph.get<number>(ids.color);
+      lastGoodMesh = sampleSurface(graph.get<string>(ids.expr), DOMAIN, DOMAIN, RESOLUTION, params, color);
+    } catch {
+      if (!lastGoodMesh) throw new Error(`Initial expression "${row.source}" failed to parse`);
+    }
+    return lastGoodMesh;
+  });
+
+  graph.define(
+    ids.timelineDuration,
+    () => {
+      const names = graph.get<string[]>(ids.freeVars);
+      return timelineDuration(names.map((name) => graph.get<Keyframe[] | undefined>(ids.track(name))));
+    },
+    { auxiliary: true },
+  );
+}
+
+function seedGraph3DRowDefault(graph: CellGraph, rowId: string, index: number): void {
+  seedGraph3DRow(graph, rowId, { source: DEFAULT_ROW_SOURCE, params: {}, color: paletteColor(index), visible: true });
+}
+
+/**
+ * Full re-seed of the container: clears any existing rows (deleting their
+ * fixed cells plus every discovered free-var's own param/track cells, the
+ * same "dynamic cells aren't covered by removeRow itself" cleanup
+ * GraphCanvasMulti's own removeRow/NotebookPanel's disposeBlockCells
+ * already do for this exact expr-with-free-vars shape) then seeds fresh
+ * rows from `rows` -- same "delete then replay" shape OdeSystemPanel's own
+ * `seedOdeSystemState` uses, needed because a linked/notebook host's
+ * hydrate effect runs AFTER `useGraph3DGraph` has already constructed one
+ * default row.
+ */
+export function seedGraph3DRows(graph: CellGraph, containerIds: CellIds3D, rows: Graph3DRowState[]): void {
+  const existing = graph.has(containerIds.list) ? graph.get<string[]>(containerIds.list) : [];
+  for (const rowId of existing) {
+    const ids = cellIds3D(rowId);
+    const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
+    for (const name of names) {
+      graph.delete(ids.param(name));
+      graph.delete(ids.track(name));
+    }
+    removeRow(graph, containerIds.list, rowId, ids);
+  }
+  const rowIds = rows.map(() => crypto.randomUUID());
+  graph.set(containerIds.list, rowIds, { auxiliary: true });
+  rowIds.forEach((id, i) => seedGraph3DRow(graph, id, rows[i] as Graph3DRowState));
+}
+
+/** Builds the full serializable row list of a 3D panel -- shared by Linked3DView's own URL-sync/save handler. */
+export function getCurrentGraph3DRows(graph: CellGraph, containerIds: CellIds3D): Graph3DRowState[] {
+  return graph.get<string[]>(containerIds.list).map((rowId) => {
+    const ids = cellIds3D(rowId);
+    const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
+    const params: Record<string, number> = {};
+    for (const name of names) params[name] = graph.get<number>(ids.param(name));
+    return {
+      source: graph.get<string>(ids.expr),
+      params,
+      color: graph.get<number>(ids.color),
+      visible: graph.get<boolean>(ids.visible),
+    };
+  });
+}
+
+/**
+ * The first row (unlimited overlaid surfaces, mirroring OdeSystemPanel's own
+ * `getPrimaryRow`): the cross-section highlight and video/preview export
+ * below are scoped to this row only. N overlaid cross-section highlights
+ * would be unreadable line-on-line noise on top of N overlaid surfaces, and
+ * a rendered/exported clip has to pick ONE surface's animation to orbit
+ * around -- both are properties of one specific surface, not something to
+ * merge across rows. Every row still gets its own rendered mesh in its own
+ * color. Exported for NotebookPanel.tsx's own "surface3d" block, which
+ * keeps its persisted shape flat (one expr/params, not a row list, see that
+ * block's own doc comment) by reading/writing only this primary row.
+ */
+export function getPrimaryRow3D(graph: CellGraph, containerIds: CellIds3D): { rowId: string; ids: CellIds3D } | null {
+  const rowId = graph.get<string[]>(containerIds.list)[0];
+  return rowId === undefined ? null : { rowId, ids: cellIds3D(rowId) };
+}
+
+/**
+ * Sets up one 3D pane's reactive container cells, mirroring GraphCanvas's
+ * `useExpressionGraph` but for an unlimited-rows z=f(x,y) pane: an ordered
+ * row-id list (each row its own full expr -> free-var list -> per-variable
+ * slider -> params -> derived sampled-mesh pipeline, see `seedGraph3DRow`)
+ * plus a container-level `combinedTimelineDuration` -- Math.max across every
+ * row's own `timelineDuration`, guarded the same `Number.isFinite` way
+ * Linked3DView's own `COMBINED_DURATION_CELL` already guards its two-pane
+ * max (mallory-graph#10's hydration-warning fix), just generalized from 2
+ * fixed panes to N rows -- for the one shared transport widget below to
+ * scrub the full length of whichever row's animation is longest.
+ */
+function useGraph3DGraph(cellId: string, defaultSource: string, externalGraph?: CellGraph): CellGraph {
   const ref = useRef<CellGraph | null>(null);
   if (!ref.current) {
     const graph = externalGraph ?? new CellGraph();
-    const ids = cellIds3D(cellId);
+    const containerIds = cellIds3D(cellId);
 
     if (!graph.has(TIME_CELL)) graph.set(TIME_CELL, 0, { auxiliary: true });
 
-    if (!graph.has(ids.expr)) {
-      graph.set(ids.expr, source);
-
-      // Kept pure -- no `graph.set()` here. This cell is read via `get()`
-      // from inside React's `getSnapshot` during render (through `params`'s
-      // own compute), and a write triggered synchronously from there trips
-      // React's "Cannot update a component while rendering a different
-      // component" guard, which silently drops the resulting update.
-      // Newly-discovered free variables get their slider cell seeded by a
-      // `useEffect` in Graph3DCanvas instead.
-      graph.define(ids.freeVars, () => {
-        let names: string[] = [];
-        try {
-          const expr = Symbolic.parse(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
-          names = collectFreeVars(expr, "x").filter((name) => name !== "y");
-        } catch {
-          // Leave `names` empty on a mid-typing parse error; sliders just don't update.
-        }
-        return names;
-      });
-
-      graph.define(ids.params, () => {
-        const names = graph.get<string[]>(ids.freeVars);
-        const params: Record<string, number> = {};
-        for (const name of names) params[name] = graph.get<number>(ids.param(name));
-        return params;
-      });
-
-      let lastGoodMesh: Mesh[] | null = null;
-      graph.define(ids.mesh, () => {
-        try {
-          const params = graph.get<Record<string, number>>(ids.params);
-          lastGoodMesh = sampleSurface(graph.get<string>(ids.expr), DOMAIN, DOMAIN, RESOLUTION, params);
-        } catch {
-          if (!lastGoodMesh) throw new Error(`Initial expression "${source}" failed to parse`);
-        }
-        return lastGoodMesh;
-      });
+    if (!graph.has(containerIds.list)) {
+      seedGraph3DRows(graph, containerIds, [{ source: defaultSource, params: {}, color: paletteColor(0), visible: true }]);
 
       graph.define(
-        ids.timelineDuration,
+        containerIds.combinedTimelineDuration,
         () => {
-          const names = graph.get<string[]>(ids.freeVars);
-          return timelineDuration(names.map((name) => graph.get<Keyframe[] | undefined>(ids.track(name))));
+          const durations = graph.get<string[]>(containerIds.list).map((rowId) => graph.get<number>(cellIds3D(rowId).timelineDuration));
+          return durations.reduce((max, d) => Math.max(max, Number.isFinite(d) ? d : 0), 0);
         },
         { auxiliary: true },
       );
@@ -100,11 +205,11 @@ function useExpressionGraph3D(cellId: string, source: string, externalGraph?: Ce
 export interface Graph3DCanvasProps {
   /** Namespaces this pane's cells on `graph`. */
   cellId?: string;
-  /** Initial expression source for this pane, when it isn't already present on `graph`. */
+  /** Initial expression source for this pane's first row, when it isn't already present on `graph`. */
   defaultSource?: string;
   /** Share an existing CellGraph (e.g. a linked 2D+3D view) instead of creating a private one. */
   graph?: CellGraph;
-  /** When set, highlights the surface's y=crossSectionY cross-section as a red line (Linked3DView's cross-pane link). */
+  /** When set, highlights the PRIMARY (first) row's y=crossSectionY cross-section as a red line (Linked3DView's cross-pane link). See `getPrimaryRow3D`'s own doc comment for the primary-row scoping. */
   crossSectionY?: number;
   /**
    * Hide the play/pause/loop/speed transport -- for a secondary pane in a
@@ -116,25 +221,97 @@ export interface Graph3DCanvasProps {
   showTransport?: boolean;
 }
 
+/** One surface row's controls: z=f(x,y) expression, its own free-var keyframe sliders, color/visibility. */
+function Graph3DRow({ graph, rowId, onRemove }: { graph: CellGraph; rowId: string; onRemove?: () => void }) {
+  const ids = cellIds3D(rowId);
+  const source = useCell<string>(graph, ids.expr);
+  const freeVars = useCell<string[]>(graph, ids.freeVars);
+  const color = useCell<number>(graph, ids.color);
+  const visible = useCell<boolean>(graph, ids.visible);
+
+  // Seeds a slider cell for each newly-discovered free variable, deferred
+  // to an effect for the same reason as GraphCanvas -- see `ids.freeVars`'s
+  // compute above. Also deletes param/track cells for names that left the
+  // set (issue #309, same mid-typing leak GraphCanvas had).
+  const prevFreeVarsRef = useRef<string[]>([]);
+  useEffect(() => {
+    for (const name of freeVars) {
+      const id = ids.param(name);
+      if (!graph.hasValue(id)) graph.set(id, defaultSliderRange(name).default);
+    }
+    for (const name of prevFreeVarsRef.current) {
+      if (!freeVars.includes(name)) {
+        graph.delete(ids.param(name));
+        graph.delete(ids.track(name));
+      }
+    }
+    prevFreeVarsRef.current = freeVars;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, freeVars]);
+
+  return (
+    <div style={{ margin: "0.35rem 0", padding: "0.35rem", border: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+        <input type="checkbox" checked={visible} onChange={(e) => graph.set(ids.visible, e.target.checked)} title="Show/hide this surface" />
+        <input
+          type="color"
+          value={`#${color.toString(16).padStart(6, "0")}`}
+          onChange={(e) => graph.set(ids.color, Number.parseInt(e.target.value.slice(1), 16))}
+        />
+        <label>
+          z = <input value={source} onChange={(e) => graph.set(ids.expr, e.target.value)} style={{ font: "inherit", width: "20ch" }} />
+        </label>
+        {onRemove && (
+          <button type="button" onClick={onRemove} title="Remove this surface">
+            ✕
+          </button>
+        )}
+      </div>
+      {freeVars.length > 0 && (
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0.5rem 0" }}>
+          {freeVars.map((name) => (
+            <KeyframeSliderControl key={name} graph={graph} ids={ids} name={name} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Unlimited overlaid z=f(x,y) surfaces (#336 item 7, porting v1's single
+ * surface), sharing one Three.js scene/camera/lighting/axes/OrbitControls
+ * and one shared x/y sampling `DOMAIN` -- every surface now gets its own
+ * color/visibility and its own free-var keyframe sliders, the same
+ * "shared view, unlimited rows" shape ComplexGraph3DPanel/
+ * ParametricSurfacePanel already established for their own 3D panels. The
+ * cross-section highlight and video/preview export stay scoped to the first
+ * row only -- see `getPrimaryRow3D`'s own doc comment for why.
+ *
+ * Embedded two different ways, both of which must keep working: standalone
+ * inside Linked3DView (paired with a 2D `GraphCanvas`, `showTransport`
+ * false, its own transport driving the shared `TIME_CELL`), and inside a
+ * notebook's "surface3d" block (`NotebookGraph3DBlock.tsx`), whose own
+ * persisted state stays a flat single expr/params (not a row list) by
+ * design -- see that block's own doc comment for the primary-row-only
+ * scoping this keeps to.
+ */
 export function Graph3DCanvas({
   cellId = "pane-3d",
-  defaultSource = "x^2-y^2",
+  defaultSource = DEFAULT_ROW_SOURCE,
   graph: externalGraph,
   crossSectionY,
   showTransport = true,
 }: Graph3DCanvasProps = {}) {
-  const ids = cellIds3D(cellId);
-  const graph = useExpressionGraph3D(cellId, defaultSource, externalGraph);
+  const containerIds = cellIds3D(cellId);
+  const graph = useGraph3DGraph(cellId, defaultSource, externalGraph);
   // Namespaced by cellId (not a flat "surface3d") so two Graph3DCanvas panes
   // sharing one CellGraph -- e.g. a future second notebook-embedded surface
   // block -- don't collide on tool names, same fix as GraphCanvas's.
   useCellGraphTools(`surface3d_${cellId}`, graph);
-  const mesh = useCell<Mesh[] | null>(graph, ids.mesh);
-  const freeVars = useCell<string[]>(graph, ids.freeVars);
-  const exprValue = useCell<string>(graph, ids.expr);
+  const rowIds = useCell<string[]>(graph, containerIds.list);
   const time = useCell<number>(graph, TIME_CELL);
-  const duration = useCell<number>(graph, ids.timelineDuration);
-  const [source, setSource] = useState(defaultSource);
+  const duration = useCell<number>(graph, containerIds.combinedTimelineDuration);
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(true);
   const [speed, setSpeed] = useState(1);
@@ -156,13 +333,31 @@ export function Graph3DCanvas({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
-  /** The export payload, shared by the full render job and the scrub preview so they can't drift apart. */
+  function addSurface() {
+    const { id, index } = appendRow(graph, containerIds.list);
+    seedGraph3DRowDefault(graph, id, index);
+  }
+
+  function removeSurface(rowId: string) {
+    const ids = cellIds3D(rowId);
+    const names = graph.hasValue(ids.freeVars) ? graph.get<string[]>(ids.freeVars) : [];
+    for (const name of names) {
+      graph.delete(ids.param(name));
+      graph.delete(ids.track(name));
+    }
+    removeRow(graph, containerIds.list, rowId, ids);
+  }
+
+  /** The export payload, shared by the full render job and the scrub preview so they can't drift apart. Scoped to the PRIMARY row only -- see `getPrimaryRow3D`'s own doc comment. */
   function buildSurfaceExportInput(): { source: string; params: Record<string, number>; tracks: Record<string, Keyframe[] | undefined>; xDomain: SurfaceDomain; yDomain: SurfaceDomain; duration: number } {
+    const primary = getPrimaryRow3D(graph, containerIds);
+    if (!primary) return { source: "", params: {}, tracks: {}, xDomain: DOMAIN, yDomain: DOMAIN, duration: exportDuration };
+    const ids = primary.ids;
     const names = graph.get<string[]>(ids.freeVars);
     const tracks: Record<string, Keyframe[] | undefined> = {};
     for (const name of names) tracks[name] = graph.get<Keyframe[] | undefined>(ids.track(name));
     return {
-      source: exprValue,
+      source: graph.get<string>(ids.expr),
       params: graph.hasValue(ids.params) ? graph.get<Record<string, number>>(ids.params) : {},
       tracks,
       xDomain: DOMAIN,
@@ -170,33 +365,6 @@ export function Graph3DCanvas({
       duration: exportDuration,
     };
   }
-
-  // Same reasoning as GraphCanvas: keeps the input box in sync with `ids.expr`
-  // regardless of what wrote it (chat, URL hydration, a linked sibling pane).
-  useEffect(() => {
-    setSource(exprValue);
-  }, [exprValue]);
-
-  // Seeds a slider cell for each newly-discovered free variable, deferred
-  // to an effect for the same reason as GraphCanvas -- see the comment on
-  // `ids.freeVars`'s compute above. Also deletes param/track cells for
-  // names that left the set (issue #309, same mid-typing leak GraphCanvas
-  // had -- see its own seeding effect for the full story).
-  const prevFreeVarsRef = useRef<string[]>([]);
-  useEffect(() => {
-    for (const name of freeVars) {
-      const id = ids.param(name);
-      if (!graph.hasValue(id)) graph.set(id, defaultSliderRange(name).default);
-    }
-    for (const name of prevFreeVarsRef.current) {
-      if (!freeVars.includes(name)) {
-        graph.delete(ids.param(name));
-        graph.delete(ids.track(name));
-      }
-    }
-    prevFreeVarsRef.current = freeVars;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, freeVars]);
 
   // Mount-once: renderer, camera, lights, orbit controls, and the render
   // loop. OrbitControls' damping needs a continuous rAF loop even when the
@@ -281,85 +449,98 @@ export function Graph3DCanvas({
     };
   }, []);
 
-  // Rebuild the surface's geometry/material whenever the sampled mesh
-  // changes, disposing the previous frame's GPU resources first.
+  // Rebuilds every visible row's mesh into the shared group whenever the
+  // row list changes, or any individual row's own mesh/color/visibility
+  // does -- graph.subscribeAll rather than a single `useCell` on one row's
+  // mesh, the same reasoning OdeSystemPanel/ComplexGraph3DPanel's own
+  // rebuild effects document (an arbitrary, changing set of rows can't be
+  // covered by a fixed set of per-row hooks). Disposes the previous frame's
+  // GPU resources first, same as the pre-port single-surface version.
   useEffect(() => {
-    const group = surfaceGroupRef.current;
-    if (!group || !mesh) return;
-    for (const child of [...group.children]) {
-      group.remove(child);
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
+    function rebuild() {
+      const group = surfaceGroupRef.current;
+      if (!group) return;
+      for (const child of [...group.children]) {
+        group.remove(child);
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
+        }
+      }
+      for (const rowId of graph.get<string[]>(containerIds.list)) {
+        const ids = cellIds3D(rowId);
+        try {
+          if (!graph.get<boolean>(ids.visible)) continue;
+          const mesh = graph.get<Mesh[] | null>(ids.mesh);
+          if (!mesh) continue;
+          for (const surfaceMesh of mesh) {
+            group.add(new THREE.Mesh(meshToGeometry(surfaceMesh), meshToMaterial(surfaceMesh)));
+          }
+        } catch {
+          // A row whose cells haven't registered yet, or whose mesh
+          // compute never succeeded (initial expression failed to parse)
+          // -- skip it this pass.
+        }
       }
     }
-    for (const surfaceMesh of mesh) {
-      group.add(new THREE.Mesh(meshToGeometry(surfaceMesh), meshToMaterial(surfaceMesh)));
-    }
-  }, [mesh]);
+    rebuild();
+    return graph.subscribeAll(rebuild);
+  }, [graph, containerIds]);
 
-  // Highlights the y=crossSectionY cross-section as a red line directly on
-  // the surface -- Linked3DView's cross-pane link, letting the shape traced
-  // here be compared by eye against a sibling 2D pane's curve. Resampled
-  // independently from the expression (not read off the mesh's own
-  // triangulation) since the mesh's grid resolution rarely lands exactly on
-  // an arbitrary y value. `mesh` is used only as this effect's reactivity
-  // trigger (it already depends on expr/params changing); the actual sample
-  // reads `ids.expr`/`ids.params` fresh each time.
+  // Highlights the PRIMARY row's y=crossSectionY cross-section as a red
+  // line directly on its surface -- Linked3DView's cross-pane link, letting
+  // the shape traced here be compared by eye against a sibling 2D pane's
+  // curve. See `getPrimaryRow3D`'s own doc comment for why this doesn't
+  // extend to every row. Resampled independently from the expression (not
+  // read off the mesh's own triangulation) since the mesh's grid resolution
+  // rarely lands exactly on an arbitrary y value.
   useEffect(() => {
-    const group = highlightGroupRef.current;
-    if (!group) return;
-    for (const child of [...group.children]) {
-      group.remove(child);
-      if (child instanceof THREE.Line) {
-        child.geometry.dispose();
-        (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
+    function updateHighlight() {
+      const group = highlightGroupRef.current;
+      if (!group) return;
+      for (const child of [...group.children]) {
+        group.remove(child);
+        if (child instanceof THREE.Line) {
+          child.geometry.dispose();
+          (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
+        }
+      }
+      if (crossSectionY === undefined) return;
+      const primary = getPrimaryRow3D(graph, containerIds);
+      if (!primary) return;
+      try {
+        const compiled = Symbolic.compile(preprocessImplicitMultiplication(graph.get<string>(primary.ids.expr)));
+        const params = graph.get<Record<string, number>>(primary.ids.params);
+        const SAMPLES = 80;
+        const points: THREE.Vector3[] = [];
+        for (let i = 0; i < SAMPLES; i++) {
+          const x = DOMAIN.min + (i / (SAMPLES - 1)) * (DOMAIN.max - DOMAIN.min);
+          const z = compiled({ ...params, x, y: crossSectionY });
+          // Same axis mapping as meshToGeometry: mallory's z (height) -> Three's y, mallory's y -> Three's z.
+          if (Number.isFinite(z)) points.push(new THREE.Vector3(x, z, crossSectionY));
+        }
+        if (points.length > 1) {
+          const geometry = new THREE.BufferGeometry().setFromPoints(points);
+          group.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xdc2626, linewidth: 2 })));
+        }
+      } catch {
+        // A mid-typing parse error on the primary row's expression -- its
+        // own mesh error handling already surfaces the message; the
+        // highlight just disappears until it's valid again.
       }
     }
-    if (crossSectionY === undefined) return;
-    try {
-      const compiled = Symbolic.compile(preprocessImplicitMultiplication(graph.get<string>(ids.expr)));
-      const params = graph.get<Record<string, number>>(ids.params);
-      const SAMPLES = 80;
-      const points: THREE.Vector3[] = [];
-      for (let i = 0; i < SAMPLES; i++) {
-        const x = DOMAIN.min + (i / (SAMPLES - 1)) * (DOMAIN.max - DOMAIN.min);
-        const z = compiled({ ...params, x, y: crossSectionY });
-        // Same axis mapping as meshToGeometry: mallory's z (height) -> Three's y, mallory's y -> Three's z.
-        if (Number.isFinite(z)) points.push(new THREE.Vector3(x, z, crossSectionY));
-      }
-      if (points.length > 1) {
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        group.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xdc2626, linewidth: 2 })));
-      }
-    } catch {
-      // A mid-typing parse error -- the surface mesh's own error handling
-      // already surfaces the message; the highlight just disappears until it's valid again.
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, mesh, crossSectionY]);
+    updateHighlight();
+    return graph.subscribeAll(updateHighlight);
+  }, [graph, containerIds, crossSectionY]);
 
   return (
     <div>
-      <label>
-        z ={" "}
-        <input
-          value={source}
-          onChange={(e) => {
-            const value = e.target.value;
-            setSource(value);
-            graph.set(ids.expr, value);
-          }}
-          style={{ font: "inherit", width: "20ch" }}
-        />
-      </label>
-      {freeVars.length > 0 && (
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0.5rem 0" }}>
-          {freeVars.map((name) => (
-            <KeyframeSliderControl key={name} graph={graph} ids={ids} name={name} />
-          ))}
-        </div>
-      )}
+      {rowIds.map((rowId) => (
+        <Graph3DRow key={rowId} graph={graph} rowId={rowId} onRemove={rowIds.length > 1 ? () => removeSurface(rowId) : undefined} />
+      ))}
+      <button type="button" onClick={addSurface} style={{ margin: "0.35rem 0" }}>
+        + Add surface
+      </button>
       {showTransport && (
         <TransportControls
           graph={graph}
@@ -390,10 +571,15 @@ export function Graph3DCanvas({
         />
       </div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Drag to orbit, scroll to zoom.</p>
+      {rowIds.length > 1 && (
+        <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0" }}>
+          The cross-section highlight (if any) and the video/preview export below reflect only the first surface's expression.
+        </p>
+      )}
       {/* Server-side ecmanim export: a full camera orbit around the current
           surface (johnhenry/mallory-graph#3, pass 2) -- the live Three.js
           canvas above stays the interactive view; this renders a shareable
-          clip of the same z = f(x, y). */}
+          clip of the primary row's z = f(x, y). */}
       <VideoExportControls
         filenameStem="mallory-graph-surface"
         duration={exportDuration}
@@ -417,4 +603,3 @@ export function Graph3DCanvas({
     </div>
   );
 }
-
