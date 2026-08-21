@@ -11,6 +11,7 @@ import { parseCompoundTileSetText } from "../lib/compound-tile-set-text.ts";
 import { DEFAULT_CUBE_TILES_TEXT, parseCubeTileSetText } from "../lib/cube-tile-set-text.ts";
 import { startTilesExportJob } from "../lib/export-tiles-video.ts";
 import { DEFAULT_HEX_TILES_TEXT, parseHexTileSetText } from "../lib/hex-tile-set-text.ts";
+import { DEFAULT_LINEAR_TILES_TEXT, parseLinearTileSetText } from "../lib/linear-tile-set-text.ts";
 import { DEFAULT_TILES_TEXT, parseTileSetText, tileSetToText } from "../lib/tile-set-text.ts";
 import {
   DEFAULT_TILES_STATE,
@@ -21,6 +22,7 @@ import {
   type TilesState,
 } from "../lib/tiles-state.ts";
 import { solveCornerTiles, type CornerGrid, type CornerTile, type CornerTileSet } from "../lib/tiles/corner-tile-model.ts";
+import { linearEntropy, solveLinear, solveLinearPeriodic, type LinearGrid, type LinearEntropyResult, type LinearTile, type LinearTileSet } from "../lib/tiles/linear-tile-model.ts";
 import { solveCube, type CubeDirection, type CubeGrid, type CubeTile, type CubeTileSet } from "../lib/tiles/cube-tile-model.ts";
 import { relaxWangTiling, type RelaxResult } from "../lib/tiles/differentiable-relax.ts";
 import { autocorrelationSurface, diffractionSpectrum, tileIdsPresent } from "../lib/tiles/diffraction.ts";
@@ -80,6 +82,12 @@ const MAX_HEX_TRI_CELLS = 100;
 // per-cell work as hex's 3 (NE/NW/W), so the cube lattice (issue #92 M4)
 // reuses the identical cell-count ceiling rather than inventing a new one.
 const MAX_CUBE_CELLS = 100;
+// Linear (1D) backtracking checks only 1 already-placed neighbor direction
+// per cell (left), the least per-cell work of any lattice here -- so it
+// gets a MUCH larger cap than MAX_HEX_TRI_CELLS/MAX_CUBE_CELLS's 100 (a 1D
+// row of this length is still comfortably fast, and a smaller cap would be
+// needlessly restrictive for a structure this cheap to search).
+const MAX_LINEAR_CELLS = 2000;
 // The relaxation experiment (issue #92 M5) runs a fixed-`steps` Adam loop
 // SYNCHRONOUSLY (see relaxWangTiling's own doc comment on why it isn't a
 // pausable generator) on click -- a much lower cell cap than the backtracking
@@ -133,11 +141,13 @@ function seedState(graph: CellGraph, ids: CellIdsTiles, state: TilesState): void
   graph.set(ids.cornerTilesText, state.cornerTilesText);
   graph.set(ids.tileWeights, state.tileWeights);
   graph.set(ids.weightedSeed, state.weightedSeed);
+  graph.set(ids.linearTilesText, state.linearTilesText);
+  graph.set(ids.linearPeriodic, state.linearPeriodic);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
   return {
-    v: 6,
+    v: 7,
     tilesText: graph.get<string>(ids.tilesText),
     width: graph.get<number>(ids.width),
     height: graph.get<number>(ids.height),
@@ -152,6 +162,8 @@ function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
     cornerTilesText: graph.get<string>(ids.cornerTilesText),
     tileWeights: graph.get<Record<string, number>>(ids.tileWeights),
     weightedSeed: graph.get<number>(ids.weightedSeed),
+    linearTilesText: graph.get<string>(ids.linearTilesText),
+    linearPeriodic: graph.get<boolean>(ids.linearPeriodic),
   };
 }
 
@@ -184,6 +196,10 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.set(ids.cornerSolveStatus, "idle" as SolveStatus, { auxiliary: true });
     graph.set(ids.cornerSolveGrid, null as CornerGrid | null, { auxiliary: true });
     graph.set(ids.cornerSolveError, "", { auxiliary: true });
+    graph.set(ids.linearSolveStatus, "idle" as SolveStatus, { auxiliary: true });
+    graph.set(ids.linearSolveGrid, null as LinearGrid | null, { auxiliary: true });
+    graph.set(ids.linearSolveError, "", { auxiliary: true });
+    graph.set(ids.linearEntropyResult, null as LinearEntropyResult | null, { auxiliary: true });
     graph.set(ids.relaxSteps, 300, { auxiliary: true });
     graph.set(ids.relaxLr, 0.3, { auxiliary: true });
     graph.set(ids.relaxStatus, "idle" as RelaxStatus, { auxiliary: true });
@@ -251,6 +267,14 @@ function useTilesGraph(cellId: string): CellGraph {
     graph.define(ids.cornerTileSetResult, (): Result<CornerTileSet> => {
       try {
         return { ok: true, value: parseCornerTileSetText(graph.get<string>(ids.cornerTilesText)) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    });
+
+    graph.define(ids.linearTileSetResult, (): Result<LinearTileSet> => {
+      try {
+        return { ok: true, value: parseLinearTileSetText(graph.get<string>(ids.linearTilesText)) };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) };
       }
@@ -881,6 +905,13 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const cornerSolveStatus = useCell<SolveStatus>(graph, ids.cornerSolveStatus);
   const cornerSolveGrid = useCell<CornerGrid | null>(graph, ids.cornerSolveGrid);
   const cornerSolveError = useCell<string>(graph, ids.cornerSolveError);
+  const linearTilesText = useCell<string>(graph, ids.linearTilesText);
+  const linearTileSetResult = useCell<Result<LinearTileSet>>(graph, ids.linearTileSetResult);
+  const linearPeriodic = useCell<boolean>(graph, ids.linearPeriodic);
+  const linearSolveStatus = useCell<SolveStatus>(graph, ids.linearSolveStatus);
+  const linearSolveGrid = useCell<LinearGrid | null>(graph, ids.linearSolveGrid);
+  const linearSolveError = useCell<string>(graph, ids.linearSolveError);
+  const linearEntropyResult = useCell<LinearEntropyResult | null>(graph, ids.linearEntropyResult);
 
   const [textInput, setTextInput] = useState(tilesText);
   useEffect(() => setTextInput(tilesText), [tilesText]);
@@ -892,6 +923,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   useEffect(() => setCubeTextInput(cubeTilesText), [cubeTilesText]);
   const [cornerTextInput, setCornerTextInput] = useState(cornerTilesText);
   useEffect(() => setCornerTextInput(cornerTilesText), [cornerTilesText]);
+  const [linearTextInput, setLinearTextInput] = useState(linearTilesText);
+  useEffect(() => setLinearTextInput(linearTilesText), [linearTilesText]);
 
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -1185,6 +1218,59 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, lattice, cornerTileSetResult, width, height]);
+
+  // Linear (1D) auto-solve (#397): same shape as the hex/tri/corner effects
+  // above (no step-by-step animation, drained straight to a final grid) --
+  // reuses `width` as the row's length (no separate dimension field, same
+  // "reuse width/height" convention every other lattice already follows).
+  // Also recomputes `linearEntropyResult` right after a successful parse,
+  // independent of whether the solve itself succeeds (a tile set can have
+  // a well-defined entropy -- or a well-defined "no bi-infinite tiling"
+  // failure -- regardless of whether THIS length's finite row happens to
+  // solve).
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (lattice !== "linear" || !linearTileSetResult.ok) {
+        graph.set(ids.linearSolveStatus, "idle" satisfies SolveStatus);
+        graph.set(ids.linearSolveGrid, null);
+        graph.set(ids.linearSolveError, "");
+        graph.set(ids.linearEntropyResult, null);
+        return;
+      }
+      try {
+        graph.set(ids.linearEntropyResult, linearEntropy(linearTileSetResult.value));
+      } catch {
+        // A friendly "no bi-infinite tiling" message is shown from the
+        // stored `null` below, not a caught error -- see the JSX's own
+        // linearEntropyResult readout.
+        graph.set(ids.linearEntropyResult, null);
+      }
+      if (width < 1 || width > MAX_LINEAR_CELLS) {
+        graph.set(ids.linearSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.linearSolveError, `Length must be at least 1 and at most ${MAX_LINEAR_CELLS} tiles.`);
+        return;
+      }
+      graph.set(ids.linearSolveStatus, "solving" satisfies SolveStatus);
+      try {
+        const solver = linearPeriodic ? solveLinearPeriodic : solveLinear;
+        const grid = await drainSolveToGrid(solver(linearTileSetResult.value, width, { trackSteps: false }));
+        if (cancelled) return;
+        graph.set(ids.linearSolveGrid, grid);
+        graph.set(ids.linearSolveError, "");
+        graph.set(ids.linearSolveStatus, "done" satisfies SolveStatus);
+      } catch (e) {
+        if (cancelled) return;
+        graph.set(ids.linearSolveStatus, "error" satisfies SolveStatus);
+        graph.set(ids.linearSolveError, e instanceof Error ? e.message : String(e));
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, lattice, linearTileSetResult, width, linearPeriodic]);
 
   // A changed solve restarts the animation from the beginning.
   useEffect(() => {
@@ -1554,6 +1640,50 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cornerCanvasWidth, cornerCanvasHeight, cornerSolveGrid, cornerTileSetResult]);
 
+  // Linear canvas (#397): a single horizontal row of colored rectangles,
+  // one per solved tile (`width` reused as the row's length) -- same
+  // CELL_SIZE as the square/corner lattices' own canvases. Two small tick
+  // marks near the left/right edges of each cell show that tile's own
+  // left/right labels (similar spirit to `drawSquareTileEdges`, but only
+  // the 2 sides a linear tile actually has).
+  const linearCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const linearCanvasWidth = Math.max(1, width) * CELL_SIZE;
+  const linearCanvasHeight = CELL_SIZE;
+  const LINEAR_TICK_INSET = 6;
+
+  useEffect(() => {
+    const ctx = linearCanvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, linearCanvasWidth, linearCanvasHeight);
+    if (!linearSolveGrid) return;
+    const tileMap = new Map(linearTileSetResult.ok ? linearTileSetResult.value.tiles.map((t) => [t.id, t]) : []);
+    for (let col = 0; col < linearSolveGrid.length; col++) {
+      const id = linearSolveGrid[col]!;
+      const x = col * CELL_SIZE;
+      ctx.fillStyle = tileColor(id);
+      ctx.fillRect(x, 0, CELL_SIZE, CELL_SIZE);
+      const tile = tileMap.get(id);
+      if (tile) {
+        strokeEdgeSegment(ctx, { x: x + LINEAR_TICK_INSET, y: 0 }, { x: x + LINEAR_TICK_INSET, y: CELL_SIZE }, edgeLabelColor(tile.left));
+        strokeEdgeSegment(
+          ctx,
+          { x: x + CELL_SIZE - LINEAR_TICK_INSET, y: 0 },
+          { x: x + CELL_SIZE - LINEAR_TICK_INSET, y: CELL_SIZE },
+          edgeLabelColor(tile.right),
+        );
+      } else {
+        ctx.strokeStyle = "#00000022";
+        ctx.strokeRect(x, 0, CELL_SIZE, CELL_SIZE);
+      }
+      ctx.fillStyle = "#fff";
+      ctx.font = "13px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(id, x + CELL_SIZE / 2, CELL_SIZE / 2);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linearCanvasWidth, linearCanvasHeight, linearSolveGrid, linearTileSetResult]);
+
   const diffractionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autocorrelationCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -1653,6 +1783,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
         ids.cornerTilesText,
         ids.tileWeights,
         ids.weightedSeed,
+        ids.linearTilesText,
+        ids.linearPeriodic,
       ],
       writeUrl,
     );
@@ -1684,6 +1816,11 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     graph.set(ids.cornerTilesText, value);
   }
 
+  function updateLinearText(value: string) {
+    setLinearTextInput(value);
+    graph.set(ids.linearTilesText, value);
+  }
+
   return (
     <div>
       <details
@@ -1705,7 +1842,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             tiles are <code>id left right top bottom</code> (an up- or down-pointing triangle only uses 3 of its 4
             declared edges); cube tiles are <code>id N S E W U D</code> (the six face labels); corner-matched square
             tiles are <code>id NE SE SW NW</code> (4 CORNER labels instead of 4 edges -- two tiles match by agreeing on
-            a shared corner, constraining diagonal neighbors too, not just orthogonal ones; see #388).
+            a shared corner, constraining diagonal neighbors too, not just orthogonal ones; see #388); linear (1D)
+            tiles are <code>id left right</code> (only 2 edges -- a labeled domino placed in a single row; see #397).
           </p>
           <p style={{ margin: "0 0 0.5rem" }}>
             <strong>Solver</strong> (square lattice): "Backtracking" places tiles left-to-right, top-to-bottom, checking
@@ -1730,6 +1868,12 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             an experimental alternate solver that optimizes a soft tile assignment via gradient descent instead of
             backtracking search, to see whether it converges to a valid tiling.
           </p>
+          <p style={{ margin: "0.5rem 0 0" }}>
+            The <strong>linear (1D) lattice</strong>'s own entropy readout is EXACT, not an approximation -- unlike the
+            square lattice's strip-height transfer-matrix estimate above (which only converges to the true 2D entropy
+            as strip height grows), a 1D tile chain's tile-to-tile adjacency IS already the full transfer relation, so
+            <code>log(dominant eigenvalue)</code> is the whole answer, with no strip-height normalization needed.
+          </p>
         </div>
       </details>
 
@@ -1742,12 +1886,22 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             <option value="tri">Triangular (4 edges, 3 used per cell)</option>
             <option value="cube">Cube (6 faces, 3D)</option>
             <option value="corner">Corner-matched square (4 corners, #388)</option>
+            <option value="linear">Linear (1D, #397)</option>
           </select>
         </label>
         {lattice !== "square" && (
           <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0 0" }}>
             Symmetry, entropy, and diffraction analysis are square-lattice-only for now (issue #92 M3).{" "}
-            {lattice === "hex" ? "Hexagonal" : lattice === "tri" ? "Triangular" : lattice === "cube" ? "Cube" : "Corner-matched square"} tiling supports editing, solving, and rendering.
+            {lattice === "hex"
+              ? "Hexagonal"
+              : lattice === "tri"
+                ? "Triangular"
+                : lattice === "cube"
+                  ? "Cube"
+                  : lattice === "corner"
+                    ? "Corner-matched square"
+                    : "Linear (1D)"}{" "}
+            tiling supports editing, solving, and rendering.
           </p>
         )}
       </div>
@@ -2288,6 +2442,53 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
           </div>
           {cornerSolveStatus === "solving" && <p>Solving…</p>}
           {cornerSolveStatus === "done" && <p>{cornerSolveGrid ? "Tiling found." : `No tiling exists for this tile set at ${width}x${height} cells.`}</p>}
+        </>
+      )}
+
+      {lattice === "linear" && (
+        <>
+          <div style={{ margin: "0.25rem 0" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Tile set (one per line: <code>id left right</code> -- 2 edge labels; see #397)
+            </label>
+            <textarea
+              value={linearTextInput}
+              onChange={(e) => updateLinearText(e.target.value)}
+              rows={5}
+              style={{ font: "inherit", fontFamily: "monospace", width: "24ch" }}
+            />
+            <div>
+              <button type="button" onClick={() => updateLinearText(DEFAULT_LINEAR_TILES_TEXT)}>
+                Reset to default set
+              </button>
+            </div>
+          </div>
+          <div style={{ margin: "0.25rem 0", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label>
+              length: <input type="number" min={1} value={width} onChange={(e) => graph.set(ids.width, Math.max(1, Number(e.target.value)))} style={{ font: "inherit", width: "5ch" }} />
+            </label>
+            <label title="When checked, the row must also wrap: the last tile's right label must match the first tile's left label, so repeating the row end to end forms a genuinely periodic bi-infinite word.">
+              <input type="checkbox" checked={linearPeriodic} onChange={(e) => graph.set(ids.linearPeriodic, e.target.checked)} /> periodic (wrap into a ring)
+            </label>
+          </div>
+          {!linearTileSetResult.ok && <p style={{ color: "crimson" }}>{linearTileSetResult.message}</p>}
+          {linearSolveStatus === "error" && <p style={{ color: "crimson" }}>{linearSolveError}</p>}
+          <canvas ref={linearCanvasRef} width={linearCanvasWidth} height={linearCanvasHeight} style={{ border: "1px solid var(--border)", maxWidth: "100%" }} />
+          <div style={{ margin: "0.25rem 0" }}>
+            <PngExportButton getCanvas={() => linearCanvasRef.current} label="tiles-linear" />
+          </div>
+          {linearSolveStatus === "solving" && <p>Solving…</p>}
+          {linearSolveStatus === "done" && (
+            <p>{linearSolveGrid ? (linearPeriodic ? "Periodic tiling found." : "Tiling found.") : `No ${linearPeriodic ? "periodic " : ""}tiling exists for this tile set at length ${width}.`}</p>
+          )}
+          <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+            <strong>Entropy</strong> (exact, not a strip-height approximation -- see "How this works" above):{" "}
+            {linearEntropyResult
+              ? `${linearEntropyResult.entropy.toFixed(4)} (dominant eigenvalue ${linearEntropyResult.dominantEigenvalue.toFixed(4)}, ${
+                  linearEntropyResult.converged ? "converged" : "did not converge"
+                } after ${linearEntropyResult.iterations} iterations)`
+              : "no bi-infinite tiling exists for this tile set (no cycle in its tile-to-tile transfer relation)."}
+          </p>
         </>
       )}
     </div>

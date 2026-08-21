@@ -5,6 +5,7 @@ import { DEFAULT_CUBE_TILES_TEXT } from "./cube-tile-set-text.ts";
 import { DEFAULT_HEX_TILES_TEXT } from "./hex-tile-set-text.ts";
 import { DEFAULT_TRI_TILES_TEXT } from "./tri-tile-set-text.ts";
 import { DEFAULT_CORNER_TILES_TEXT } from "./corner-tile-set-text.ts";
+import { DEFAULT_LINEAR_TILES_TEXT } from "./linear-tile-set-text.ts";
 import {
   DEFAULT_TILES_STATE,
   decodeTilesState,
@@ -15,6 +16,7 @@ import {
   isTilesStateV4,
   isTilesStateV5,
   isTilesStateV6,
+  isTilesStateV7,
 } from "./tiles-state.ts";
 
 test("round-trips the default tiles state through encode/decode", () => {
@@ -22,8 +24,31 @@ test("round-trips the default tiles state through encode/decode", () => {
   assert.deepEqual(decodeTilesState(encoded), DEFAULT_TILES_STATE);
 });
 
-test("round-trips a v6 state with a custom tile set, size, solver, symmetry, lattice, cube, corner, and weighted-tiling fields", () => {
+test("round-trips a v7 state with a custom tile set, size, solver, symmetry, lattice, cube, corner, weighted-tiling, and linear fields", () => {
   const state = {
+    v: 7 as const,
+    tilesText: "A 1 2 3 4",
+    width: 6,
+    height: 2,
+    solver: "weighted" as const,
+    showAnimation: false,
+    symmetry: "rotations-reflections" as const,
+    lattice: "linear" as const,
+    hexTilesText: "A 1 2 3 4 5 6",
+    triTilesText: "B 1 2 3 4",
+    cubeTilesText: "C 1 2 3 4 5 6",
+    depth: 5,
+    cornerTilesText: "D 1 2 3 4",
+    tileWeights: { A: 3, B: 1 },
+    weightedSeed: 42,
+    linearTilesText: "E 1 2\nF 2 1",
+    linearPeriodic: true,
+  };
+  assert.deepEqual(decodeTilesState(encodeTilesState(state)), state);
+});
+
+test("decodeTilesState upgrades a v6 payload to v7 with linearTilesText/linearPeriodic defaulted", () => {
+  const v6 = {
     v: 6 as const,
     tilesText: "A 1 2 3 4",
     width: 6,
@@ -40,10 +65,16 @@ test("round-trips a v6 state with a custom tile set, size, solver, symmetry, lat
     tileWeights: { A: 3, B: 1 },
     weightedSeed: 42,
   };
-  assert.deepEqual(decodeTilesState(encodeTilesState(state)), state);
+  const fragment = encodeStateFragment(v6);
+  assert.deepEqual(decodeTilesState(fragment), {
+    ...v6,
+    v: 7,
+    linearTilesText: DEFAULT_LINEAR_TILES_TEXT,
+    linearPeriodic: false,
+  });
 });
 
-test("decodeTilesState upgrades a v5 payload to v6 with tileWeights/weightedSeed defaulted", () => {
+test("decodeTilesState upgrades a v5 payload all the way to v7", () => {
   const v5 = {
     v: 5 as const,
     tilesText: "A 1 2 3 4",
@@ -62,13 +93,15 @@ test("decodeTilesState upgrades a v5 payload to v6 with tileWeights/weightedSeed
   const fragment = encodeStateFragment(v5);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v5,
-    v: 6,
+    v: 7,
     tileWeights: {},
     weightedSeed: 1,
+    linearTilesText: DEFAULT_LINEAR_TILES_TEXT,
+    linearPeriodic: false,
   });
 });
 
-test("decodeTilesState upgrades a v4 payload all the way to v6", () => {
+test("decodeTilesState upgrades a v4 payload all the way to v7", () => {
   const v4 = {
     v: 4 as const,
     tilesText: "A 1 2 3 4",
@@ -86,14 +119,16 @@ test("decodeTilesState upgrades a v4 payload all the way to v6", () => {
   const fragment = encodeStateFragment(v4);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v4,
-    v: 6,
+    v: 7,
     cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
     tileWeights: {},
     weightedSeed: 1,
+    linearTilesText: DEFAULT_LINEAR_TILES_TEXT,
+    linearPeriodic: false,
   });
 });
 
-test("decodeTilesState upgrades a v3 payload all the way to v6", () => {
+test("decodeTilesState upgrades a v3 payload all the way to v7", () => {
   const v3 = {
     v: 3 as const,
     tilesText: "A 1 2 3 4",
@@ -109,16 +144,18 @@ test("decodeTilesState upgrades a v3 payload all the way to v6", () => {
   const fragment = encodeStateFragment(v3);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v3,
-    v: 6,
+    v: 7,
     cubeTilesText: DEFAULT_CUBE_TILES_TEXT,
     depth: 3,
     cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
     tileWeights: {},
     weightedSeed: 1,
+    linearTilesText: DEFAULT_LINEAR_TILES_TEXT,
+    linearPeriodic: false,
   });
 });
 
-test("decodeTilesState upgrades a v2 payload all the way to v6", () => {
+test("decodeTilesState upgrades a v2 payload all the way to v7", () => {
   const v2 = {
     v: 2 as const,
     tilesText: "A 1 2 3 4",
@@ -131,7 +168,7 @@ test("decodeTilesState upgrades a v2 payload all the way to v6", () => {
   const fragment = encodeStateFragment(v2);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v2,
-    v: 6,
+    v: 7,
     lattice: "square",
     hexTilesText: DEFAULT_HEX_TILES_TEXT,
     triTilesText: DEFAULT_TRI_TILES_TEXT,
@@ -140,15 +177,17 @@ test("decodeTilesState upgrades a v2 payload all the way to v6", () => {
     cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
     tileWeights: {},
     weightedSeed: 1,
+    linearTilesText: DEFAULT_LINEAR_TILES_TEXT,
+    linearPeriodic: false,
   });
 });
 
-test("decodeTilesState upgrades a v1 payload all the way to v6", () => {
+test("decodeTilesState upgrades a v1 payload all the way to v7", () => {
   const v1 = { v: 1 as const, tilesText: "A 1 2 3 4", width: 6, height: 2, solver: "torus" as const, showAnimation: false };
   const fragment = encodeStateFragment(v1);
   assert.deepEqual(decodeTilesState(fragment), {
     ...v1,
-    v: 6,
+    v: 7,
     symmetry: "none",
     lattice: "square",
     hexTilesText: DEFAULT_HEX_TILES_TEXT,
@@ -158,6 +197,8 @@ test("decodeTilesState upgrades a v1 payload all the way to v6", () => {
     cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
     tileWeights: {},
     weightedSeed: 1,
+    linearTilesText: DEFAULT_LINEAR_TILES_TEXT,
+    linearPeriodic: false,
   });
 });
 
@@ -388,6 +429,76 @@ test("isTilesStateV6 accepts solver: 'weighted' and a populated tileWeights map,
       cornerTilesText: "",
       tileWeights: {},
       weightedSeed: "7",
+    }),
+    false,
+  );
+});
+
+test("isTilesStateV7 rejects a v6-shaped payload (missing linearTilesText/linearPeriodic)", () => {
+  assert.equal(
+    isTilesStateV7({
+      v: 7,
+      tilesText: "x",
+      width: 1,
+      height: 1,
+      solver: "wang",
+      showAnimation: true,
+      symmetry: "none",
+      lattice: "square",
+      hexTilesText: "",
+      triTilesText: "",
+      cubeTilesText: "",
+      depth: 3,
+      cornerTilesText: "",
+      tileWeights: {},
+      weightedSeed: 1,
+    }),
+    false,
+  );
+});
+
+test("isTilesStateV7 accepts lattice: 'linear' with linearTilesText/linearPeriodic set, and rejects a wrong-typed linearPeriodic", () => {
+  assert.equal(
+    isTilesStateV7({
+      v: 7,
+      tilesText: "x",
+      width: 1,
+      height: 1,
+      solver: "wang",
+      showAnimation: true,
+      symmetry: "none",
+      lattice: "linear",
+      hexTilesText: "",
+      triTilesText: "",
+      cubeTilesText: "",
+      depth: 3,
+      cornerTilesText: "",
+      tileWeights: {},
+      weightedSeed: 1,
+      linearTilesText: "A 1 2",
+      linearPeriodic: true,
+    }),
+    true,
+  );
+  assert.equal(
+    isTilesStateV7({
+      v: 7,
+      tilesText: "x",
+      width: 1,
+      height: 1,
+      solver: "wang",
+      showAnimation: true,
+      symmetry: "none",
+      lattice: "linear",
+      hexTilesText: "",
+      triTilesText: "",
+      cubeTilesText: "",
+      depth: 3,
+      cornerTilesText: "",
+      tileWeights: {},
+      weightedSeed: 1,
+      linearTilesText: "A 1 2",
+      linearPeriodic: "true",
     }),
     false,
   );
