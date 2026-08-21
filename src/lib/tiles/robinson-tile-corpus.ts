@@ -70,46 +70,72 @@
  * instead of hard-coded, per this session's "self-verifying" convention
  * (see `MACMAHON_24` in `tile-set-corpus.ts`).
  *
+ * ---- Formerly an open question, now RESOLVED ----
+ *
+ * TILES 2/4 EXTRA DOUBLING. Earlier passes left this unconfirmed (a
+ * secondary, non-primary source suggested arm tiles 2 and 4 carry an extra
+ * doubled line parallel to the principal arrow, but the low-resolution
+ * scan crops used at the time couldn't confirm it). A later pass cropped
+ * and 4x-nearest-zoomed (no interpolation, so no risk of an upscaler
+ * inventing detail) the four arm-tile squares directly from the primary
+ * scan and found the doubling plainly visible at NATIVE resolution: tiles
+ * 2 and 4 unambiguously show two parallel principal-arrow lines (one
+ * solid, one lighter), tiles 3 and 5 show only one. This confirms the 2x2
+ * {perpendicular-doubled, principal-doubled} matrix `armEdges` now encodes
+ * -- see `ARM2_EDGES` through `ARM5_EDGES`.
+ *
+ * (A set of AI-upscaled/regenerated versions of Fig. 2 and Fig. 6 were
+ * separately checked against this same primary scan as a sanity pass,
+ * given the real risk that a generative upscaler invents plausible-looking
+ * detail with no support in the original. For Fig. 2 the upscaled version
+ * matched what's independently visible in the raw scan -- corroborating,
+ * not the sole source, of the finding above. For Fig. 6 the upscaled
+ * version's specific claim did NOT hold up under rigorous pixel
+ * measurement -- see open question 2 below, which the same pass left MORE
+ * open than before, not resolved.)
+ *
  * ---- Open questions, NOT resolved here (concrete, reproducible, left for
  * whoever picks this back up) ----
  *
- * 1. TILES 2/4 EXTRA DOUBLING (unconfirmed against the primary source).
- *    Per this session's own quantitative pixel analysis of Fig. 2, arm
- *    tiles 2 and 3 have identical W/E structure (both "doubled"), and arm
- *    tiles 4 and 5 have identical W/E structure (both "single") -- i.e.
- *    only 3 distinct edge-patterns exist among the 5 basic tiles as
- *    currently encoded (cross, "doubled" arm, "single" arm), even though
- *    the paper needs 5 genuinely distinct basic tiles for its own 5->7 and
- *    10->14->56 counts to be non-trivial. A secondary (non-primary) source
- *    reproducing Robinson's figures suggested tiles 2 and 4 *also* carry an
- *    extra doubled line parallel to the principal arrow itself (not just
- *    the perpendicular W/E doubling already encoded), which would
- *    distinguish 2 from 3 and 4 from 5 -- but this was NOT confirmed
- *    against the primary Inventiones text directly, so it is deliberately
- *    NOT encoded below. `ARM2`/`ARM3` and `ARM4`/`ARM5` are therefore
- *    currently IDENTICAL edge bundles under different tile ids -- a known,
- *    checked gap (see the test suite), not an oversight.
+ * 1. PARITY TILE GEOMETRY CONTRADICTS THE PAPER'S OWN 90°-ROTATION CLAIM --
+ *    STILL UNRESOLVED, and now a genuine THREE-WAY disagreement rather than
+ *    a single clean contradiction:
+ *      (a) An early pixel pass on Fig. 6 found N/S edges fall short of the
+ *          boundary (a gap) in ALL FOUR parity tiles, with W/E always
+ *          touching -- meaning NO tile-pair actually satisfies the paper's
+ *          own claimed "UL = LR rotated 90 degrees" relationship (a true
+ *          90-degree rotation should swap which edge-pair touches).
+ *      (b) A separately AI-upscaled version of Fig. 6 claimed LR instead
+ *          has N/S touching (doubled bump) and W/E as the gap pair --
+ *          which WOULD be a clean 90-degree rotation of UL, resolving the
+ *          contradiction. This was checked against the actual primary scan
+ *          and did NOT hold up: N/S does touch for LR (that part
+ *          corroborated), but W/E was found to ALSO touch in the original
+ *          (not gapped, as the upscaled image invented) -- so the
+ *          upscaler's specific resolution is only half right and should
+ *          NOT be adopted as-is.
+ *      (c) A fresh, careful re-measurement of the primary scan (direct
+ *          pixel gap distances, not eyeballing) found yet a THIRD pattern:
+ *          N/S has a genuine gap only for UL/UR (~44px and no line
+ *          detected respectively); it touches for LL/LR (~10-15px, at the
+ *          antialiasing/measurement-noise level). W/E touches in ALL FOUR
+ *          tiles (~9-14px throughout, i.e. no gap-pair on W/E at all,
+ *          contradicting (a)'s own claim that W/E always touches while
+ *          N/S never does -- specifically, that UL and UR's N/S also
+ *          gaps, which THIS remeasurement DOES still agree with; the
+ *          disagreement with (a) is narrower, on LL/LR's N/S only).
+ *    None of (a), (b), (c) fully agree with each other, and a `parity-LR-
+ *    hires.png`-vs-`parity-LR-bottom-hires.png` cross-check during the (c)
+ *    pass found those two supposedly-same-tile crops disagreeing with EACH
+ *    OTHER on whether LR's N/S touches -- most likely a cropping/labeling
+ *    mismatch between the two files, not a real property of the figure.
+ *    `PARITY_TILES` below is UNCHANGED from the (a) encoding pending a
+ *    fourth, hopefully-decisive pass with correctly-labeled, higher-DPI
+ *    per-tile crops -- do not "fix" this again without going back to a
+ *    verified-correct crop of the actual figure; three successive
+ *    "resolutions" have now each been walked back.
  *
- * 2. PARITY TILE GEOMETRY CONTRADICTS THE PAPER'S OWN 90°-ROTATION CLAIM.
- *    This session's pixel measurements of Fig. 6 (gap distance from each
- *    arrow tip to its tile boundary) found: W/E edges of UL and LL touch
- *    the boundary as a double BUMP; W/E edges of UR and LR touch the
- *    boundary as a double DENT; N/S edges of ALL FOUR tiles fall short of
- *    the boundary (a gap), differing only in whether the arrow points
- *    inward (UL, UR) or outward (LL, LR). A true 90° rotation should swap
- *    which edge-pair (W/E vs N/S) touches the boundary -- but the
- *    measurements show W/E always touching and N/S never touching, in ALL
- *    FOUR tiles, including the UL/LR pair the paper explicitly claims are
- *    90°-rotations of each other. This is a genuine, currently-unresolved
- *    contradiction between the primary text and the pixel-measured figure,
- *    reproduced as a literal data mismatch below (`PARITY_TILES.UL` and
- *    `PARITY_TILES.LR` are NOT related by `rotateEdgeMap90`, and the test
- *    suite checks this directly rather than silently forcing agreement).
- *    Do not "fix" this without going back to the actual figure -- either
- *    resolution (trust the text and re-derive UL from LR, or trust the
- *    pixel measurements as transcribed) is a real, unverified choice.
- *
- * 3. PARITY-EDGE OFFSET SIDE, UNMEASURED. The pixel pass that found W/E
+ * 2. PARITY-EDGE OFFSET SIDE, UNMEASURED. The pixel pass that found W/E
  *    edges of the parity tiles touch as double bump/dent did not resolve
  *    which side the second ("side") arrow of that double is offset toward
  *    (unlike the basic arm tiles, where "toward the head of the principal
@@ -121,7 +147,7 @@
  *    `buildRobinsonTiles()` should treat matches touching an "unmeasured"
  *    label as unverified.
  *
- * Given (1)-(3), the tile count `buildRobinsonTiles()` actually derives
+ * Given (1)-(2), the tile count `buildRobinsonTiles()` actually derives
  * should NOT be assumed to be 56, or its colors correct, even though the
  * expansion machinery itself (rotate/mirror/dedupe) is generic and not
  * hard-coded to any particular target number.
@@ -156,8 +182,19 @@ export type ArrowEdge =
       readonly kind: "marked";
       readonly multiplicity: "single" | "double";
       readonly polarity: "bump" | "dent";
-      /** Only meaningful when `multiplicity` is `"double"`. */
-      readonly offset?: Direction | "unmeasured";
+      /**
+       * Only meaningful when `multiplicity` is `"double"`. A compass
+       * direction means "the second line is a short side-arrow offset
+       * toward that side" (the perpendicular-doubling case, e.g. arm tiles
+       * 2/3's W/E doubling, offset toward the principal arrow's head).
+       * `"parallel"` means "the second line runs the FULL length parallel
+       * to the first, straight to the boundary, with no sideways offset at
+       * all" (the principal-axis doubling on arm tiles 2/4, confirmed by
+       * direct native-resolution inspection of the primary scan -- see
+       * this file's own doc comment). `"unmeasured"` means the doubling is
+       * confirmed to exist but its geometry wasn't pinned down.
+       */
+      readonly offset?: Direction | "unmeasured" | "parallel";
     }
   | {
       readonly kind: "gap";
@@ -166,7 +203,7 @@ export type ArrowEdge =
 
 export type ArrowEdgeMap = Record<Direction, ArrowEdge>;
 
-function marked(multiplicity: "single" | "double", polarity: "bump" | "dent", offset?: Direction | "unmeasured"): ArrowEdge {
+function marked(multiplicity: "single" | "double", polarity: "bump" | "dent", offset?: Direction | "unmeasured" | "parallel"): ArrowEdge {
   return { kind: "marked", multiplicity, polarity, offset };
 }
 function gap(pointsToward: "in" | "out"): ArrowEdge {
@@ -182,12 +219,12 @@ export function arrowEdgeLabel(edge: ArrowEdge): string {
 
 function rotateEdge90(edge: ArrowEdge): ArrowEdge {
   if (edge.kind === "gap") return edge;
-  if (edge.multiplicity !== "double" || edge.offset === undefined || edge.offset === "unmeasured") return edge;
+  if (edge.multiplicity !== "double" || edge.offset === undefined || edge.offset === "unmeasured" || edge.offset === "parallel") return edge;
   return { ...edge, offset: ROTATE_CW[edge.offset] };
 }
 function mirrorEdgeVertical(edge: ArrowEdge): ArrowEdge {
   if (edge.kind === "gap") return edge;
-  if (edge.multiplicity !== "double" || edge.offset === undefined || edge.offset === "unmeasured") return edge;
+  if (edge.multiplicity !== "double" || edge.offset === undefined || edge.offset === "unmeasured" || edge.offset === "parallel") return edge;
   return { ...edge, offset: MIRROR_V[edge.offset] };
 }
 
@@ -217,33 +254,42 @@ export const CROSS_EDGES: ArrowEdgeMap = {
  * An arm tile, principal arrow pointing S (arrowhead/bump on S, blunt
  * dent tail on N -- "blunt" describes the tail's shape, not a separate
  * multiplicity category; matching-wise it's still a `"single"` dent).
- * `doubled` controls whether the perpendicular (W/E) in-arrows are just
- * the central dent (`false`, tiles 4/5) or central + a side dent offset
- * toward the principal arrow's head, i.e. S (`true`, tiles 2/3) -- per
- * the paper's own "toward the head of the principal arrow" rule.
+ *
+ * `perpendicularDoubled` controls whether the perpendicular (W/E) in-arrows
+ * are just the central dent (`false`, tiles 4/5) or central + a side dent
+ * offset toward the principal arrow's head, i.e. S (`true`, tiles 2/3) --
+ * per the paper's own "toward the head of the principal arrow" rule.
+ *
+ * `principalDoubled` controls whether the S (principal) bump is a single
+ * line (`false`, tiles 3/5) or TWO full-length parallel lines both
+ * reaching the S boundary (`true`, tiles 2/4) -- previously flagged as an
+ * unconfirmed secondary-source claim (see this file's own doc comment's
+ * "resolved" note); now confirmed by direct native-resolution inspection
+ * of the primary scan itself (arm tiles 2 and 4 visibly show two parallel
+ * vertical lines at their principal-arrow end, arm tiles 3 and 5 show
+ * only one). This is a `"parallel"`-offset doubling, not a side-offset
+ * one -- see `ArrowEdge`'s own doc comment on the distinction.
+ *
+ * Together these two independent booleans give exactly the 2x2 matrix of
+ * 4 genuinely distinct arm tiles this file's own doc comment originally
+ * speculated might exist, now confirmed rather than guessed.
  */
-function armEdges(doubled: boolean): ArrowEdgeMap {
-  const perpendicular: ArrowEdge = doubled ? marked("double", "dent", "S") : marked("single", "dent");
+function armEdges(perpendicularDoubled: boolean, principalDoubled: boolean): ArrowEdgeMap {
+  const perpendicular: ArrowEdge = perpendicularDoubled ? marked("double", "dent", "S") : marked("single", "dent");
+  const principal: ArrowEdge = principalDoubled ? marked("double", "bump", "parallel") : marked("single", "bump");
   return {
     N: marked("single", "dent"),
-    S: marked("single", "bump"),
+    S: principal,
     W: perpendicular,
     E: perpendicular,
   };
 }
 
-/**
- * Tiles 2-5. NOTE (open question 1 above): as currently encoded, ARM2 is
- * structurally identical to ARM3, and ARM4 is structurally identical to
- * ARM5 -- kept as separate named tiles (matching the paper's own "five
- * basic tiles" count and its 5->7 reflection claim, which needs 5
- * genuinely distinct inputs to be a non-trivial statement) but this
- * identity is a known, checked gap, not a hidden assumption.
- */
-export const ARM2_EDGES = armEdges(true);
-export const ARM3_EDGES = armEdges(true);
-export const ARM4_EDGES = armEdges(false);
-export const ARM5_EDGES = armEdges(false);
+/** Tiles 2-5, per the 2x2 {perpendicular, principal} doubling matrix confirmed against the primary scan -- see {@link armEdges}'s own doc comment. */
+export const ARM2_EDGES = armEdges(true, true);
+export const ARM3_EDGES = armEdges(true, false);
+export const ARM4_EDGES = armEdges(false, true);
+export const ARM5_EDGES = armEdges(false, false);
 
 interface NamedEdgeMap {
   readonly id: string;
@@ -262,7 +308,7 @@ export const BASIC_ARROW_TILES: readonly NamedEdgeMap[] = [
 
 /**
  * The four parity tiles as drawn in Fig. 6, transcribed from this
- * session's own pixel measurements (see open questions 2 and 3 above for
+ * session's own pixel measurements (see open questions 1 and 2 above for
  * exactly what is and isn't confirmed). Kept as 4 independently-encoded
  * tiles rather than deriving UL from LR by rotation -- the paper says
  * they SHOULD be related that way, but the measured data as transcribed
@@ -379,7 +425,7 @@ function d4Orbit(t: CombinedTile): CombinedTile[] {
  * file's top doc comment for exactly which parts of this are confirmed
  * against the primary source and which are open questions. The returned
  * count is whatever the data actually produces; it is NOT assumed to be
- * 56 (see open questions 1-3).
+ * 56 (see open questions 1-2).
  */
 export function buildRobinsonTiles(): Tile[] {
   const base = buildRobinsonBaseTiles();
