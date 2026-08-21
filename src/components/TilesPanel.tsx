@@ -237,7 +237,10 @@ function useTilesGraph(cellId: string): CellGraph {
       if (compound.value.tiles.some((t) => t.footprint.length > 1)) {
         return { ok: false, message: "This tile set uses multi-cell (@row,col) tiles -- symmetry/entropy/diffraction/relaxation aren't available for those yet. See the compound solve view below." };
       }
-      return { ok: true, value: { tiles: compound.value.tiles.map((t) => ({ id: t.id, edges: t.cells.get("0,0")!.edges })) } };
+      return {
+        ok: true,
+        value: { tiles: compound.value.tiles.map((t) => (t.locked ? { id: t.id, edges: t.cells.get("0,0")!.edges, locked: true } : { id: t.id, edges: t.cells.get("0,0")!.edges })) },
+      };
     });
 
     graph.define(ids.hexTileSetResult, (): Result<HexTileSet> => {
@@ -670,7 +673,17 @@ function SquareTilePaletteEntry({ tile, weight, onWeightChange }: { tile: Tile; 
   }, [tile]);
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" }}>
-      <canvas ref={canvasRef} width={PALETTE_SQUARE_SIZE} height={PALETTE_SQUARE_SIZE} style={{ border: "1px solid var(--border)" }} />
+      <canvas
+        ref={canvasRef}
+        width={PALETTE_SQUARE_SIZE}
+        height={PALETTE_SQUARE_SIZE}
+        style={{ border: tile.locked ? "2px dashed var(--muted)" : "1px solid var(--border)" }}
+      />
+      {tile.locked && (
+        <span style={{ fontSize: "0.7rem", color: "var(--muted)" }} title="Orientation-locked (#414): this tile keeps its drawn orientation even when symmetry expansion is on for the rest of the set.">
+          locked
+        </span>
+      )}
       {onWeightChange && (
         <label style={{ fontSize: "0.7rem", color: "var(--muted)" }} title={`Weight for tile ${tile.id} -- higher = more likely to be tried first at each cell (weightedShuffle's own default is 1).`}>
           w: <input type="number" min={0} step="any" value={weight ?? 1} onChange={(e) => onWeightChange(Math.max(0, Number(e.target.value)))} style={{ font: "inherit", width: "4ch" }} />
@@ -1855,7 +1868,10 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             in the palette above (higher = tried first more often) and a seed for reproducibility; it still finds a
             tiling whenever one exists, since weights only affect search order, never completeness.{" "}
             <strong>Symmetry</strong> expands every tile into its rotated/reflected variants before
-            solving, so a tile set stays small to write but can be used in any orientation.
+            solving, so a tile set stays small to write but can be used in any orientation -- except a tile whose id
+            ends in <code>*</code> (e.g. <code>A*</code>, square lattice only, #414), which stays orientation-locked
+            at its drawn orientation even while the rest of the set expands, for a tile whose specific facing is
+            meaningful and shouldn't be treated as interchangeable with its own rotations/reflections.
           </p>
           <p style={{ margin: 0 }}>
             <strong>Below the grid</strong> (square lattice only): <strong>Entropy</strong> estimates -- via the

@@ -51,6 +51,15 @@ export interface CompoundTile {
   footprint: readonly CellOffset[];
   /** Per-offset cell content (its 4 edge labels), keyed by {@link offsetKey}. Has exactly one entry per `footprint` offset. */
   cells: ReadonlyMap<string, Tile>;
+  /**
+   * Orientation lock (issue #414), same meaning as `Tile.locked` --
+   * carried on the whole `CompoundTile` (not per-cell) since a footprint's
+   * orientation is a property of the tile as a whole. Only meaningful for
+   * the unit (single-cell) case in practice, since symmetry expansion
+   * isn't compound-aware yet (#383) -- see `TilesPanel.tsx`'s own
+   * `tileSetResult` derivation for where this gets read back out.
+   */
+  locked?: boolean;
 }
 
 /**
@@ -87,7 +96,7 @@ export function isFootprintConnected(footprint: readonly CellOffset[]): boolean 
  * would otherwise surface much later as a confusing solver bug rather than
  * a clear construction-time error.
  */
-export function buildCompoundTile(id: string, cells: ReadonlyArray<{ offset: CellOffset; edges: Record<Direction, string> }>): CompoundTile {
+export function buildCompoundTile(id: string, cells: ReadonlyArray<{ offset: CellOffset; edges: Record<Direction, string> }>, locked?: boolean): CompoundTile {
   if (cells.length === 0) throw new Error(`Compound tile "${id}": no cells given`);
   const footprint = cells.map((c) => c.offset);
   const keys = footprint.map(offsetKey);
@@ -96,7 +105,7 @@ export function buildCompoundTile(id: string, cells: ReadonlyArray<{ offset: Cel
   if (!isFootprintConnected(footprint)) throw new Error(`Compound tile "${id}": footprint is not edge-connected`);
   const cellMap = new Map<string, Tile>();
   for (const c of cells) cellMap.set(offsetKey(c.offset), { id, edges: c.edges });
-  return { id, footprint, cells: cellMap };
+  return locked ? { id, footprint, cells: cellMap, locked: true } : { id, footprint, cells: cellMap };
 }
 
 /** A unit (single-cell) tile expressed as the degenerate 1-cell `CompoundTile` -- every existing `Tile` can be lifted this way with no behavior change. */

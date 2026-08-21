@@ -67,3 +67,23 @@ test("expanded tile ids are always unique across a multi-tile set with mixed orb
   assert.equal(new Set(ids).size, ids.length, "no id collisions across tiles with different orbit sizes");
   assert.ok(ids.includes("uniform"), "singleton-orbit tile keeps its original id");
 });
+
+test("expandTileSetSymmetry (#414): a locked, fully-asymmetric tile stays a single tile at its original orientation, even under rotations-reflections", () => {
+  const ts: TileSet = { tiles: [{ id: "a", edges: { N: "a", E: "b", S: "c", W: "d" }, locked: true }] };
+  const expanded = expandTileSetSymmetry(ts, "rotations-reflections");
+  assert.deepEqual(expanded.tiles, [{ id: "a", edges: { N: "a", E: "b", S: "c", W: "d" }, locked: true }]);
+});
+
+test("expandTileSetSymmetry (#414): locking one tile doesn't affect an unlocked tile's own expansion in the same set", () => {
+  const ts: TileSet = {
+    tiles: [
+      { id: "locked", edges: { N: "a", E: "b", S: "c", W: "d" }, locked: true },
+      { id: "free", edges: { N: "p", E: "q", S: "r", W: "s" } },
+    ],
+  };
+  const expanded = expandTileSetSymmetry(ts, "rotations");
+  const lockedVariants = expanded.tiles.filter((t) => t.id === "locked" || t.id.startsWith("locked#"));
+  const freeVariants = expanded.tiles.filter((t) => t.id === "free" || t.id.startsWith("free#"));
+  assert.equal(lockedVariants.length, 1, "the locked tile contributes exactly its 1 literal orientation");
+  assert.equal(freeVariants.length, 4, "the unlocked tile still expands into its full rotation orbit");
+});
