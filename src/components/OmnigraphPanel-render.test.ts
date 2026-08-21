@@ -66,6 +66,75 @@ test("OmnigraphPanel: state round-trips back out through the URL hash after moun
   await unmount();
 });
 
+test("OmnigraphPanel: a 3D item in the state upgrades the surface to 3D mode (2D canvas unmounted, Three container mounted)", async () => {
+  domWindow.location.hash = encodeOmnigraphState({
+    version: 1,
+    viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 },
+    items: [
+      { type: "expression", expr: "sin(x)", color: 0x2563eb, visible: true },
+      { type: "surface", expr: "sin(x)*cos(y)", color: 0x9333ea, visible: true },
+    ],
+  });
+  const OmnigraphPanel = (await import("./OmnigraphPanel.tsx")).OmnigraphPanel as unknown as (props: { cellId?: string }) => ReturnType<typeof createElement>;
+  const { container, update, unmount } = await mount(createElement(OmnigraphPanel, { cellId: "omni-3d-mode-test" }));
+  await update(() => wait(50));
+
+  // The 2D drawing canvas is gone; only the Three container div remains.
+  // (In this GL-less test environment the scene itself fails to init and
+  // the panel degrades to its WebGL-unavailable message -- the MODE switch
+  // is what's under test, not GL rendering, matching the repo's own
+  // "3D panels test pure functions, not GL" policy.)
+  const canvases = Array.from(container.querySelectorAll("canvas"));
+  assert.equal(canvases.length, 0, "expected the 2D drawing canvas to be unmounted in 3D mode (GL canvas can't init here)");
+  const text = container.textContent ?? "";
+  assert.match(text, /3D mode: drag to orbit|3D scene unavailable/, "expected 3D-mode UI");
+
+  await unmount();
+});
+
+test("OmnigraphPanel: removing the only 3D item downgrades the surface back to the 2D canvas", async () => {
+  domWindow.location.hash = encodeOmnigraphState({
+    version: 1,
+    viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 },
+    items: [
+      { type: "expression", expr: "sin(x)", color: 0x2563eb, visible: true },
+      { type: "surface", expr: "sin(x)*cos(y)", color: 0x9333ea, visible: true },
+    ],
+  });
+  const OmnigraphPanel = (await import("./OmnigraphPanel.tsx")).OmnigraphPanel as unknown as (props: { cellId?: string }) => ReturnType<typeof createElement>;
+  const { container, update, unmount } = await mount(createElement(OmnigraphPanel, { cellId: "omni-downgrade-test" }));
+  await update(() => wait(50));
+  assert.equal(container.querySelectorAll("canvas").length, 0, "starts in 3D mode");
+
+  // Remove the surface row (the second row's ✕ button).
+  const removeButtons = Array.from(container.querySelectorAll("button")).filter((b) => b.textContent?.trim() === "✕");
+  assert.equal(removeButtons.length, 2, "expected a remove button per row");
+  await update(() => {
+    (removeButtons[1] as HTMLButtonElement).dispatchEvent(new domWindow.MouseEvent("click", { bubbles: true, cancelable: true }) as unknown as Event);
+  });
+  await update(() => wait(20));
+
+  assert.equal(container.querySelectorAll("canvas").length, 1, "expected the 2D canvas back after removing the only 3D item");
+  const decoded = decodeOmnigraphState(domWindow.location.hash.slice(1));
+  assert.equal(decoded?.items.length, 1);
+  assert.equal(decoded?.items[0]?.type, "expression");
+
+  await unmount();
+});
+
+test("OmnigraphPanel: a HIDDEN 3D item still keeps the surface in 3D mode (existence, not visibility)", async () => {
+  domWindow.location.hash = encodeOmnigraphState({
+    version: 1,
+    viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 },
+    items: [{ type: "surface", expr: "sin(x)*cos(y)", color: 0x9333ea, visible: false }],
+  });
+  const OmnigraphPanel = (await import("./OmnigraphPanel.tsx")).OmnigraphPanel as unknown as (props: { cellId?: string }) => ReturnType<typeof createElement>;
+  const { container, update, unmount } = await mount(createElement(OmnigraphPanel, { cellId: "omni-hidden-3d-test" }));
+  await update(() => wait(50));
+  assert.equal(container.querySelectorAll("canvas").length, 0, "hidden 3D item still means 3D mode -- no 2D canvas");
+  await unmount();
+});
+
 test("OmnigraphPanel: the Add item button appends a new expression row", async () => {
   domWindow.location.hash = encodeOmnigraphState({ version: 1, viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 }, items: [{ type: "expression", expr: "sin(x)", color: 0x2563eb, visible: true }] });
   const OmnigraphPanel = (await import("./OmnigraphPanel.tsx")).OmnigraphPanel as unknown as (props: { cellId?: string }) => ReturnType<typeof createElement>;
