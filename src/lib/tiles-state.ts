@@ -3,11 +3,12 @@ import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 import { DEFAULT_HEX_TILES_TEXT } from "./hex-tile-set-text.ts";
 import { DEFAULT_TRI_TILES_TEXT } from "./tri-tile-set-text.ts";
 import { DEFAULT_CORNER_TILES_TEXT } from "./corner-tile-set-text.ts";
+import { DEFAULT_LINEAR_TILES_TEXT } from "./linear-tile-set-text.ts";
 import type { SymmetryGroup } from "./tiles/symmetry.ts";
 import { DEFAULT_TILES_TEXT } from "./tile-set-text.ts";
 
 export type TilesSolverKind = "wang" | "torus" | "sat" | "weighted";
-export type TilesLattice = "square" | "hex" | "tri" | "cube" | "corner";
+export type TilesLattice = "square" | "hex" | "tri" | "cube" | "corner" | "linear";
 
 export interface TilesStateV1 {
   v: 1;
@@ -102,10 +103,32 @@ export interface TilesStateV6 {
   weightedSeed: number;
 }
 
-export type TilesState = TilesStateV6;
+export interface TilesStateV7 {
+  v: 7;
+  tilesText: string;
+  width: number;
+  height: number;
+  solver: TilesSolverKind;
+  showAnimation: boolean;
+  symmetry: SymmetryGroup;
+  lattice: TilesLattice;
+  hexTilesText: string;
+  triTilesText: string;
+  cubeTilesText: string;
+  depth: number;
+  cornerTilesText: string;
+  tileWeights: Record<string, number>;
+  weightedSeed: number;
+  /** Linear (1D) lattice (#397) -- own text field, same shape as hex/tri/cube/corner. */
+  linearTilesText: string;
+  /** Whether the linear lattice's auto-solve uses `solveLinearPeriodic` (row wraps into a ring) instead of plain `solveLinear`. */
+  linearPeriodic: boolean;
+}
+
+export type TilesState = TilesStateV7;
 
 export const DEFAULT_TILES_STATE: TilesState = {
-  v: 6,
+  v: 7,
   tilesText: DEFAULT_TILES_TEXT,
   width: 4,
   height: 3,
@@ -120,22 +143,25 @@ export const DEFAULT_TILES_STATE: TilesState = {
   cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
   tileWeights: {},
   weightedSeed: 1,
+  linearTilesText: DEFAULT_LINEAR_TILES_TEXT,
+  linearPeriodic: false,
 };
 
 export function encodeTilesState(state: TilesState): string {
   return encodeStateFragment(state);
 }
 
-/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades v1/v2/v3/v4/v5 payloads up to v6 with lattice defaulted to "square", hex/tri/cube/corner text and depth defaulted, and tileWeights/weightedSeed defaulted to "uniform, seed 1". */
+/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades v1/v2/v3/v4/v5/v6 payloads up to v7 with lattice defaulted to "square", hex/tri/cube/corner text and depth defaulted, tileWeights/weightedSeed defaulted to "uniform, seed 1", and linearTilesText/linearPeriodic defaulted. */
 export function decodeTilesState(fragment: string): TilesState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
-    if (isTilesStateV6(parsed)) return parsed;
-    if (isTilesStateV5(parsed)) return upgradeV5ToV6(parsed);
-    if (isTilesStateV4(parsed)) return upgradeV5ToV6(upgradeV4ToV5(parsed));
-    if (isTilesStateV3(parsed)) return upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(parsed)));
-    if (isTilesStateV2(parsed)) return upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(parsed))));
-    if (isTilesStateV1(parsed)) return upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3({ ...parsed, v: 2, symmetry: "none" }))));
+    if (isTilesStateV7(parsed)) return parsed;
+    if (isTilesStateV6(parsed)) return upgradeV6ToV7(parsed);
+    if (isTilesStateV5(parsed)) return upgradeV6ToV7(upgradeV5ToV6(parsed));
+    if (isTilesStateV4(parsed)) return upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(parsed)));
+    if (isTilesStateV3(parsed)) return upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(parsed))));
+    if (isTilesStateV2(parsed)) return upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(parsed)))));
+    if (isTilesStateV1(parsed)) return upgradeV6ToV7(upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3({ ...parsed, v: 2, symmetry: "none" })))));
     return null;
   } catch {
     return null;
@@ -158,9 +184,13 @@ function upgradeV5ToV6(v5: TilesStateV5): TilesStateV6 {
   return { ...v5, v: 6, tileWeights: {}, weightedSeed: 1 };
 }
 
+function upgradeV6ToV7(v6: TilesStateV6): TilesStateV7 {
+  return { ...v6, v: 7, linearTilesText: DEFAULT_LINEAR_TILES_TEXT, linearPeriodic: false };
+}
+
 const SOLVER_KINDS: TilesSolverKind[] = ["wang", "torus", "sat", "weighted"];
 const SYMMETRY_GROUPS: SymmetryGroup[] = ["none", "rotations", "rotations-reflections"];
-const LATTICES: TilesLattice[] = ["square", "hex", "tri", "cube", "corner"];
+const LATTICES: TilesLattice[] = ["square", "hex", "tri", "cube", "corner", "linear"];
 
 function hasCommonFields(v: Record<string, unknown>): boolean {
   return (
@@ -229,5 +259,19 @@ export function isTilesStateV6(value: unknown): value is TilesStateV6 {
   if (typeof v.weightedSeed !== "number") return false;
   if (typeof v.tileWeights !== "object" || v.tileWeights === null) return false;
   return Object.values(v.tileWeights as Record<string, unknown>).every((w) => typeof w === "number");
+}
+
+export function isTilesStateV7(value: unknown): value is TilesStateV7 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.v !== 7 || !hasCommonFields(v)) return false;
+  if (!(typeof v.symmetry === "string" && SYMMETRY_GROUPS.includes(v.symmetry as SymmetryGroup))) return false;
+  if (!(typeof v.lattice === "string" && LATTICES.includes(v.lattice as TilesLattice))) return false;
+  if (!(typeof v.hexTilesText === "string" && typeof v.triTilesText === "string" && typeof v.cubeTilesText === "string" && typeof v.depth === "number")) return false;
+  if (typeof v.cornerTilesText !== "string") return false;
+  if (typeof v.weightedSeed !== "number") return false;
+  if (typeof v.tileWeights !== "object" || v.tileWeights === null) return false;
+  if (!Object.values(v.tileWeights as Record<string, unknown>).every((w) => typeof w === "number")) return false;
+  return typeof v.linearTilesText === "string" && typeof v.linearPeriodic === "boolean";
 }
 

@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setupTestDom } from "../lib/test-dom.ts";
-import { encodeTilesState, type TilesStateV6 } from "../lib/tiles-state.ts";
+import { encodeTilesState, type TilesStateV7 } from "../lib/tiles-state.ts";
 
 const { createElement, mount, domWindow } = await setupTestDom();
 
@@ -20,8 +20,8 @@ function wait(ms: number): Promise<void> {
 }
 
 test("TilesPanel: a tile set with an @row,col multi-cell tile takes the compound solve path and renders without error", async () => {
-  const state: TilesStateV6 = {
-    v: 6,
+  const state: TilesStateV7 = {
+    v: 7,
     // A horizontal domino tile covering (0,0)-(0,1); tiles a 2x1 grid in
     // exactly one placement.
     tilesText: "AB@0,0 1 ? 3 4\nAB@0,1 5 6 7 ?",
@@ -38,6 +38,8 @@ test("TilesPanel: a tile set with an @row,col multi-cell tile takes the compound
     cornerTilesText: "",
     tileWeights: {},
     weightedSeed: 1,
+    linearTilesText: "",
+    linearPeriodic: false,
   };
   domWindow.location.hash = encodeTilesState(state);
 

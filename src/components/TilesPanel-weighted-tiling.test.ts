@@ -19,7 +19,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setupTestDom } from "../lib/test-dom.ts";
-import { decodeTilesState, encodeTilesState, type TilesStateV6 } from "../lib/tiles-state.ts";
+import { decodeTilesState, encodeTilesState, type TilesStateV7 } from "../lib/tiles-state.ts";
 
 const { createElement, mount, domWindow } = await setupTestDom();
 
@@ -37,8 +37,8 @@ function setNumberValue(input: HTMLInputElement, value: string) {
 }
 
 test("TilesPanel: selecting the weighted-random solver shows a per-tile weight input, and editing one persists into TilesState.tileWeights", async () => {
-  const state: TilesStateV6 = {
-    v: 6,
+  const state: TilesStateV7 = {
+    v: 7,
     // Two tiles, all edges the same label -- both self- and cross-
     // compatible everywhere, so a 1x1 grid always solves regardless of
     // which tile (or weight) is chosen; this isolates "does the weighted
@@ -57,6 +57,8 @@ test("TilesPanel: selecting the weighted-random solver shows a per-tile weight i
     cornerTilesText: "",
     tileWeights: {},
     weightedSeed: 1,
+    linearTilesText: "",
+    linearPeriodic: false,
   };
   domWindow.location.hash = encodeTilesState(state);
 

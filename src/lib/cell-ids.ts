@@ -1107,6 +1107,24 @@ export function cellIdsTiles(cellId: string) {
     cornerSolveStatus: `tilesCornerSolveStatus:${cellId}`,
     cornerSolveGrid: `tilesCornerSolveGrid:${cellId}`,
     cornerSolveError: `tilesCornerSolveError:${cellId}`,
+    // Linear (1D) lattice (#397) -- same "own text/result/solve status/grid/
+    // error cells, no step animation" shape as hex/tri/corner. `width` is
+    // reused as the row's length (no separate dimension field, matching
+    // every other lattice's own reuse of width/height). `linearEntropyResult`
+    // is NOT part of TilesState -- like `expandedTileSetResult`/
+    // `diffractionResult`, it's a derived/computed value recomputed after
+    // each successful parse+solve, not something a URL needs to persist.
+    linearTilesText: `tilesLinearTilesText:${cellId}`,
+    linearTileSetResult: `tilesLinearTileSetResult:${cellId}`,
+    linearSolveStatus: `tilesLinearSolveStatus:${cellId}`,
+    linearSolveGrid: `tilesLinearSolveGrid:${cellId}`,
+    linearSolveError: `tilesLinearSolveError:${cellId}`,
+    linearEntropyResult: `tilesLinearEntropyResult:${cellId}`,
+    // Persists in TilesState (not a free/auxiliary cell), same as
+    // depth/cornerTilesText -- user input that should survive a
+    // reload/share, unlike linearTileSetResult/linearSolve*/
+    // linearEntropyResult above which are all derived.
+    linearPeriodic: `tilesLinearPeriodic:${cellId}`,
     // Weighted random tiling (#398/#403), square-lattice only: per-tile-id
     // weight map and the `solveWangWeighted` solver's own `Rng` seed. Both
     // persist in TilesState (not free/auxiliary cells) since they're user
