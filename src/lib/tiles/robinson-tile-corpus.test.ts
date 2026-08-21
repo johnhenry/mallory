@@ -81,19 +81,45 @@ test("buildRobinsonTiles: is deterministic across repeated calls", () => {
   );
 });
 
-test("isSelfSymmetricUnderReflection: current encoding STILL finds ALL 5 basic arrow tiles reflection-fixed, NOT the 3 the paper's own text claims -- unaffected by the arm-tile doubling fix, so this is a genuinely SEPARATE open detail", () => {
+test("isSelfSymmetricUnderReflection: current encoding STILL finds ALL 5 basic arrow tiles reflection-fixed, NOT the 3 the paper's own text claims -- BOTH obvious explanations ruled out by direct inspection of the primary scan, so this remains a genuinely open puzzle, not a known-missing detail", () => {
   const results = BASIC_ARROW_TILES.map((t) => ({ id: t.id, symmetric: isSelfSymmetricUnderReflection(asCombined(t.id, t.edges)) }));
   const symmetricCount = results.filter((r) => r.symmetric).length;
-  // Every arm tile's perpendicular (W/E) in-arrows are still modeled as
-  // the literal SAME `ArrowEdge` value on both sides (see `armEdges`),
-  // which is inherently left-right symmetric regardless of how the
-  // principal (S) axis is doubled -- so distinguishing the 4 arm tiles
-  // via principal-doubling (the fix this file's doc comment describes as
-  // "resolved") did NOT change this count, confirming it's a genuinely
-  // different, still-unencoded W-vs-E asymmetry on 2 of the 4 arms, not a
-  // second symptom of the same doubling gap. This test pins the CURRENT,
-  // known-incomplete count rather than the paper's claimed one, per this
-  // session's convention of not silently forcing agreement with
+  // Two hypotheses for the missing 2 (need 3 of 5, currently have 5 of 5)
+  // were checked directly against the primary scan and BOTH ruled out:
+  //
+  // 1. "A hidden arm asymmetry" -- checked all 4 arm-tile crops directly
+  //    (docs/research/robinson-1971/arm-tile-{2,3,4,5}-native-zoom.png).
+  //    Every one is drawn with clean, literal left-right mirror symmetry
+  //    -- no bent connectors, no positional offset between the W and E
+  //    markings. `armEdges` modeling W and E as the literal same
+  //    `ArrowEdge` value is therefore an accurate transcription, not a
+  //    simplification hiding a real difference.
+  //
+  // 2. "The cross has no symmetry axis at all" -- the paper's own text
+  //    ("the cross is said to face up and to the right"; "two facing
+  //    crosses must be mirror images of each other") reads at first as
+  //    implying zero symmetry. But direct inspection of the cross tile
+  //    (fig2-basic-tiles-full.png, top-left square) shows its two
+  //    doubled markings (N and E) are literally the SAME physical line,
+  //    bent 90 degrees at the tile's NE corner -- and an NE-corner elbow
+  //    IS preserved by reflection across the NE-SW diagonal (that
+  //    reflection swaps N<->E and vertical<->horizontal, mapping the
+  //    elbow back onto itself). So the elbow is consistent with -- not a
+  //    counterexample to -- the cross having exactly one symmetry axis
+  //    (the diagonal), which is exactly what `CROSS_EDGES` already
+  //    finds (via mirror + 90-degree rotation, algebraically the same
+  //    operation as a diagonal reflection). A shape with exactly one
+  //    symmetry axis still has a well-defined "facing" relative to every
+  //    OTHER transform that isn't that axis (e.g. a plain vertical
+  //    mirror would produce a genuinely different-looking, NW-SE-
+  //    symmetric tile) -- so the paper's "facing" language does not
+  //    actually require zero symmetry, and `CROSS_EDGES`'s own
+  //    self-symmetric result is plausibly correct as coded.
+  //
+  // Neither ruled-out hypothesis explains the discrepancy, so it's left
+  // genuinely open rather than attributed to either. This test pins the
+  // CURRENT, known-incomplete count rather than the paper's claimed one,
+  // per this session's convention of not silently forcing agreement with
   // unconfirmed data.
   assert.equal(symmetricCount, 5, `expected all 5 basic tiles self-symmetric under the current (incomplete) encoding, got: ${JSON.stringify(results)}`);
 });
