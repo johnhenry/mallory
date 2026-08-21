@@ -39,6 +39,8 @@ const WIDTH = 500;
 const HEIGHT = 500;
 const VIEWPORT: Viewport = { xMin: -5, xMax: 5, yMin: -5, yMax: 5 };
 const HIT_RADIUS_PX = 14;
+/** The fixed screen-space radius drawAngle/angleExportLayers draw the measurement arc at -- shared with nearestObjectId's angle hit test below so a click has to land near the actual drawn arc, not just "somewhere near the vertex". */
+const ANGLE_ARC_RADIUS_PX = 20;
 // Below this, a Line/Circle's defining points are close enough to be
 // considered coincident -- a degenerate construction (zero length/radius)
 // flagged in a warning color, the same declarative "condition read off the
@@ -641,17 +643,46 @@ function nearestPointId(graph: CellGraph, listIds: CellIdsGeometry, x: number, y
 }
 
 /**
+ * Data-space distance from `(x, y)` to the arc `drawAngle` actually draws
+ * for this angle record, or `Infinity` if the click falls outside the
+ * swept wedge between the two rays (a click near the vertex but on the
+ * wrong side of it is a miss, same as a click far from a line segment
+ * along its infinite extension is a miss for `pointToSegmentDistance`).
+ * Reuses `drawAngle`'s own theta1/theta2/diff/anticlockwise math, but in
+ * DATA space rather than screen space -- GeometryPanel has no pan/zoom
+ * (fixed `VIEWPORT`/`WIDTH`/`HEIGHT`), so `ANGLE_ARC_RADIUS_PX` converts to
+ * a fixed data-space radius via the same ratio `currentHitDataRadius` uses.
+ * Data-space y isn't screen-flipped, which mirrors the wedge relative to
+ * `drawAngle`'s own screen-space computation -- harmless here since only
+ * the wedge's *shape* (the region between the two rays, sized ≤180°, per
+ * `interiorAngleRadians`' convention) is being tested, not compared
+ * against any external clockwise/anticlockwise convention.
+ */
+function distanceToAngleArc(a: PointRecord, vertex: PointRecord, c: PointRecord, x: number, y: number): number {
+  const arcRadius = (ANGLE_ARC_RADIUS_PX / WIDTH) * (VIEWPORT.xMax - VIEWPORT.xMin);
+  const theta1 = Math.atan2(a.y - vertex.y, a.x - vertex.x);
+  const theta2 = Math.atan2(c.y - vertex.y, c.x - vertex.x);
+  let diff = theta2 - theta1;
+  while (diff <= -Math.PI) diff += 2 * Math.PI;
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  let clickDiff = Math.atan2(y - vertex.y, x - vertex.x) - theta1;
+  while (clickDiff <= -Math.PI) clickDiff += 2 * Math.PI;
+  while (clickDiff > Math.PI) clickDiff -= 2 * Math.PI;
+  const withinWedge = diff >= 0 ? clickDiff >= 0 && clickDiff <= diff : clickDiff <= 0 && clickDiff >= diff;
+  if (!withinWedge) return Infinity;
+  return Math.abs(Math.hypot(x - vertex.x, y - vertex.y) - arcRadius);
+}
+
+/**
  * #336 item 1: every other tool's click-handling only ever needs
  * `nearestPointId` (line/circle/reflect/rotate/scale/angle/polygon all
  * connect existing POINTS), so this broader hit test -- checking lines,
- * circles, and polygons too, via `pointToSegmentDistance`/circle-boundary-
- * distance/`pointInPolygon` -- is scoped to the select tool only, not
- * threaded into the other tools' construction flows. Points are checked
- * first (smallest, most precise target); a click "inside" a polygon or
- * "near" a line/circle's boundary within the hit radius counts as a hit.
- * Angle markers aren't hit-tested here (#336's stated v1 scope cut -- see
- * the OBJECT_TOOLS doc comment above for how angle already sits apart from
- * the other construction tools).
+ * circles, polygons, and angle markers too, via `pointToSegmentDistance`/
+ * circle-boundary-distance/`pointInPolygon`/`distanceToAngleArc` -- is
+ * scoped to the select tool only, not threaded into the other tools'
+ * construction flows. Points are checked first (smallest, most precise
+ * target); a click "inside" a polygon, "near" a line/circle's boundary, or
+ * "on" an angle's measurement arc within the hit radius counts as a hit.
  */
 function nearestObjectId(graph: CellGraph, listIds: CellIdsGeometry, x: number, y: number, maxDistance: number): string | null {
   const point = nearestPointId(graph, listIds, x, y, maxDistance);
@@ -683,6 +714,13 @@ function nearestObjectId(graph: CellGraph, listIds: CellIdsGeometry, x: number, 
         // boundary miss elsewhere -- treat any interior hit as exact (0)
         // so it wins over anything found so far within maxDistance.
         bestDist = 0;
+        best = id;
+      }
+    } else if (graph.has(angleRecordCellId(id))) {
+      const { a, vertex, c } = graph.get<AngleRecord>(angleRecordCellId(id));
+      const d = distanceToAngleArc(graph.get<PointRecord>(pointCellId(a)), graph.get<PointRecord>(pointCellId(vertex)), graph.get<PointRecord>(pointCellId(c)), x, y);
+      if (d < bestDist) {
+        bestDist = d;
         best = id;
       }
     }
@@ -1802,16 +1840,15 @@ function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointR
   while (diff <= -Math.PI) diff += 2 * Math.PI;
   while (diff > Math.PI) diff -= 2 * Math.PI;
   const anticlockwise = diff < 0;
-  const ARC_RADIUS = 20;
   ctx.save();
   ctx.strokeStyle = "#9333ea";
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.arc(vx, vy, ARC_RADIUS, theta1, theta2, anticlockwise);
+  ctx.arc(vx, vy, ANGLE_ARC_RADIUS_PX, theta1, theta2, anticlockwise);
   ctx.stroke();
   const mid = theta1 + diff / 2;
-  const labelX = vx + (ARC_RADIUS + 14) * Math.cos(mid);
-  const labelY = vy + (ARC_RADIUS + 14) * Math.sin(mid);
+  const labelX = vx + (ANGLE_ARC_RADIUS_PX + 14) * Math.cos(mid);
+  const labelY = vy + (ANGLE_ARC_RADIUS_PX + 14) * Math.sin(mid);
   // getThemeColors(), not "var(--muted)" -- canvas fillStyle silently
   // ignores CSS custom properties (theme-colors.ts's own doc comment), so
   // this label was rendering in whatever color the context last used.
@@ -1837,12 +1874,11 @@ function angleExportLayers(a: PointRecord, vertex: PointRecord, c: PointRecord, 
   while (diff <= -Math.PI) diff += 2 * Math.PI;
   while (diff > Math.PI) diff -= 2 * Math.PI;
   const anticlockwise = diff < 0;
-  const ARC_RADIUS = 20;
   const mid = theta1 + diff / 2;
-  const labelX = vx + (ARC_RADIUS + 14) * Math.cos(mid);
-  const labelY = vy + (ARC_RADIUS + 14) * Math.sin(mid);
+  const labelX = vx + (ANGLE_ARC_RADIUS_PX + 14) * Math.cos(mid);
+  const labelY = vy + (ANGLE_ARC_RADIUS_PX + 14) * Math.sin(mid);
   return [
-    { kind: "arc", cxPx: vx, cyPx: vy, radiusPx: ARC_RADIUS, startAngle: theta1, endAngle: theta2, anticlockwise, color: "#9333ea", strokeWidth: 1.5 },
+    { kind: "arc", cxPx: vx, cyPx: vy, radiusPx: ANGLE_ARC_RADIUS_PX, startAngle: theta1, endAngle: theta2, anticlockwise, color: "#9333ea", strokeWidth: 1.5 },
     { kind: "text", xPx: labelX, yPx: labelY, label: formatAngle(angleRadians, angleUnit) },
   ];
 }

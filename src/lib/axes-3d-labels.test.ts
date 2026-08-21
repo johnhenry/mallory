@@ -3,8 +3,9 @@ import { test } from "node:test";
 import { setupTestDom } from "./test-dom.ts";
 
 await setupTestDom();
-const { buildAxesLabelGroup } = await import("./axes-3d-labels.ts");
+const { buildAxesLabelGroup, buildSymmetricAxesHelper } = await import("./axes-3d-labels.ts");
 const { CSS2DObject } = await import("three/addons/renderers/CSS2DRenderer.js");
+const THREE = await import("three");
 
 function labelsAt(group: ReturnType<typeof buildAxesLabelGroup>, x: number, y: number, z: number) {
   return group.children.filter((c) => c instanceof CSS2DObject && c.position.x === x && c.position.y === y && c.position.z === z) as InstanceType<typeof CSS2DObject>[];
@@ -55,4 +56,22 @@ test("buildAxesLabelGroup: a smaller extent produces fewer, tighter ticks -- ext
   assert.equal(halfLabels[0]?.element.textContent, "0.5");
   assert.equal(oneLabels[0]?.element.textContent, "1");
   assert.equal(group.children.length, 4 * 3 + 1);
+});
+
+test("buildSymmetricAxesHelper: unlike THREE.AxesHelper (origin to +extent only), each axis line spans -extent to +extent -- so every negative tick label from buildAxesLabelGroup has a line under it", () => {
+  const group = buildSymmetricAxesHelper(5);
+  assert.equal(group.children.length, 3, "one Line per axis");
+  for (const child of group.children) {
+    assert.ok(child instanceof THREE.Line);
+    const positions = (child as InstanceType<typeof THREE.Line>).geometry.getAttribute("position");
+    assert.equal(positions.count, 2, "a 2-point line segment");
+    const from = new THREE.Vector3().fromBufferAttribute(positions, 0);
+    const to = new THREE.Vector3().fromBufferAttribute(positions, 1);
+    // Each axis's two endpoints are +5 and -5 along exactly one axis, 0 on the other two.
+    const fromMag = Math.max(Math.abs(from.x), Math.abs(from.y), Math.abs(from.z));
+    const toMag = Math.max(Math.abs(to.x), Math.abs(to.y), Math.abs(to.z));
+    assert.equal(fromMag, 5);
+    assert.equal(toMag, 5);
+    assert.ok((from.x === -5 && to.x === 5) || (from.y === -5 && to.y === 5) || (from.z === -5 && to.z === 5), "one axis runs from -5 to +5");
+  }
 });

@@ -14,7 +14,7 @@
  */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { buildAxesLabelGroup, setupCss2DOverlay } from "./axes-3d-labels.ts";
+import { buildAxesLabelGroup, buildSymmetricAxesHelper, setupCss2DOverlay } from "./axes-3d-labels.ts";
 import { getThemeColors, subscribeToThemeChange } from "./theme-colors.ts";
 
 export interface ThreeSceneOptions {
@@ -69,7 +69,7 @@ export function createThreeScene(container: HTMLElement, options: ThreeSceneOpti
   const directional = new THREE.DirectionalLight(0xffffff, 0.8);
   directional.position.set(5, 10, 7);
   scene.add(directional);
-  scene.add(new THREE.AxesHelper(axesExtent));
+  scene.add(buildSymmetricAxesHelper(axesExtent));
   scene.add(buildAxesLabelGroup(axesExtent));
   const labelOverlay = setupCss2DOverlay(container, width, height);
 

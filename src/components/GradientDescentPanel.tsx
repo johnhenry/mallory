@@ -18,7 +18,7 @@ import { meshToGeometry, meshToMaterial } from "../lib/mesh-to-geometry.ts";
 import { drawAxes, drawImplicitCurve, drawPoint, drawPolyline } from "../lib/render-path.ts";
 import { sampleSurface } from "../lib/sample-surface.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
-import { buildAxesLabelGroup, setupCss2DOverlay } from "../lib/axes-3d-labels.ts";
+import { buildAxesLabelGroup, buildSymmetricAxesHelper, setupCss2DOverlay } from "../lib/axes-3d-labels.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { canvasEventPoint, toDataX, toDataY, type Viewport } from "../lib/viewport.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -372,7 +372,7 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
     directional.position.set(5, 10, 7);
     scene.add(directional);
-    scene.add(new THREE.AxesHelper(DOMAIN.max));
+    scene.add(buildSymmetricAxesHelper(DOMAIN.max));
     scene.add(buildAxesLabelGroup(DOMAIN.max));
     const labelOverlay = setupCss2DOverlay(container, WIDTH, HEIGHT);
 

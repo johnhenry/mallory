@@ -25,7 +25,7 @@ import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
-import { buildAxesLabelGroup, setupCss2DOverlay } from "../lib/axes-3d-labels.ts";
+import { buildAxesLabelGroup, buildSymmetricAxesHelper, setupCss2DOverlay } from "../lib/axes-3d-labels.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
@@ -311,7 +311,7 @@ export function ComplexGraph3DPanel({ cellId = "complex-graph-1" }: { cellId?: s
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
     directional.position.set(5, 10, 7);
     scene.add(directional);
-    scene.add(new THREE.AxesHelper(3));
+    scene.add(buildSymmetricAxesHelper(3));
     scene.add(buildAxesLabelGroup(3));
     const labelOverlay = setupCss2DOverlay(container, WIDTH, HEIGHT);
 
