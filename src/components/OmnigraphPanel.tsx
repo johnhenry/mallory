@@ -34,7 +34,15 @@ import { equationToImplicitZero } from "../lib/equation-to-zero.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
 import { meshToGeometry, meshToMaterial } from "../lib/mesh-to-geometry.ts";
 import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";
+import { runGradientDescent, type DescentPoint } from "../lib/gradient-descent.ts";
 import { OMNIGRAPH_ITEM_TYPES, defaultOmnigraphItem, omnigraphIs3D, readOmnigraphItem, seedOmnigraphRow } from "../lib/omnigraph-items.ts";
+import {
+  ALL_COMPONENTS,
+  isValidComplexAxisAssignment,
+  sampleComplexGraph,
+  type AxisChoice,
+  type ComplexGraphSampleResult,
+} from "../lib/sample-complex-graph.ts";
 import {
   DEFAULT_OMNIGRAPH_STATE,
   DEFAULT_OMNIGRAPH_VIEWPORT,
@@ -84,11 +92,25 @@ const TUBE_RADIUS = 0.05;
 const TUBE_RADIAL_SEGMENTS = 8;
 const CAMERA_DISTANCE_3D = 8;
 const AXES_EXTENT_3D = 5;
+// complexGraph3d rendering constants, matching ComplexGraph3DPanel's own.
+const COMPLEX_GRAPH_RESOLUTION = 300;
+const SCATTER_POINT_SIZE = 0.06;
+const NEAR_REAL_COLOR = 0xfbbf24;
+const NEAR_REAL_POINT_SIZE = SCATTER_POINT_SIZE * 1.8;
+// gradientDescent: eager static path (no transport/animation in v1 -- the
+// full path shows convergence shape; runGradientDescent itself caps steps
+// at 2000). SGD only in v1; optimizer choice stays on the dedicated panel.
+const DESCENT_ENDPOINT_RADIUS = 0.12;
+// Complex domain coloring's 3D form: a viewport-sized textured ground
+// plane at half raster resolution, stacked a hair below y=0 per list index
+// so multiple layers keep their 2D list-order semantics without z-fighting.
+const COMPLEX_PLANE_RASTER_SIZE = 300;
+const COMPLEX_PLANE_Y_STEP = -0.001;
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
-/** The item types the dropdown offers TODAY -- phases 1 (2D core) and 2 (3D core) are live; phase 3's exotic ones land next. The state codec already understands all 11 (see omnigraph-state.ts's own doc comment). */
-const AVAILABLE_TYPES = (Object.keys(OMNIGRAPH_ITEM_TYPES) as OmnigraphItemType[]).filter((t) => OMNIGRAPH_ITEM_TYPES[t].phase <= 2);
+/** The item types the dropdown offers -- all 11 are live as of phase 3. */
+const AVAILABLE_TYPES = (Object.keys(OMNIGRAPH_ITEM_TYPES) as OmnigraphItemType[]).filter((t) => OMNIGRAPH_ITEM_TYPES[t].phase <= 3);
 
 /**
  * One item's drawable form, derived per row by the `graph.define`d cell
@@ -107,7 +129,9 @@ type Drawable =
   | { kind: "raster"; f: (z: ComplexNumber) => ComplexNumber }
   | { kind: "mesh"; meshes: Mesh[] }
   | { kind: "points3d"; points: SpaceCurvePoint[] }
-  | { kind: "field3d"; points: VectorField3DPoint[] };
+  | { kind: "field3d"; points: VectorField3DPoint[] }
+  | { kind: "complexGraph"; result: ComplexGraphSampleResult; highlightNearReal: boolean }
+  | { kind: "descent"; lossMeshes: Mesh[]; path: DescentPoint[]; stoppedEarly: boolean };
 
 /** Numeric parse of a user-editable bound string; throws the row-friendly message every source panel uses. */
 function bound(text: string, label: string): number {
@@ -222,8 +246,39 @@ function defineRowDrawable(graph: CellGraph, rowId: string, containerIds: CellId
           );
           return { ok: true, value: { kind: "field3d", points } };
         }
+        case "complexGraph3d": {
+          const assignment = {
+            x: graph.get<AxisChoice>(ids.axisX),
+            y: graph.get<AxisChoice>(ids.axisY),
+            z: graph.get<AxisChoice>(ids.axisZ),
+          };
+          if (!isValidComplexAxisAssignment(assignment)) {
+            throw new Error("Assign at least one axis to a component, and don't assign the same component to two axes.");
+          }
+          const domain = { min: bound(graph.get<string>(ids.tMin), "t-min"), max: bound(graph.get<string>(ids.tMax), "t-max") };
+          if (domain.min >= domain.max) throw new Error("t-min must be less than t-max.");
+          const result = sampleComplexGraph(graph.get<string>(ids.expr), assignment, domain, COMPLEX_GRAPH_RESOLUTION, {
+            reX: graph.get<boolean>(ids.sweepReX),
+            imX: graph.get<boolean>(ids.sweepImX),
+          });
+          return { ok: true, value: { kind: "complexGraph", result, highlightNearReal: graph.get<boolean>(ids.highlightNearReal) } };
+        }
+        case "gradientDescent": {
+          const startX = bound(graph.get<string>(ids.startX), "start x");
+          const startY = bound(graph.get<string>(ids.startY), "start y");
+          const stepSize = bound(graph.get<string>(ids.stepSize), "step size");
+          const steps = bound(graph.get<string>(ids.steps), "steps");
+          const expr = graph.get<string>(ids.expr);
+          // Eager, static full path -- runGradientDescent is pure and does
+          // its own validation (positive lr, integer steps <= 2000, finite
+          // start), whose messages surface as this row's error.
+          const descent = runGradientDescent(expr, startX, startY, "sgd", stepSize, steps);
+          const color = graph.get<number>(ids.color);
+          const lossMeshes = sampleSurface(expr, SURFACE_DOMAIN, SURFACE_DOMAIN, SURFACE_RESOLUTION, {}, color);
+          return { ok: true, value: { kind: "descent", lossMeshes, path: descent.path, stoppedEarly: descent.stoppedEarly } };
+        }
         default:
-          throw new Error(`Item type "${type}" isn't available on this surface yet (a later phase adds it).`);
+          throw new Error(`Unknown item type "${type}".`);
       }
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -327,16 +382,33 @@ function currentIs3D(graph: CellGraph, containerIds: CellIdsOmnigraph): boolean 
   return omnigraphIs3D(items);
 }
 
+/** InstancedMesh spheres for a scatter subset -- ComplexGraph3DPanel's own addScatterMesh, with the position routed through toThreePoint per this panel's single-convention rule. */
+function addScatterMesh(group: THREE.Group, points: SpaceCurvePoint[], indices: number[], color: number, size: number): void {
+  if (indices.length === 0) return;
+  const geometry = new THREE.SphereGeometry(size, 6, 6);
+  const material = new THREE.MeshStandardMaterial({ color });
+  const mesh = new THREE.InstancedMesh(geometry, material, indices.length);
+  const dummy = new THREE.Object3D();
+  indices.forEach((pointIndex, i) => {
+    dummy.position.copy(toThreePoint(points[pointIndex] as SpaceCurvePoint));
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  });
+  group.add(mesh);
+}
+
 /**
  * Builds one row's Three.js object for the 3D scene, dispatching on its
  * derived drawable -- the generalization of GradientDescentPanel's
  * hardcoded surface+path groups and ComplexGraph3DPanel's per-row
- * curve/scatter dispatch. Returns null for hidden/errored rows and for
- * types with no 3D representation yet (complex rasters until phase 3).
+ * curve/scatter dispatch. Returns null for hidden/errored rows.
  * Every point-producing type goes through three-scene.ts's adapters --
- * see toThreePoint's own convention table.
+ * see toThreePoint's own convention table (gradient descent's path is the
+ * one pre-swapped exception, matching descentPathTo3DPoints's own shape).
+ * `viewport`/`listIndex` feed only the complex-raster ground plane (its
+ * size/position and its list-order stacking offset).
  */
-function buildRowObject3D(graph: CellGraph, rowId: string): THREE.Object3D | null {
+function buildRowObject3D(graph: CellGraph, rowId: string, viewport: Viewport, listIndex: number): THREE.Object3D | null {
   const ids = cellIdsOmnigraphRow(rowId);
   if (!graph.hasValue(ids.type) || !graph.get<boolean>(ids.visible)) return null;
   const drawable = graph.get<Result<Drawable>>(ids.error);
@@ -345,6 +417,60 @@ function buildRowObject3D(graph: CellGraph, rowId: string): THREE.Object3D | nul
   const color = graph.hasValue(ids.color) ? graph.get<number>(ids.color) : 0x2563eb;
 
   switch (d.kind) {
+    case "complexGraph": {
+      const { result, highlightNearReal } = d;
+      if (result.mode === "curve") {
+        const vectors = result.points.map(toThreePoint);
+        if (vectors.length < 2) return null;
+        const curve = new THREE.CatmullRomCurve3(vectors);
+        const geometry = new THREE.TubeGeometry(curve, Math.max(2, vectors.length), TUBE_RADIUS, TUBE_RADIAL_SEGMENTS, false);
+        return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color }));
+      }
+      const group = new THREE.Group();
+      const nearReal = highlightNearReal ? result.nearReal : undefined;
+      if (nearReal) {
+        const normal: number[] = [];
+        const highlighted: number[] = [];
+        result.points.forEach((_, i) => (nearReal[i] ? highlighted : normal).push(i));
+        addScatterMesh(group, result.points, normal, color, SCATTER_POINT_SIZE);
+        addScatterMesh(group, result.points, highlighted, NEAR_REAL_COLOR, NEAR_REAL_POINT_SIZE);
+      } else {
+        addScatterMesh(
+          group,
+          result.points,
+          result.points.map((_, i) => i),
+          color,
+          SCATTER_POINT_SIZE,
+        );
+      }
+      return group;
+    }
+    case "descent": {
+      const group = new THREE.Group();
+      // Translucent loss surface, so the path inside/behind it stays
+      // visible -- the one deliberate departure from meshToMaterial's own
+      // opaque default.
+      for (const mesh of d.lossMeshes) {
+        const material = meshToMaterial(mesh) as THREE.MeshStandardMaterial;
+        material.transparent = true;
+        material.opacity = 0.45;
+        group.add(new THREE.Mesh(meshToGeometry(mesh), material));
+      }
+      // Path points are {x, f(height), y} -- ALREADY in Three's y-up
+      // orientation (the same pre-swapped shape descentPathTo3DPoints
+      // produces), so they're consumed directly, not via toThreePoint.
+      const pathVectors = d.path.map((p) => new THREE.Vector3(p.x, p.f, p.y));
+      if (pathVectors.length >= 2) {
+        group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathVectors), new THREE.LineBasicMaterial({ color: 0x111827 })));
+      }
+      const end = pathVectors[pathVectors.length - 1];
+      if (end) {
+        const endpoint = new THREE.Mesh(new THREE.SphereGeometry(DESCENT_ENDPOINT_RADIUS, 12, 12), new THREE.MeshStandardMaterial({ color: 0x111827 }));
+        endpoint.position.copy(end);
+        group.add(endpoint);
+      }
+      return group;
+    }
     case "mesh": {
       const group = new THREE.Group();
       for (const mesh of d.meshes) group.add(new THREE.Mesh(meshToGeometry(mesh), meshToMaterial(mesh)));
@@ -400,11 +526,37 @@ function buildRowObject3D(graph: CellGraph, rowId: string): THREE.Object3D | nul
       }
       return new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color }));
     }
-    case "raster":
-      // Complex domain coloring's 3D form (textured ground plane) is
-      // phase 3 -- until then the item simply doesn't render in 3D mode
-      // (its row stays in the list, unchanged).
-      return null;
+    case "raster": {
+      // Complex domain coloring's 3D form: the raster rendered (at half-ish
+      // resolution) into an offscreen canvas, wrapped in a CanvasTexture on
+      // a viewport-sized plane laid flat a hair below the ground -- exactly
+      // the "background layer" semantics the 2D mode promises, stacked by
+      // list index so multiple layers keep their 2D ordering without
+      // z-fighting. SSR-safe: no document means no plane (the 3D scene
+      // itself only exists client-side anyway).
+      if (typeof document === "undefined") return null;
+      const rasterCanvas = document.createElement("canvas");
+      rasterCanvas.width = COMPLEX_PLANE_RASTER_SIZE;
+      rasterCanvas.height = COMPLEX_PLANE_RASTER_SIZE;
+      const rasterCtx = rasterCanvas.getContext("2d");
+      if (!rasterCtx) return null;
+      renderDomainColoring(rasterCtx, COMPLEX_PLANE_RASTER_SIZE, COMPLEX_PLANE_RASTER_SIZE, viewport, d.f);
+      const texture = new THREE.CanvasTexture(rasterCanvas);
+      const plane = new THREE.Mesh(
+        new THREE.PlaneGeometry(viewport.xMax - viewport.xMin, viewport.yMax - viewport.yMin),
+        new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
+      );
+      // PlaneGeometry lies in Three's x-y plane; rotating about x by +PI/2
+      // maps a plane point (x, y, 0) to (x, 0, y) -- EXACTLY
+      // planePointToThree's own embedding, so the raster's data-north
+      // (canvas row 0 = data yMax, which flipY=true puts at the plane's +y
+      // edge) lands at +z alongside every curve item's own data-north.
+      // (-PI/2 would mirror it: (x, y, 0) -> (x, 0, -y).) The rotated
+      // plane faces -y (downward); DoubleSide keeps it visible from above.
+      plane.rotation.x = Math.PI / 2;
+      plane.position.set((viewport.xMin + viewport.xMax) / 2, COMPLEX_PLANE_Y_STEP * (listIndex + 1), (viewport.yMin + viewport.yMax) / 2);
+      return plane;
+    }
   }
 }
 
@@ -469,6 +621,32 @@ function OmnigraphRow({
     );
   }
 
+  /** AxisChoice dropdown for a complexGraph3d row -- the same reX/imX/reY/imY/none vocabulary ComplexGraph3DPanel's own AxisSelect offers. */
+  function axisSelect(cellId: string, label: string) {
+    const value = graph.hasValue(cellId) ? graph.get<AxisChoice>(cellId) : "none";
+    return (
+      <label>
+        {label}{" "}
+        <select value={value} onChange={(e) => graph.set(cellId, e.target.value as AxisChoice)}>
+          {[...ALL_COMPONENTS, "none" as const].map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  function toggle(cellId: string, label: string) {
+    const value = graph.hasValue(cellId) ? graph.get<boolean>(cellId) : false;
+    return (
+      <label style={{ fontSize: "0.8rem" }}>
+        <input type="checkbox" checked={value} onChange={(e) => graph.set(cellId, e.target.checked)} /> {label}
+      </label>
+    );
+  }
+
   function switchType(next: OmnigraphItemType) {
     const index = graph.get<string[]>(containerIds.list).indexOf(rowId);
     const keepColor = graph.hasValue(ids.color) ? graph.get<number>(ids.color) : paletteColor(Math.max(0, index));
@@ -521,7 +699,7 @@ function OmnigraphRow({
         {type === "complex" && (
           <>
             {field(ids.expr, "f(z) =", "16ch")}
-            <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>renders as a background layer (2D surface only for now)</span>
+            <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>renders as a background layer (a textured ground plane in 3D)</span>
           </>
         )}
         {type === "surface" && field(ids.expr, "z(x, y) =", "20ch")}
@@ -551,6 +729,29 @@ function OmnigraphRow({
             {field(ids.exprB, "dy =")}
             {field(ids.exprC, "dz =")}
             <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>sampled on a 5×5×5 grid over [-5, 5]³</span>
+          </>
+        )}
+        {type === "complexGraph3d" && (
+          <>
+            {field(ids.expr, "y(x) =", "14ch")}
+            {axisSelect(ids.axisX, "x-axis:")}
+            {axisSelect(ids.axisY, "y-axis:")}
+            {axisSelect(ids.axisZ, "z-axis:")}
+            {field(ids.tMin, "t ∈ [", "6ch")}
+            {field(ids.tMax, ",", "6ch")}
+            {toggle(ids.sweepReX, "sweep Re(x)")}
+            {toggle(ids.sweepImX, "sweep Im(x)")}
+            {toggle(ids.highlightNearReal, "highlight near-real")}
+          </>
+        )}
+        {type === "gradientDescent" && (
+          <>
+            {field(ids.expr, "loss f(x,y) =", "14ch")}
+            {field(ids.startX, "start x:", "5ch")}
+            {field(ids.startY, "y:", "5ch")}
+            {field(ids.stepSize, "lr:", "5ch")}
+            {field(ids.steps, "steps:", "5ch")}
+            <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>SGD, full path drawn statically</span>
           </>
         )}
       </div>
@@ -669,14 +870,15 @@ export function OmnigraphPanel({ cellId = "omnigraph-1" }: OmnigraphPanelProps =
 
     const rebuild = () => {
       disposeGroup(content);
-      for (const rowId of graph.get<string[]>(containerIds.list)) {
+      const vp = graph.get<Viewport>(containerIds.viewport);
+      graph.get<string[]>(containerIds.list).forEach((rowId, listIndex) => {
         try {
-          const object = buildRowObject3D(graph, rowId);
+          const object = buildRowObject3D(graph, rowId, vp, listIndex);
           if (object) content.add(object);
         } catch {
           // Row mid-removal -- skip it this pass.
         }
-      }
+      });
     };
     rebuild();
     const unsubscribe = graph.subscribeAll(rebuild);
@@ -815,7 +1017,7 @@ export function OmnigraphPanel({ cellId = "omnigraph-1" }: OmnigraphPanelProps =
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0 0 0.5rem" }}>
         Every graph type on one surface: add items and pick each one's type from its dropdown. The surface upgrades to a 3D scene when any
         3D-type item exists (2D items then draw flat on the ground plane); delete the 3D items to return to the 2D canvas.
-        Complex-coloring items render as background layers in list order (2D surface only for now).
+        Complex-coloring items render as background layers in list order -- a raster in 2D, a textured ground plane in 3D.
       </p>
       {rowIds.map((rowId) => (
         <OmnigraphRow key={rowId} graph={graph} rowId={rowId} containerIds={containerIds} onRemove={rowIds.length > 1 ? () => removeItem(rowId) : undefined} />
