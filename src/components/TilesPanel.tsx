@@ -32,6 +32,7 @@ import { hexCenter, hexCorners, hexEdgeSegment } from "../lib/tiles/hex-geometry
 import { solveHex, type HexGrid, type HexTile, type HexTileSet } from "../lib/tiles/hex-tile-model.ts";
 import { expandTileSetSymmetry, type SymmetryGroup } from "../lib/tiles/symmetry.ts";
 import { TILE_SET_CORPUS } from "../lib/tiles/tile-set-corpus.ts";
+import { TILE_SET_EXAMPLES } from "../lib/tiles/tile-set-examples.ts";
 import {
   isBoundaryEdge,
   offsetKey,
@@ -1854,7 +1855,9 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             <code>?</code> (requires) matches only its OPPOSITE polarity with the same base label -- <code>Plan!</code>{" "}
             matches <code>Plan?</code>, but never another <code>Plan!</code> or another <code>Plan?</code>. Plain,
             unsuffixed labels keep working exactly as before (equality); mixing a suffixed edge against a plain one on
-            the same shared border never matches. Purely opt-in, one edge label at a time.
+            the same shared border never matches. Purely opt-in, one edge label at a time -- "load example" below has a
+            small hand-authored pipeline showing it in use (#416; illustrative composition patterns, not aperiodic
+            tile sets like "load preset"'s own corpus).
           </p>
           <p style={{ margin: "0 0 0.5rem" }}>
             <strong>Notation</strong> depends on the lattice: square tiles are <code>id N E S W</code> (edge labels
@@ -1962,6 +1965,29 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                     (choose a preset…)
                   </option>
                   {TILE_SET_CORPUS.map((entry) => (
+                    <option key={entry.id} value={entry.id} title={entry.description}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label title="Illustrative directed-matching (#415) composition patterns, NOT aperiodic tile sets (#416) -- loading one also sets the grid size to the exact size that demonstrates it.">
+                load example:{" "}
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const entry = TILE_SET_EXAMPLES.find((p) => p.id === e.target.value);
+                    if (!entry) return;
+                    updateText(tileSetToText(entry.tileSet));
+                    graph.set(ids.width, entry.recommendedWidth);
+                    graph.set(ids.height, entry.recommendedHeight);
+                    graph.set(ids.symmetry, "none" as SymmetryGroup);
+                  }}
+                >
+                  <option value="" disabled>
+                    (choose an example…)
+                  </option>
+                  {TILE_SET_EXAMPLES.map((entry) => (
                     <option key={entry.id} value={entry.id} title={entry.description}>
                       {entry.name}
                     </option>
