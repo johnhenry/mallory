@@ -24,6 +24,16 @@ const OPPOSITE: Record<Direction, Direction> = { N: "S", S: "N", E: "W", W: "E" 
 export interface Tile {
   id: string;
   edges: Record<Direction, string>;
+  /**
+   * Opt-in orientation lock (issue #414): when `true`, `expandTileSetSymmetry`
+   * (symmetry.ts) leaves this tile as its single literal orientation even
+   * when the tile set's chosen symmetry group would otherwise expand it
+   * into its rotated/reflected orbit. Absent/`false` for every tile that
+   * doesn't opt in -- purely additive, matches this lab's existing "extra
+   * optional field, no change for tiles that don't use it" convention
+   * (e.g. compound tiles' own footprint field).
+   */
+  locked?: boolean;
 }
 
 export interface TileSet {

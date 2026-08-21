@@ -81,6 +81,36 @@ test("parseCompoundTileSetText: a continuation line with nothing preceding it is
   assert.throws(() => parseCompoundTileSetText("1 2 3 4"), /needs a preceding tile line/);
 });
 
+test("parseCompoundTileSetText: a trailing * on a unit tile's id marks it locked (#414)", () => {
+  const { tiles } = parseCompoundTileSetText("A* 1 2 3 4\nB 9 8 7 6");
+  const a = tiles.find((t) => t.id === "A")!;
+  const b = tiles.find((t) => t.id === "B")!;
+  assert.equal(a.locked, true);
+  assert.equal(b.locked, undefined);
+});
+
+test("parseCompoundTileSetText: * on a multi-cell tile's anchor line (before @) locks the whole compound tile", () => {
+  const { tiles } = parseCompoundTileSetText("A*@0,0 1 ? 3 4\nA@0,1 5 6 7 ?");
+  const a = tiles.find((t) => t.id === "A")!;
+  assert.equal(a.locked, true);
+  assert.equal(a.footprint.length, 2);
+});
+
+test("parseCompoundTileSetText: * only needs to appear on ONE line for a multi-cell tile -- a later un-starred line for the same id doesn't unlock it", () => {
+  const { tiles } = parseCompoundTileSetText("A*@0,0 1 ? 3 4\nA@0,1 5 6 7 ?");
+  assert.equal(tiles.find((t) => t.id === "A")!.locked, true);
+});
+
+test("compoundTileSetToText: re-adds the * for a locked tile, on every line for a multi-cell footprint, round-tripping through parseCompoundTileSetText", () => {
+  const text = "A*@0,0 1 ? 3 4\nA@0,1 5 6 7 ?";
+  const parsed = parseCompoundTileSetText(text);
+  const serialized = compoundTileSetToText(parsed);
+  assert.match(serialized, /^A\*@0,0/);
+  assert.match(serialized, /A\*@0,1/);
+  const roundTripped = parseCompoundTileSetText(serialized);
+  assert.equal(roundTripped.tiles.find((t) => t.id === "A")!.locked, true);
+});
+
 test("compoundTileSetToText round-trips through parseCompoundTileSetText", () => {
   const text = "A@0,0 1 ? 3 4\nA@0,1 5 6 7 ?\nB 9 9 9 9";
   const parsed = parseCompoundTileSetText(text);
