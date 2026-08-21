@@ -1,3 +1,4 @@
+import type { AngleMode } from "./geometry.ts";
 import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
  * URL-state schema for GeometryPanel -- unlike every other panel's flat
@@ -67,6 +68,8 @@ export interface GeometryOpAngle {
   a: string;
   vertex: string;
   c: string;
+  /** Which of the two candidate angles (x or 360-x) VA/VC measures -- see AngleMode's own doc comment. Always written explicitly by new angle ops (unlike GeometryOpLine/Circle/Polygon's `color`, this isn't an "omitted means auto-follow-something" field); optional purely so ops encoded before this field existed still decode -- a missing `mode` is treated identically to `"shorter"`, its own default. */
+  mode?: AngleMode;
 }
 export interface GeometryOpPolygon {
   tool: "polygon";
@@ -153,7 +156,12 @@ function isGeometryOp(value: unknown): value is GeometryOp {
     case "scale":
       return isString(op.source) && isString(op.center) && isNumber(op.factor);
     case "angle":
-      return isString(op.a) && isString(op.vertex) && isString(op.c);
+      return (
+        isString(op.a) &&
+        isString(op.vertex) &&
+        isString(op.c) &&
+        (op.mode === undefined || op.mode === "shorter" || op.mode === "clickOrder" || op.mode === "reflex")
+      );
     case "polygon":
       return Array.isArray(op.points) && op.points.every(isString) && (op.color === undefined || isString(op.color));
     case "anchor":

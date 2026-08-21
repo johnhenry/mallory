@@ -348,3 +348,55 @@ test("applyGeometryState: a subscribeAll listener (e.g. the canvas redraw) never
 
   unsubscribe();
 });
+
+test("addAngle/replayGeometryOps: mode defaults to 'shorter' when omitted from the op, matching pre-mode saved states", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "a", x: 1, y: 0 },
+    { tool: "point", id: "vertex", x: 0, y: 0 },
+    { tool: "point", id: "c", x: 0, y: 1 },
+    { tool: "angle", id: "ang1", a: "a", vertex: "vertex", c: "c" },
+  ]);
+  assert.ok(Math.abs(graph.get<number>("geomAngleValue:ang1") - Math.PI / 2) < 1e-9);
+});
+
+test("addAngle/replayGeometryOps: mode='reflex' measures the complement of the shorter angle", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "a", x: 1, y: 0 },
+    { tool: "point", id: "vertex", x: 0, y: 0 },
+    { tool: "point", id: "c", x: 0, y: 1 },
+    { tool: "angle", id: "ang1", a: "a", vertex: "vertex", c: "c", mode: "reflex" },
+  ]);
+  assert.ok(Math.abs(graph.get<number>("geomAngleValue:ang1") - (3 * Math.PI) / 2) < 1e-9, "360 - 90 = 270 degrees");
+});
+
+test("addAngle/replayGeometryOps: mode='clickOrder' is directional -- the a/c order (not just their positions) determines the result", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "a", x: 1, y: 0 },
+    { tool: "point", id: "vertex", x: 0, y: 0 },
+    { tool: "point", id: "c", x: 0, y: 1 },
+    { tool: "angle", id: "forward", a: "a", vertex: "vertex", c: "c", mode: "clickOrder" },
+    { tool: "angle", id: "backward", a: "c", vertex: "vertex", c: "a", mode: "clickOrder" },
+  ]);
+  assert.ok(Math.abs(graph.get<number>("geomAngleValue:forward") - Math.PI / 2) < 1e-9, "VA(0deg)->VC(90deg) CCW is 90deg");
+  assert.ok(Math.abs(graph.get<number>("geomAngleValue:backward") - (3 * Math.PI) / 2) < 1e-9, "VA(90deg)->VC(0deg) CCW is 270deg");
+});
+
+test("editGeometryOp: switching an existing angle's mode live-updates its measured value (a full clear-and-replay under the hood)", () => {
+  const { graph, listIds } = freshGraph();
+  replayGeometryOps(graph, listIds, [
+    { tool: "point", id: "a", x: 1, y: 0 },
+    { tool: "point", id: "vertex", x: 0, y: 0 },
+    { tool: "point", id: "c", x: 0, y: 1 },
+    { tool: "angle", id: "ang1", a: "a", vertex: "vertex", c: "c" },
+  ]);
+  assert.ok(Math.abs(graph.get<number>("geomAngleValue:ang1") - Math.PI / 2) < 1e-9, "starts as the default 'shorter' 90deg");
+
+  editGeometryOp(graph, listIds, "ang1", { mode: "reflex" });
+  assert.ok(Math.abs(graph.get<number>("geomAngleValue:ang1") - (3 * Math.PI) / 2) < 1e-9, "now reflex: 270deg");
+
+  editGeometryOp(graph, listIds, "ang1", { mode: "shorter" });
+  assert.ok(Math.abs(graph.get<number>("geomAngleValue:ang1") - Math.PI / 2) < 1e-9, "back to shorter: 90deg");
+});
