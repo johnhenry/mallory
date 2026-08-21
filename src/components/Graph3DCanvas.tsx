@@ -21,7 +21,7 @@ import { TransportControls } from "./TransportControls.tsx";
 import { useCell } from "../lib/use-cell.ts";
 import { useTimelinePlayback } from "../lib/use-timeline-playback.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
-import { buildAxesLabelGroup, setupCss2DOverlay } from "../lib/axes-3d-labels.ts";
+import { buildAxesLabelGroup, buildSymmetricAxesHelper, setupCss2DOverlay } from "../lib/axes-3d-labels.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 
 const WIDTH = 600;
@@ -413,7 +413,7 @@ export function Graph3DCanvas({
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
     directional.position.set(5, 10, 7);
     scene.add(directional);
-    scene.add(new THREE.AxesHelper(DOMAIN.max));
+    scene.add(buildSymmetricAxesHelper(DOMAIN.max));
     scene.add(buildAxesLabelGroup(DOMAIN.max));
     const labelOverlay = setupCss2DOverlay(container, WIDTH, HEIGHT);
 
