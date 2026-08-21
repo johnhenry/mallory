@@ -19,9 +19,10 @@
  * pan/zoom precedent) with GraphCanvasMulti's URL-sync/hash-hydration
  * shape layered on.
  */
-import type { Path2D } from "mallory-math";
+import type { Mesh, Path2D } from "mallory-math";
 import { ComplexNumber, Symbolic } from "mallory-math";
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import * as THREE from "three";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useNonPassiveWheel } from "../hooks/use-non-passive-wheel.ts";
@@ -31,8 +32,9 @@ import { evaluateComplex, type ComplexEnv } from "../lib/complex-eval.ts";
 import { renderDomainColoring } from "../lib/complex-raster.ts";
 import { equationToImplicitZero } from "../lib/equation-to-zero.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";
+import { meshToGeometry, meshToMaterial } from "../lib/mesh-to-geometry.ts";
 import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";
-import { OMNIGRAPH_ITEM_TYPES, defaultOmnigraphItem, readOmnigraphItem, seedOmnigraphRow } from "../lib/omnigraph-items.ts";
+import { OMNIGRAPH_ITEM_TYPES, defaultOmnigraphItem, omnigraphIs3D, readOmnigraphItem, seedOmnigraphRow } from "../lib/omnigraph-items.ts";
 import {
   DEFAULT_OMNIGRAPH_STATE,
   DEFAULT_OMNIGRAPH_VIEWPORT,
@@ -46,6 +48,11 @@ import { drawAxes, drawImplicitCurve, drawPath, type Viewport } from "../lib/ren
 import { sampleExprAdaptive } from "../lib/sample-function.ts";
 import { sampleImplicitCurve, type ImplicitSegment } from "../lib/sample-implicit.ts";
 import { sampleParametricCurve, samplePolarCurve } from "../lib/sample-parametric.ts";
+import { sampleParametricSurface } from "../lib/sample-parametric-surface.ts";
+import { sampleSpaceCurve, type SpaceCurvePoint } from "../lib/sample-space-curve.ts";
+import { sampleSurface } from "../lib/sample-surface.ts";
+import { sampleVectorField3D, type VectorField3DPoint } from "../lib/sample-vector-field-3d.ts";
+import { createThreeScene, disposeGroup, planePointToThree, toThreePoint, type ThreeSceneHandle } from "../lib/three-scene.ts";
 import { useCell } from "../lib/use-cell.ts";
 import { canvasEventPoint, toDataX, toDataY } from "../lib/viewport.ts";
 import { pinchZoomFactor, viewportFromAnchor, wheelZoomFactor } from "../lib/viewport-gestures.ts";
@@ -63,10 +70,25 @@ const ZOOM_COMMIT_DEBOUNCE_MS = 150;
 // 1/4 resolution and stretch it up, replaced by one full render on commit.
 const LIVE_PREVIEW_DOWNSCALE = 4;
 
+// 3D sampling constants, matching each source panel's own values (the
+// domains are fixed -5..5 like Graph3DCanvas/VectorField3DPanel rather
+// than viewport-driven -- OrbitControls owns 3D navigation, and the 2D
+// viewport cell keeps meaning "the 2D items' sampling window").
+const SURFACE_DOMAIN = { min: -5, max: 5 };
+const SURFACE_RESOLUTION = 40;
+const PARAM_SURFACE_RESOLUTION = 30;
+const SPACE_CURVE_RESOLUTION = 300;
+const VECTOR_GRID_DENSITY = 5;
+const MAX_ARROW_LENGTH = 0.8;
+const TUBE_RADIUS = 0.05;
+const TUBE_RADIAL_SEGMENTS = 8;
+const CAMERA_DISTANCE_3D = 8;
+const AXES_EXTENT_3D = 5;
+
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
-/** The item types the dropdown offers TODAY -- grows to phase 2's 3D types and phase 3's exotic ones as those land; the state codec already understands all 11 (see omnigraph-state.ts's own doc comment). */
-const AVAILABLE_TYPES = (Object.keys(OMNIGRAPH_ITEM_TYPES) as OmnigraphItemType[]).filter((t) => OMNIGRAPH_ITEM_TYPES[t].phase === 1);
+/** The item types the dropdown offers TODAY -- phases 1 (2D core) and 2 (3D core) are live; phase 3's exotic ones land next. The state codec already understands all 11 (see omnigraph-state.ts's own doc comment). */
+const AVAILABLE_TYPES = (Object.keys(OMNIGRAPH_ITEM_TYPES) as OmnigraphItemType[]).filter((t) => OMNIGRAPH_ITEM_TYPES[t].phase <= 2);
 
 /**
  * One item's drawable form, derived per row by the `graph.define`d cell
@@ -74,11 +96,18 @@ const AVAILABLE_TYPES = (Object.keys(OMNIGRAPH_ITEM_TYPES) as OmnigraphItemType[
  * of killing the whole redraw). The complex variant carries the compiled
  * evaluator, not pixels -- rasterization happens at draw time because it
  * depends on the viewport, which pans/zooms without touching the row.
+ * The 3D variants carry sampler output in each sampler's own convention;
+ * the axis-swap to Three's y-up world happens in the rebuild effect via
+ * three-scene.ts's `toThreePoint` (surfaces skip it -- `meshToGeometry`
+ * already swaps).
  */
 type Drawable =
   | { kind: "path"; path: Path2D }
   | { kind: "segments"; segments: ImplicitSegment[]; expr: string }
-  | { kind: "raster"; f: (z: ComplexNumber) => ComplexNumber };
+  | { kind: "raster"; f: (z: ComplexNumber) => ComplexNumber }
+  | { kind: "mesh"; meshes: Mesh[] }
+  | { kind: "points3d"; points: SpaceCurvePoint[] }
+  | { kind: "field3d"; points: VectorField3DPoint[] };
 
 /** Numeric parse of a user-editable bound string; throws the row-friendly message every source panel uses. */
 function bound(text: string, label: string): number {
@@ -152,8 +181,49 @@ function defineRowDrawable(graph: CellGraph, rowId: string, containerIds: CellId
           f(new ComplexNumber(0.5, 0.5));
           return { ok: true, value: { kind: "raster", f } };
         }
+        case "surface": {
+          const color = graph.get<number>(ids.color);
+          const meshes = sampleSurface(graph.get<string>(ids.expr), SURFACE_DOMAIN, SURFACE_DOMAIN, SURFACE_RESOLUTION, {}, color);
+          return { ok: true, value: { kind: "mesh", meshes } };
+        }
+        case "parametricSurface": {
+          const uDomain = { min: bound(graph.get<string>(ids.uMin), "u-min"), max: bound(graph.get<string>(ids.uMax), "u-max") };
+          const vDomain = { min: bound(graph.get<string>(ids.vMin), "v-min"), max: bound(graph.get<string>(ids.vMax), "v-max") };
+          if (uDomain.min >= uDomain.max) throw new Error("u-min must be less than u-max.");
+          if (vDomain.min >= vDomain.max) throw new Error("v-min must be less than v-max.");
+          const color = graph.get<number>(ids.color);
+          const meshes = sampleParametricSurface(
+            graph.get<string>(ids.exprA),
+            graph.get<string>(ids.exprB),
+            graph.get<string>(ids.exprC),
+            uDomain,
+            vDomain,
+            PARAM_SURFACE_RESOLUTION,
+            {},
+            color,
+          );
+          return { ok: true, value: { kind: "mesh", meshes } };
+        }
+        case "spaceCurve": {
+          const domain = { min: bound(graph.get<string>(ids.tMin), "t-min"), max: bound(graph.get<string>(ids.tMax), "t-max") };
+          if (domain.min >= domain.max) throw new Error("t-min must be less than t-max.");
+          const points = sampleSpaceCurve(graph.get<string>(ids.exprA), graph.get<string>(ids.exprB), graph.get<string>(ids.exprC), domain, SPACE_CURVE_RESOLUTION);
+          return { ok: true, value: { kind: "points3d", points } };
+        }
+        case "vectorField3d": {
+          const points = sampleVectorField3D(
+            graph.get<string>(ids.exprA),
+            graph.get<string>(ids.exprB),
+            graph.get<string>(ids.exprC),
+            SURFACE_DOMAIN,
+            SURFACE_DOMAIN,
+            SURFACE_DOMAIN,
+            VECTOR_GRID_DENSITY,
+          );
+          return { ok: true, value: { kind: "field3d", points } };
+        }
         default:
-          throw new Error(`Item type "${type}" isn't available on the 2D surface yet.`);
+          throw new Error(`Item type "${type}" isn't available on this surface yet (a later phase adds it).`);
       }
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -244,6 +314,97 @@ export function drawOmnigraph2D(
     } catch {
       // Row mid-removal -- skip this frame.
     }
+  }
+}
+
+/** True when any row's current type is 3D -- read straight off the cells (not via readOmnigraphItem, which materializes whole items) so the mode-watch effect stays cheap. */
+function currentIs3D(graph: CellGraph, containerIds: CellIdsOmnigraph): boolean {
+  const items: Array<{ type: OmnigraphItemType }> = [];
+  for (const rowId of graph.get<string[]>(containerIds.list)) {
+    const ids = cellIdsOmnigraphRow(rowId);
+    if (graph.hasValue(ids.type)) items.push({ type: graph.get<OmnigraphItemType>(ids.type) });
+  }
+  return omnigraphIs3D(items);
+}
+
+/**
+ * Builds one row's Three.js object for the 3D scene, dispatching on its
+ * derived drawable -- the generalization of GradientDescentPanel's
+ * hardcoded surface+path groups and ComplexGraph3DPanel's per-row
+ * curve/scatter dispatch. Returns null for hidden/errored rows and for
+ * types with no 3D representation yet (complex rasters until phase 3).
+ * Every point-producing type goes through three-scene.ts's adapters --
+ * see toThreePoint's own convention table.
+ */
+function buildRowObject3D(graph: CellGraph, rowId: string): THREE.Object3D | null {
+  const ids = cellIdsOmnigraphRow(rowId);
+  if (!graph.hasValue(ids.type) || !graph.get<boolean>(ids.visible)) return null;
+  const drawable = graph.get<Result<Drawable>>(ids.error);
+  if (!drawable.ok) return null;
+  const d = drawable.value;
+  const color = graph.hasValue(ids.color) ? graph.get<number>(ids.color) : 0x2563eb;
+
+  switch (d.kind) {
+    case "mesh": {
+      const group = new THREE.Group();
+      for (const mesh of d.meshes) group.add(new THREE.Mesh(meshToGeometry(mesh), meshToMaterial(mesh)));
+      return group;
+    }
+    case "points3d": {
+      const vectors = d.points.map(toThreePoint);
+      if (vectors.length < 2) return null;
+      const curve = new THREE.CatmullRomCurve3(vectors);
+      const geometry = new THREE.TubeGeometry(curve, Math.max(2, vectors.length), TUBE_RADIUS, TUBE_RADIAL_SEGMENTS, false);
+      return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color }));
+    }
+    case "field3d": {
+      const group = new THREE.Group();
+      const maxMagnitude = Math.max(1e-9, ...d.points.map((p) => Math.hypot(p.dx, p.dy, p.dz)));
+      for (const point of d.points) {
+        const magnitude = Math.hypot(point.dx, point.dy, point.dz);
+        if (magnitude < 1e-9) continue;
+        // Both position AND direction go through the axis swap (the
+        // direction is a displacement, so it swaps the same way).
+        const dir = toThreePoint({ x: point.dx, y: point.dy, z: point.dz }).normalize();
+        const origin = toThreePoint(point);
+        const length = (magnitude / maxMagnitude) * MAX_ARROW_LENGTH;
+        group.add(new THREE.ArrowHelper(dir, origin, length, color, length * 0.3, length * 0.2));
+      }
+      return group;
+    }
+    case "path": {
+      // A 2D curve drawn flat on the ground plane: split the Path2D's
+      // command list into runs at moveTo boundaries (each run is one
+      // continuous branch; discontinuities/asymptotes stay gaps).
+      const group = new THREE.Group();
+      const material = new THREE.LineBasicMaterial({ color });
+      let run: THREE.Vector3[] = [];
+      const flush = () => {
+        if (run.length >= 2) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(run), material));
+        run = [];
+      };
+      for (const cmd of d.path.commands) {
+        if (cmd.op === "moveTo") flush();
+        run.push(planePointToThree(cmd));
+      }
+      flush();
+      return group.children.length > 0 ? group : null;
+    }
+    case "segments": {
+      // Implicit marching-squares segments as one merged LineSegments --
+      // pairs of points, no connectivity between segments.
+      if (d.segments.length === 0) return null;
+      const points: THREE.Vector3[] = [];
+      for (const s of d.segments) {
+        points.push(planePointToThree({ x: s.x1, y: s.y1 }), planePointToThree({ x: s.x2, y: s.y2 }));
+      }
+      return new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color }));
+    }
+    case "raster":
+      // Complex domain coloring's 3D form (textured ground plane) is
+      // phase 3 -- until then the item simply doesn't render in 3D mode
+      // (its row stays in the list, unchanged).
+      return null;
   }
 }
 
@@ -360,7 +521,36 @@ function OmnigraphRow({
         {type === "complex" && (
           <>
             {field(ids.expr, "f(z) =", "16ch")}
-            <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>renders as a background layer</span>
+            <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>renders as a background layer (2D surface only for now)</span>
+          </>
+        )}
+        {type === "surface" && field(ids.expr, "z(x, y) =", "20ch")}
+        {type === "parametricSurface" && (
+          <>
+            {field(ids.exprA, "x(u,v) =")}
+            {field(ids.exprB, "y(u,v) =")}
+            {field(ids.exprC, "z(u,v) =")}
+            {field(ids.uMin, "u ∈ [", "6ch")}
+            {field(ids.uMax, ",", "6ch")}
+            {field(ids.vMin, "v ∈ [", "6ch")}
+            {field(ids.vMax, ",", "6ch")}
+          </>
+        )}
+        {type === "spaceCurve" && (
+          <>
+            {field(ids.exprA, "x(t) =")}
+            {field(ids.exprB, "y(t) =")}
+            {field(ids.exprC, "z(t) =")}
+            {field(ids.tMin, "t ∈ [", "6ch")}
+            {field(ids.tMax, ",", "6ch")}
+          </>
+        )}
+        {type === "vectorField3d" && (
+          <>
+            {field(ids.exprA, "dx =")}
+            {field(ids.exprB, "dy =")}
+            {field(ids.exprC, "dz =")}
+            <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>sampled on a 5×5×5 grid over [-5, 5]³</span>
           </>
         )}
       </div>
@@ -388,6 +578,22 @@ export function OmnigraphPanel({ cellId = "omnigraph-1" }: OmnigraphPanelProps =
   const committedViewport = useCell<Viewport>(graph, containerIds.viewport);
   const liveViewport = useCell<Viewport | null>(graph, containerIds.liveViewport);
   const viewport = liveViewport ?? committedViewport;
+
+  // The surface's own 2D-vs-3D mode: 3D iff any 3D-type item EXISTS
+  // (visible or not -- an eye-toggle never tears the scene down; deleting
+  // the last 3D item downgrades back to the 2D canvas). Watched via
+  // subscribeAll rather than per-row hooks since a type switch changes no
+  // row-list identity, only a row's own type cell.
+  const [is3D, setIs3D] = useState(() => currentIs3D(graph, containerIds));
+  useEffect(() => {
+    const update = () => setIs3D(currentIs3D(graph, containerIds));
+    update();
+    return graph.subscribeAll(update);
+  }, [graph, containerIds]);
+
+  const threeContainerRef = useRef<HTMLDivElement | null>(null);
+  const threeHandleRef = useRef<ThreeSceneHandle | null>(null);
+  const [glError, setGlError] = useState<string | null>(null);
 
   const gestureRef = useRef<
     | { kind: "pan"; anchorX: number; anchorY: number; spanX: number; spanY: number }
@@ -422,16 +628,67 @@ export function OmnigraphPanel({ cellId = "omnigraph-1" }: OmnigraphPanelProps =
     },
   });
 
-  // Single redraw effect over subscribeAll -- dynamic row count, same
-  // reasoning as every other multi-row panel.
+  // Single 2D redraw effect over subscribeAll -- dynamic row count, same
+  // reasoning as every other multi-row panel. `is3D` in the deps so the
+  // effect re-attaches to the freshly-remounted canvas when the surface
+  // downgrades from 3D back to 2D (the canvas element is unmounted while
+  // in 3D mode, so the previous ctx is gone).
   useEffect(() => {
+    if (is3D) return;
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     if (!previewCanvasRef.current && typeof document !== "undefined") previewCanvasRef.current = document.createElement("canvas");
     const redraw = () => drawOmnigraph2D(ctx, WIDTH, HEIGHT, graph, containerIds, previewCanvasRef.current ?? undefined);
     redraw();
     return graph.subscribeAll(redraw);
-  }, [graph, containerIds]);
+  }, [graph, containerIds, is3D]);
+
+  // 3D scene lifecycle: created lazily on first upgrade, disposed fully
+  // (including forceContextLoss -- see createThreeScene's own doc comment
+  // on the browser WebGL context cap) on downgrade/unmount. One rebuild
+  // effect generalizes GradientDescentPanel/ComplexGraph3DPanel's per-row
+  // dispatch: dispose + rebuild every row's object on any graph change.
+  useEffect(() => {
+    if (!is3D) return;
+    const container = threeContainerRef.current;
+    if (!container) return;
+    let handle: ThreeSceneHandle;
+    try {
+      handle = createThreeScene(container, { width: WIDTH, height: HEIGHT, cameraDistance: CAMERA_DISTANCE_3D, axesExtent: AXES_EXTENT_3D });
+    } catch (e) {
+      // WebGL unavailable (headless/test environments, GL-disabled
+      // browsers): degrade to a message instead of crashing the panel --
+      // the item list and 2D-mode path stay fully usable.
+      setGlError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    setGlError(null);
+    const content = new THREE.Group();
+    handle.scene.add(content);
+    threeHandleRef.current = handle;
+
+    const rebuild = () => {
+      disposeGroup(content);
+      for (const rowId of graph.get<string[]>(containerIds.list)) {
+        try {
+          const object = buildRowObject3D(graph, rowId);
+          if (object) content.add(object);
+        } catch {
+          // Row mid-removal -- skip it this pass.
+        }
+      }
+    };
+    rebuild();
+    const unsubscribe = graph.subscribeAll(rebuild);
+    handle.start();
+
+    return () => {
+      unsubscribe();
+      disposeGroup(content);
+      handle.dispose();
+      threeHandleRef.current = null;
+    };
+  }, [is3D, graph, containerIds]);
 
   // URL sync -- rows/viewport in, hash out, same shape as GraphCanvasMulti.
   useEffect(() => {
@@ -556,8 +813,9 @@ export function OmnigraphPanel({ cellId = "omnigraph-1" }: OmnigraphPanelProps =
   return (
     <div>
       <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0 0 0.5rem" }}>
-        Every graph type on one surface: add items and pick each one's type from its dropdown. Complex-coloring items render as background
-        layers in list order. 3D item types arrive in a later phase -- the surface will upgrade to a 3D scene when one exists.
+        Every graph type on one surface: add items and pick each one's type from its dropdown. The surface upgrades to a 3D scene when any
+        3D-type item exists (2D items then draw flat on the ground plane); delete the 3D items to return to the 2D canvas.
+        Complex-coloring items render as background layers in list order (2D surface only for now).
       </p>
       {rowIds.map((rowId) => (
         <OmnigraphRow key={rowId} graph={graph} rowId={rowId} containerIds={containerIds} onRemove={rowIds.length > 1 ? () => removeItem(rowId) : undefined} />
@@ -565,30 +823,53 @@ export function OmnigraphPanel({ cellId = "omnigraph-1" }: OmnigraphPanelProps =
       <button type="button" onClick={() => addItem()} style={{ margin: "0.35rem 0" }}>
         + Add item
       </button>
-      <canvas
-        ref={canvasRef}
-        width={WIDTH}
-        height={HEIGHT}
-        style={{ border: "1px solid var(--border)", touchAction: "none", maxWidth: "100%" }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-      />
+      {is3D ? (
+        <>
+          <div ref={threeContainerRef} style={{ position: "relative", maxWidth: WIDTH, border: "1px solid var(--border)" }} />
+          {glError && (
+            <p style={{ color: "var(--danger)", fontSize: "0.8rem" }}>3D scene unavailable (WebGL failed to initialize): {glError}</p>
+          )}
+        </>
+      ) : (
+        <canvas
+          ref={canvasRef}
+          width={WIDTH}
+          height={HEIGHT}
+          style={{ border: "1px solid var(--border)", touchAction: "none", maxWidth: "100%" }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        />
+      )}
       <div style={{ margin: "0.25rem 0" }}>
-        <PngExportButton
-          getCanvas={() => canvasRef.current}
-          label="omnigraph"
-          renderAtScale={(ctx, width, height) => drawOmnigraph2D(ctx, width, height, graph, containerIds)}
-          baseWidth={WIDTH}
-          baseHeight={HEIGHT}
-        />{" "}
-        <button type="button" onClick={resetView}>
-          Reset view
-        </button>
+        {is3D ? (
+          <PngExportButton getCanvas={() => threeHandleRef.current?.getCanvas() ?? null} label="omnigraph-3d" />
+        ) : (
+          <PngExportButton
+            getCanvas={() => canvasRef.current}
+            label="omnigraph"
+            renderAtScale={(ctx, width, height) => drawOmnigraph2D(ctx, width, height, graph, containerIds)}
+            baseWidth={WIDTH}
+            baseHeight={HEIGHT}
+          />
+        )}{" "}
+        {!is3D && (
+          <button type="button" onClick={resetView}>
+            Reset view
+          </button>
+        )}
       </div>
-      <p style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-        Viewport: x ∈ [{viewport.xMin.toFixed(2)}, {viewport.xMax.toFixed(2)}], y ∈ [{viewport.yMin.toFixed(2)}, {viewport.yMax.toFixed(2)}]
-      </p>
+      {is3D ? (
+        <p style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+          3D mode: drag to orbit, scroll to zoom. 2D items draw flat on the ground plane, sampled over the last committed 2D viewport (x ∈ [
+          {committedViewport.xMin.toFixed(2)}, {committedViewport.xMax.toFixed(2)}], y ∈ [{committedViewport.yMin.toFixed(2)},{" "}
+          {committedViewport.yMax.toFixed(2)}]).
+        </p>
+      ) : (
+        <p style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+          Viewport: x ∈ [{viewport.xMin.toFixed(2)}, {viewport.xMax.toFixed(2)}], y ∈ [{viewport.yMin.toFixed(2)}, {viewport.yMax.toFixed(2)}]
+        </p>
+      )}
     </div>
   );
 }
