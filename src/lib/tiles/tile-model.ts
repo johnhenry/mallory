@@ -41,12 +41,69 @@ export interface TileSet {
 }
 
 /**
+ * A label's optional trailing `!` (provides/produces) or `?` (requires/
+ * consumes) polarity marker (issue #415's directed/polarized matching),
+ * split from its base label. `null` when the label has neither suffix --
+ * the classical, unmarked case.
+ */
+type Polarity = "!" | "?" | null;
+
+function splitPolarity(label: string): { base: string; polarity: Polarity } {
+  if (label.endsWith("!")) return { base: label.slice(0, -1), polarity: "!" };
+  if (label.endsWith("?")) return { base: label.slice(0, -1), polarity: "?" };
+  return { base: label, polarity: null };
+}
+
+/**
  * True when `a` and `b` can sit side by side with `b` in `direction` from
  * `a` -- i.e. the label `a` shows on its `direction` edge matches the label
  * `b` shows on the edge facing back at `a`.
+ *
+ * Two matching rules, chosen per-edge-pair by whether either label carries
+ * a polarity suffix (issue #415, split from #412's own "typed edge
+ * matching" research thread; the doc that thread traces back to,
+ * docs/wang-tiles-functional-programming.md, calls this producer/consumer
+ * port matching -- `Plan!` matches `Plan?`, not `Plan!` matching another
+ * `Plan!`):
+ *
+ * - Neither side has a `!`/`?` suffix: the classical Wang-tile rule,
+ *   PLAIN STRING EQUALITY, completely unchanged from before this feature
+ *   existed -- every tile set that never uses the suffix syntax behaves
+ *   byte-for-byte identically to the original `a.edges[direction] ===
+ *   b.edges[OPPOSITE[direction]]` this function used to be.
+ * - BOTH sides have a suffix: they match only when their base labels
+ *   (suffix stripped) are equal AND their polarities are OPPOSITE (`!`
+ *   meets `?`, never `!` meets `!` or `?` meets `?`) -- a producer edge
+ *   can only attach to a consumer edge, matching the doc's own directed
+ *   port framing (Robinson's bump/dent arrows, already in this codebase
+ *   at `robinson-tile-corpus.ts`, are exactly this pattern -- "arrow
+ *   heads must meet arrow tails" -- generalized here into an opt-in
+ *   feature of the ordinary square lattice's own `Tile` type, not a
+ *   separate infrastructure-only module).
+ * - Exactly ONE side has a suffix: never compatible (fails closed) --
+ *   mixing directed and undirected authoring on what's meant to be the
+ *   same shared edge is far more likely a typo than an intentional rule,
+ *   and this function has no way to guess which one is meant.
+ *
+ * This is the ONLY place any tile-set consumer in this lab compares edge
+ * labels -- every solver (`solveWang`/`solveTorus`/`solveWangViaSat`
+ * below), `entropy.ts`, `diffraction.ts`, `weighted-tiling.ts`,
+ * `differentiable-relax.ts`, and `pruneToSccSustainable` below all call
+ * this function rather than re-deriving compatibility themselves, so none
+ * of them needed any change to support directed matching -- confirmed by
+ * auditing every one of their own edge-comparison call sites before
+ * implementing this (see #415's own design-question list, now resolved).
+ * `symmetry.ts`'s rotation/reflection also needs no change: a polarity
+ * suffix is baked into the label STRING itself, so it travels with the
+ * label to whichever side a rotation/reflection moves it to, exactly like
+ * any other character in the label already did.
  */
 export function tilesCompatible(a: Tile, b: Tile, direction: Direction): boolean {
-  return a.edges[direction] === b.edges[OPPOSITE[direction]];
+  const x = splitPolarity(a.edges[direction]);
+  const y = splitPolarity(b.edges[OPPOSITE[direction]]);
+  if (x.polarity === null && y.polarity === null) return x.base === y.base;
+  if (x.polarity === null || y.polarity === null) return false;
+  return x.base === y.base && x.polarity !== y.polarity;
 }
 
 /**
