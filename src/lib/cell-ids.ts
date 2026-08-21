@@ -1183,3 +1183,66 @@ export function cellIdsCellularAutomata(cellId: string) {
 }
 
 export type CellIdsCellularAutomata = ReturnType<typeof cellIdsCellularAutomata>;
+
+/**
+ * Omnigraph (the unified graphing surface, /omnigraph): container-level
+ * cells. Same "one factory, container id vs. row id" convention as every
+ * other multi-row panel -- this factory takes the CONTAINER id;
+ * {@link cellIdsOmnigraphRow} takes row ids. Split into two factories
+ * (unlike e.g. cellIdsParametric's single dual-purpose one) because the
+ * row bag is deliberately WIDE (a single optional-field union over all 11
+ * item types -- see omnigraph-state.ts's own doc comment), and keeping the
+ * container's 3 cells out of it makes `removeRow`'s delete-everything
+ * sweep exactly the per-row surface, nothing more.
+ */
+export function cellIdsOmnigraph(cellId: string) {
+  return {
+    list: `omniList:${cellId}`,
+    viewport: `omniViewport:${cellId}`,
+    liveViewport: `omniLiveViewport:${cellId}`,
+  };
+}
+
+export type CellIdsOmnigraph = ReturnType<typeof cellIdsOmnigraph>;
+
+/**
+ * Omnigraph per-row cells: one wide bag of optional fields covering every
+ * item type's needs (an "expression" row only ever seeds type/visible/
+ * color/error/expr; a "parametricSurface" row seeds exprA/B/C + u/v
+ * bounds; etc. -- unused fields are simply never seeded, and seed guards
+ * use `hasValue`). One bag rather than per-type sub-bags so
+ * `multi-panel-rows.ts`'s `removeRow` (which deletes every string-valued
+ * field of whatever bag it's handed) is always complete regardless of the
+ * row's current type, and so switching a row's type in the dropdown never
+ * needs a type-dispatched cleanup pass.
+ */
+export function cellIdsOmnigraphRow(rowId: string) {
+  return {
+    type: `omniType:${rowId}`,
+    visible: `omniVisible:${rowId}`,
+    color: `omniColor:${rowId}`,
+    error: `omniError:${rowId}`,
+    expr: `omniExpr:${rowId}`,
+    exprA: `omniExprA:${rowId}`,
+    exprB: `omniExprB:${rowId}`,
+    exprC: `omniExprC:${rowId}`,
+    tMin: `omniTMin:${rowId}`,
+    tMax: `omniTMax:${rowId}`,
+    uMin: `omniUMin:${rowId}`,
+    uMax: `omniUMax:${rowId}`,
+    vMin: `omniVMin:${rowId}`,
+    vMax: `omniVMax:${rowId}`,
+    axisX: `omniAxisX:${rowId}`,
+    axisY: `omniAxisY:${rowId}`,
+    axisZ: `omniAxisZ:${rowId}`,
+    sweepReX: `omniSweepReX:${rowId}`,
+    sweepImX: `omniSweepImX:${rowId}`,
+    highlightNearReal: `omniHighlightNearReal:${rowId}`,
+    startX: `omniStartX:${rowId}`,
+    startY: `omniStartY:${rowId}`,
+    stepSize: `omniStepSize:${rowId}`,
+    steps: `omniSteps:${rowId}`,
+  };
+}
+
+export type CellIdsOmnigraphRow = ReturnType<typeof cellIdsOmnigraphRow>;

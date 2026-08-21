@@ -17,6 +17,7 @@ const CARD_DESCRIPTIONS: Record<string, string> = {
   "/calculator": "Quick arithmetic and expressions — no plot, no viewport, just an answer.",
   "/graphing": "Expression plots, implicit relations, parametric & polar curves, and complex-plane domain coloring.",
   "/3d": "z = f(x, y) meshes paired live with their 2D cross-section.",
+  "/omnigraph": "Every graph type on one shared surface — add items, pick each one's type from a dropdown.",
   "/geo": "Compass-and-straightedge constructions with live dependent objects.",
   "/calculus": "Single ODEs and coupled systems, slope fields, closed-form solving.",
   "/data": "Regression, descriptive statistics, and equation-system solving.",
