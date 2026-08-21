@@ -6,7 +6,7 @@ import { DEFAULT_CORNER_TILES_TEXT } from "./corner-tile-set-text.ts";
 import type { SymmetryGroup } from "./tiles/symmetry.ts";
 import { DEFAULT_TILES_TEXT } from "./tile-set-text.ts";
 
-export type TilesSolverKind = "wang" | "torus" | "sat";
+export type TilesSolverKind = "wang" | "torus" | "sat" | "weighted";
 export type TilesLattice = "square" | "hex" | "tri" | "cube" | "corner";
 
 export interface TilesStateV1 {
@@ -76,10 +76,36 @@ export interface TilesStateV5 {
   cornerTilesText: string;
 }
 
-export type TilesState = TilesStateV5;
+export interface TilesStateV6 {
+  v: 6;
+  tilesText: string;
+  width: number;
+  height: number;
+  solver: TilesSolverKind;
+  showAnimation: boolean;
+  symmetry: SymmetryGroup;
+  lattice: TilesLattice;
+  hexTilesText: string;
+  triTilesText: string;
+  cubeTilesText: string;
+  depth: number;
+  cornerTilesText: string;
+  /**
+   * Weighted random tiling (#398/#403), square-lattice only: per-tile-id
+   * weight used by `solveWangWeighted` to bias candidate order at each cell
+   * (a tile missing from this map defaults to weight 1, matching
+   * `weightedShuffle`'s own default -- so an empty map is a valid,
+   * meaningful "uniform" state, not a placeholder).
+   */
+  tileWeights: Record<string, number>;
+  /** `Rng` seed for the weighted solver, same "own seed field" convention as `life-like.ts`'s `randomGrid` / CellularAutomataPanel's seed1d/seed2d/seed3d. */
+  weightedSeed: number;
+}
+
+export type TilesState = TilesStateV6;
 
 export const DEFAULT_TILES_STATE: TilesState = {
-  v: 5,
+  v: 6,
   tilesText: DEFAULT_TILES_TEXT,
   width: 4,
   height: 3,
@@ -92,21 +118,24 @@ export const DEFAULT_TILES_STATE: TilesState = {
   cubeTilesText: DEFAULT_CUBE_TILES_TEXT,
   depth: 3,
   cornerTilesText: DEFAULT_CORNER_TILES_TEXT,
+  tileWeights: {},
+  weightedSeed: 1,
 };
 
 export function encodeTilesState(state: TilesState): string {
   return encodeStateFragment(state);
 }
 
-/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades v1/v2/v3/v4 payloads up to v5 with lattice defaulted to "square" and hex/tri/cube/corner text and depth defaulted. */
+/** Returns null on any malformed/unrecognized fragment rather than throwing. Upgrades v1/v2/v3/v4/v5 payloads up to v6 with lattice defaulted to "square", hex/tri/cube/corner text and depth defaulted, and tileWeights/weightedSeed defaulted to "uniform, seed 1". */
 export function decodeTilesState(fragment: string): TilesState | null {
   try {
     const parsed: unknown = decodeStateFragment(fragment);
-    if (isTilesStateV5(parsed)) return parsed;
-    if (isTilesStateV4(parsed)) return upgradeV4ToV5(parsed);
-    if (isTilesStateV3(parsed)) return upgradeV4ToV5(upgradeV3ToV4(parsed));
-    if (isTilesStateV2(parsed)) return upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(parsed)));
-    if (isTilesStateV1(parsed)) return upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3({ ...parsed, v: 2, symmetry: "none" })));
+    if (isTilesStateV6(parsed)) return parsed;
+    if (isTilesStateV5(parsed)) return upgradeV5ToV6(parsed);
+    if (isTilesStateV4(parsed)) return upgradeV5ToV6(upgradeV4ToV5(parsed));
+    if (isTilesStateV3(parsed)) return upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(parsed)));
+    if (isTilesStateV2(parsed)) return upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3(parsed))));
+    if (isTilesStateV1(parsed)) return upgradeV5ToV6(upgradeV4ToV5(upgradeV3ToV4(upgradeV2ToV3({ ...parsed, v: 2, symmetry: "none" }))));
     return null;
   } catch {
     return null;
@@ -125,7 +154,11 @@ function upgradeV4ToV5(v4: TilesStateV4): TilesStateV5 {
   return { ...v4, v: 5, cornerTilesText: DEFAULT_CORNER_TILES_TEXT };
 }
 
-const SOLVER_KINDS: TilesSolverKind[] = ["wang", "torus", "sat"];
+function upgradeV5ToV6(v5: TilesStateV5): TilesStateV6 {
+  return { ...v5, v: 6, tileWeights: {}, weightedSeed: 1 };
+}
+
+const SOLVER_KINDS: TilesSolverKind[] = ["wang", "torus", "sat", "weighted"];
 const SYMMETRY_GROUPS: SymmetryGroup[] = ["none", "rotations", "rotations-reflections"];
 const LATTICES: TilesLattice[] = ["square", "hex", "tri", "cube", "corner"];
 
@@ -183,5 +216,18 @@ export function isTilesStateV5(value: unknown): value is TilesStateV5 {
   if (!(typeof v.lattice === "string" && LATTICES.includes(v.lattice as TilesLattice))) return false;
   if (!(typeof v.hexTilesText === "string" && typeof v.triTilesText === "string" && typeof v.cubeTilesText === "string" && typeof v.depth === "number")) return false;
   return typeof v.cornerTilesText === "string";
+}
+
+export function isTilesStateV6(value: unknown): value is TilesStateV6 {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.v !== 6 || !hasCommonFields(v)) return false;
+  if (!(typeof v.symmetry === "string" && SYMMETRY_GROUPS.includes(v.symmetry as SymmetryGroup))) return false;
+  if (!(typeof v.lattice === "string" && LATTICES.includes(v.lattice as TilesLattice))) return false;
+  if (!(typeof v.hexTilesText === "string" && typeof v.triTilesText === "string" && typeof v.cubeTilesText === "string" && typeof v.depth === "number")) return false;
+  if (typeof v.cornerTilesText !== "string") return false;
+  if (typeof v.weightedSeed !== "number") return false;
+  if (typeof v.tileWeights !== "object" || v.tileWeights === null) return false;
+  return Object.values(v.tileWeights as Record<string, unknown>).every((w) => typeof w === "number");
 }
 
