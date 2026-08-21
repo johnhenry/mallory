@@ -43,6 +43,12 @@ export const NAV_SECTIONS: NavSection[] = [
     group: "Tools",
   },
   {
+    to: "/omnigraph",
+    label: "Omnigraph",
+    icon: '<circle cx="8" cy="8" r="6.5"/><path d="M2.5 10C4 7 5 11.5 6.5 9.5S9 5.5 10.5 9s2 1.5 3-.5" stroke-linecap="round"/><path d="M8 1.5v3M8 11.5v3" stroke-linecap="round" stroke-width="1.2"/>',
+    group: "Tools",
+  },
+  {
     to: "/geo",
     label: "Geometry",
     icon: '<path d="M8 2.2 3 13h10L8 2.2Z" stroke-linejoin="round"/><circle cx="8" cy="6.3" r="0.9" fill="currentColor" stroke="none"/>',

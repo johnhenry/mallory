@@ -36,6 +36,7 @@ import { Route as AppGraphingRouteImport } from './routes/_app/graphing'
 import { Route as AppImageRouteImport } from './routes/_app/image'
 import { Route as AppMlRouteImport } from './routes/_app/ml'
 import { Route as AppNotesRouteImport } from './routes/_app/notes'
+import { Route as AppOmnigraphRouteImport } from './routes/_app/omnigraph'
 import { Route as AppPracticeRouteImport } from './routes/_app/practice'
 import { Route as AppSignalRouteImport } from './routes/_app/signal'
 import { Route as AppStreamingDatasetRouteImport } from './routes/_app/streaming-dataset'
@@ -178,6 +179,11 @@ const AppNotesRoute = AppNotesRouteImport.update({
   path: '/notes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppOmnigraphRoute = AppOmnigraphRouteImport.update({
+  id: '/omnigraph',
+  path: '/omnigraph',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppPracticeRoute = AppPracticeRouteImport.update({
   id: '/practice',
   path: '/practice',
@@ -241,6 +247,7 @@ export interface FileRoutesByFullPath {
   '/image': typeof AppImageRoute
   '/ml': typeof AppMlRoute
   '/notes': typeof AppNotesRoute
+  '/omnigraph': typeof AppOmnigraphRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
   '/streaming-dataset': typeof AppStreamingDatasetRoute
@@ -275,6 +282,7 @@ export interface FileRoutesByTo {
   '/image': typeof AppImageRoute
   '/ml': typeof AppMlRoute
   '/notes': typeof AppNotesRoute
+  '/omnigraph': typeof AppOmnigraphRoute
   '/practice': typeof AppPracticeRoute
   '/signal': typeof AppSignalRoute
   '/streaming-dataset': typeof AppStreamingDatasetRoute
@@ -312,6 +320,7 @@ export interface FileRoutesById {
   '/_app/image': typeof AppImageRoute
   '/_app/ml': typeof AppMlRoute
   '/_app/notes': typeof AppNotesRoute
+  '/_app/omnigraph': typeof AppOmnigraphRoute
   '/_app/practice': typeof AppPracticeRoute
   '/_app/signal': typeof AppSignalRoute
   '/_app/streaming-dataset': typeof AppStreamingDatasetRoute
@@ -350,6 +359,7 @@ export interface FileRouteTypes {
     | '/image'
     | '/ml'
     | '/notes'
+    | '/omnigraph'
     | '/practice'
     | '/signal'
     | '/streaming-dataset'
@@ -384,6 +394,7 @@ export interface FileRouteTypes {
     | '/image'
     | '/ml'
     | '/notes'
+    | '/omnigraph'
     | '/practice'
     | '/signal'
     | '/streaming-dataset'
@@ -420,6 +431,7 @@ export interface FileRouteTypes {
     | '/_app/image'
     | '/_app/ml'
     | '/_app/notes'
+    | '/_app/omnigraph'
     | '/_app/practice'
     | '/_app/signal'
     | '/_app/streaming-dataset'
@@ -640,6 +652,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/omnigraph': {
+      id: '/_app/omnigraph'
+      path: '/omnigraph'
+      fullPath: '/omnigraph'
+      preLoaderRoute: typeof AppOmnigraphRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/practice': {
       id: '/_app/practice'
       path: '/practice'
@@ -705,6 +724,7 @@ interface AppRouteChildren {
   AppImageRoute: typeof AppImageRoute
   AppMlRoute: typeof AppMlRoute
   AppNotesRoute: typeof AppNotesRoute
+  AppOmnigraphRoute: typeof AppOmnigraphRoute
   AppPracticeRoute: typeof AppPracticeRoute
   AppSignalRoute: typeof AppSignalRoute
   AppStreamingDatasetRoute: typeof AppStreamingDatasetRoute
@@ -726,6 +746,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppImageRoute: AppImageRoute,
   AppMlRoute: AppMlRoute,
   AppNotesRoute: AppNotesRoute,
+  AppOmnigraphRoute: AppOmnigraphRoute,
   AppPracticeRoute: AppPracticeRoute,
   AppSignalRoute: AppSignalRoute,
   AppStreamingDatasetRoute: AppStreamingDatasetRoute,
