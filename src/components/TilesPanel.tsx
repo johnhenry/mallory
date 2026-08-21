@@ -41,6 +41,8 @@ import {
 } from "../lib/tiles/compound-tile-model.ts";
 import { pruneToSccSustainable, solveTorus, solveWang, solveWangViaSat, type Direction, type SolveStep, type Tile, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
 import { patchCensusGrowth } from "../lib/tiles/patch-census.ts";
+import { solveWangWeighted, type TileWeights } from "../lib/tiles/weighted-tiling.ts";
+import { Rng } from "mallory-tensor-core";
 import { triCenterX, triCorners, triEdgeSegment } from "../lib/tiles/tri-geometry.ts";
 import { solveTri, type TriGrid, type TriTile, type TriTileSet } from "../lib/tiles/tri-tile-model.ts";
 import { DEFAULT_TRI_TILES_TEXT, parseTriTileSetText } from "../lib/tri-tile-set-text.ts";
@@ -129,11 +131,13 @@ function seedState(graph: CellGraph, ids: CellIdsTiles, state: TilesState): void
   graph.set(ids.cubeTilesText, state.cubeTilesText);
   graph.set(ids.depth, state.depth);
   graph.set(ids.cornerTilesText, state.cornerTilesText);
+  graph.set(ids.tileWeights, state.tileWeights);
+  graph.set(ids.weightedSeed, state.weightedSeed);
 }
 
 function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
   return {
-    v: 5,
+    v: 6,
     tilesText: graph.get<string>(ids.tilesText),
     width: graph.get<number>(ids.width),
     height: graph.get<number>(ids.height),
@@ -146,6 +150,8 @@ function getCurrentState(graph: CellGraph, ids: CellIdsTiles): TilesState {
     cubeTilesText: graph.get<string>(ids.cubeTilesText),
     depth: graph.get<number>(ids.depth),
     cornerTilesText: graph.get<string>(ids.cornerTilesText),
+    tileWeights: graph.get<Record<string, number>>(ids.tileWeights),
+    weightedSeed: graph.get<number>(ids.weightedSeed),
   };
 }
 
@@ -615,8 +621,15 @@ function CubeTilePaletteView({ tiles }: { tiles: readonly CubeTile[] }) {
 
 const PALETTE_SQUARE_SIZE = 56;
 
-/** A single square tile's own edge-colored shape, apart from the solved grid -- so a tile's matching constraints can be read off its definition directly. */
-function SquareTilePaletteEntry({ tile }: { tile: Tile }) {
+/**
+ * A single square tile's own edge-colored shape, apart from the solved grid
+ * -- so a tile's matching constraints can be read off its definition
+ * directly. `weight`/`onWeightChange` are optional (#398/#403's weighted
+ * random solver): when provided, a small number input renders below the
+ * canvas so each tile's own sampling weight can be edited from the palette
+ * it's already being shown in, rather than a separate list keyed by id.
+ */
+function SquareTilePaletteEntry({ tile, weight, onWeightChange }: { tile: Tile; weight?: number; onWeightChange?: (weight: number) => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
@@ -631,7 +644,16 @@ function SquareTilePaletteEntry({ tile }: { tile: Tile }) {
     ctx.textBaseline = "middle";
     ctx.fillText(tile.id, PALETTE_SQUARE_SIZE / 2, PALETTE_SQUARE_SIZE / 2);
   }, [tile]);
-  return <canvas ref={canvasRef} width={PALETTE_SQUARE_SIZE} height={PALETTE_SQUARE_SIZE} style={{ border: "1px solid var(--border)" }} />;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" }}>
+      <canvas ref={canvasRef} width={PALETTE_SQUARE_SIZE} height={PALETTE_SQUARE_SIZE} style={{ border: "1px solid var(--border)" }} />
+      {onWeightChange && (
+        <label style={{ fontSize: "0.7rem", color: "var(--muted)" }} title={`Weight for tile ${tile.id} -- higher = more likely to be tried first at each cell (weightedShuffle's own default is 1).`}>
+          w: <input type="number" min={0} step="any" value={weight ?? 1} onChange={(e) => onWeightChange(Math.max(0, Number(e.target.value)))} style={{ font: "inherit", width: "4ch" }} />
+        </label>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -808,6 +830,8 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
   const height = useCell<number>(graph, ids.height);
   const solver = useCell<TilesSolverKind>(graph, ids.solver);
   const showAnimation = useCell<boolean>(graph, ids.showAnimation);
+  const tileWeights = useCell<Record<string, number>>(graph, ids.tileWeights);
+  const weightedSeed = useCell<number>(graph, ids.weightedSeed);
   const symmetry = useCell<SymmetryGroup>(graph, ids.symmetry);
   const expandedTileSetResult = useCell<Result<TileSet>>(graph, ids.expandedTileSetResult);
   const solveStatus = useCell<SolveStatus>(graph, ids.solveStatus);
@@ -928,7 +952,11 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
         const gen =
           solver === "torus"
             ? solveTorus(expandedTileSetResult.value, width, height, { trackSteps: showAnimation })
-            : solveWang(expandedTileSetResult.value, width, height, { trackSteps: showAnimation });
+            : solver === "weighted"
+              ? solveWangWeighted(expandedTileSetResult.value, width, height, new Map(Object.entries(tileWeights)) as TileWeights, new Rng(weightedSeed), {
+                  trackSteps: showAnimation,
+                })
+              : solveWang(expandedTileSetResult.value, width, height, { trackSteps: showAnimation });
         if (solver === "sat") {
           const grid = solveWangViaSat(expandedTileSetResult.value, width, height);
           if (cancelled) return;
@@ -955,7 +983,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, lattice, expandedTileSetResult, width, height, solver, showAnimation]);
+  }, [graph, lattice, expandedTileSetResult, width, height, solver, showAnimation, tileWeights, weightedSeed]);
 
   // Compound (multi-cell footprint) auto-solve (#382/#383): same "drain the
   // async generator, write back via graph.set" shape as the unit solve
@@ -1610,7 +1638,22 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
     }
     writeUrl();
     return graph.subscribeMany(
-      [ids.tilesText, ids.width, ids.height, ids.solver, ids.showAnimation, ids.symmetry, ids.lattice, ids.hexTilesText, ids.triTilesText, ids.cubeTilesText, ids.depth, ids.cornerTilesText],
+      [
+        ids.tilesText,
+        ids.width,
+        ids.height,
+        ids.solver,
+        ids.showAnimation,
+        ids.symmetry,
+        ids.lattice,
+        ids.hexTilesText,
+        ids.triTilesText,
+        ids.cubeTilesText,
+        ids.depth,
+        ids.cornerTilesText,
+        ids.tileWeights,
+        ids.weightedSeed,
+      ],
       writeUrl,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1669,7 +1712,11 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             each new tile against its already-placed neighbors, and backtracks out of dead ends -- turn on "Animate step
             by step" to watch the search happen. "Backtracking (torus/periodic)" additionally requires the grid to wrap
             edge-to-edge. "SAT cross-check" solves the same constraints with an independent SAT solver, as a check on the
-            backtracking result. <strong>Symmetry</strong> expands every tile into its rotated/reflected variants before
+            backtracking result. "Weighted random" (#398) is the same backtracking search, but tries each cell's
+            compatible candidates in a weighted-random order instead of tile-array order -- set each tile's own weight
+            in the palette above (higher = tried first more often) and a seed for reproducibility; it still finds a
+            tiling whenever one exists, since weights only affect search order, never completeness.{" "}
+            <strong>Symmetry</strong> expands every tile into its rotated/reflected variants before
             solving, so a tile set stays small to write but can be used in any orientation.
           </p>
           <p style={{ margin: 0 }}>
@@ -1751,7 +1798,12 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
               <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>Tile palette (each tile on its own, apart from the grid)</label>
               <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                 {tileSetResult.value.tiles.map((t) => (
-                  <SquareTilePaletteEntry key={t.id} tile={t} />
+                  <SquareTilePaletteEntry
+                    key={t.id}
+                    tile={t}
+                    weight={solver === "weighted" ? (tileWeights[t.id] ?? 1) : undefined}
+                    onWeightChange={solver === "weighted" ? (w) => graph.set(ids.tileWeights, { ...tileWeights, [t.id]: w }) : undefined}
+                  />
                 ))}
               </div>
             </div>
@@ -1781,8 +1833,14 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                 <option value="wang">Backtracking</option>
                 <option value="torus">Backtracking (torus/periodic)</option>
                 <option value="sat">SAT cross-check</option>
+                <option value="weighted">Weighted random (#398)</option>
               </select>
             </label>
+            {solver === "weighted" && (
+              <label title="Rng seed for the weighted solver -- same seed + same weights always finds the same tiling.">
+                seed: <input type="number" value={weightedSeed} onChange={(e) => graph.set(ids.weightedSeed, Number(e.target.value))} style={{ font: "inherit", width: "6ch" }} />
+              </label>
+            )}
             <label title={isCompound ? "Symmetry expansion isn't compound-aware yet (#383)." : "Expands each tile into its rotated/reflected variants before solving, so a small tile set can be used in any orientation."}>
               symmetry:{" "}
               <select value={symmetry} disabled={isCompound} onChange={(e) => graph.set(ids.symmetry, e.target.value as SymmetryGroup)}>
@@ -1839,22 +1897,26 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                   {stepLabel(currentStep)}
                 </p>
               )}
-              <VideoExportControls
-                filenameStem="mallory-graph-tiles"
-                start={(format, videoDuration) =>
-                  startTilesExportJobFn({
-                    data: {
-                      tilesText,
-                      width,
-                      height,
-                      symmetry,
-                      solver: solver as "wang" | "torus",
-                      duration: videoDuration,
-                      format,
-                    },
-                  })
-                }
-              />
+              {solver === "weighted" ? (
+                <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Video export isn't available for the weighted-random solver yet -- the export scene only reruns plain/torus backtracking.</p>
+              ) : (
+                <VideoExportControls
+                  filenameStem="mallory-graph-tiles"
+                  start={(format, videoDuration) =>
+                    startTilesExportJobFn({
+                      data: {
+                        tilesText,
+                        width,
+                        height,
+                        symmetry,
+                        solver: solver as "wang" | "torus",
+                        duration: videoDuration,
+                        format,
+                      },
+                    })
+                  }
+                />
+              )}
             </>
           )}
           {isCompound && showAnimation && compoundSolveSteps.length > 0 && (

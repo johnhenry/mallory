@@ -1107,6 +1107,12 @@ export function cellIdsTiles(cellId: string) {
     cornerSolveStatus: `tilesCornerSolveStatus:${cellId}`,
     cornerSolveGrid: `tilesCornerSolveGrid:${cellId}`,
     cornerSolveError: `tilesCornerSolveError:${cellId}`,
+    // Weighted random tiling (#398/#403), square-lattice only: per-tile-id
+    // weight map and the `solveWangWeighted` solver's own `Rng` seed. Both
+    // persist in TilesState (not free/auxiliary cells) since they're user
+    // input that should survive a reload/share, same as tilesText/width.
+    tileWeights: `tilesTileWeights:${cellId}`,
+    weightedSeed: `tilesWeightedSeed:${cellId}`,
   };
 }
 
