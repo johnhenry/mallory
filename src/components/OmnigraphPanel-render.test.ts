@@ -135,6 +135,76 @@ test("OmnigraphPanel: a HIDDEN 3D item still keeps the surface in 3D mode (exist
   await unmount();
 });
 
+test("OmnigraphPanel: phase-3 exotic items (complexGraph3d + gradientDescent) hydrate, render their row editors, and round-trip", async () => {
+  const state: OmnigraphState = {
+    version: 1,
+    viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 },
+    items: [
+      {
+        type: "complexGraph3d",
+        expr: "x^2",
+        axisX: "reX",
+        axisY: "reY",
+        axisZ: "imY",
+        tMin: "-2",
+        tMax: "2",
+        sweepReX: true,
+        sweepImX: false,
+        highlightNearReal: false,
+        color: 0x16a34a,
+        visible: true,
+      },
+      { type: "gradientDescent", expr: "x^2+y^2", startX: "3", startY: "-2", stepSize: "0.1", steps: "100", color: 0xd97706, visible: true },
+    ],
+  };
+  domWindow.location.hash = encodeOmnigraphState(state);
+  const OmnigraphPanel = (await import("./OmnigraphPanel.tsx")).OmnigraphPanel as unknown as (props: { cellId?: string }) => ReturnType<typeof createElement>;
+  const { container, update, unmount } = await mount(createElement(OmnigraphPanel, { cellId: "omni-phase3-test" }));
+  await update(() => wait(50));
+
+  const text = container.textContent ?? "";
+  // Both are 3D types, so the surface is in 3D mode.
+  assert.equal(container.querySelectorAll("canvas").length, 0, "phase-3 items are 3D types -- expected 3D mode");
+  // Their type-specific editors rendered.
+  assert.match(text, /highlight near-real/, "expected complexGraph3d's own controls");
+  assert.match(text, /SGD, full path drawn statically/, "expected gradientDescent's own note");
+  // No row errors: both defaults compute (descent runs eagerly, axis assignment is valid).
+  assert.doesNotMatch(text, /must be a number|Assign at least one axis|Steps must be/);
+
+  const decoded = decodeOmnigraphState(domWindow.location.hash.slice(1));
+  assert.deepEqual(decoded, state, "expected lossless hydrate -> cells -> URL round-trip for exotic items");
+
+  await unmount();
+});
+
+test("OmnigraphPanel: an invalid complexGraph3d axis assignment surfaces as a row error, not a crash", async () => {
+  domWindow.location.hash = encodeOmnigraphState({
+    version: 1,
+    viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 },
+    items: [
+      {
+        type: "complexGraph3d",
+        expr: "x^2",
+        axisX: "none",
+        axisY: "none",
+        axisZ: "none",
+        tMin: "-2",
+        tMax: "2",
+        sweepReX: false,
+        sweepImX: false,
+        highlightNearReal: false,
+        color: 0x16a34a,
+        visible: true,
+      },
+    ],
+  });
+  const OmnigraphPanel = (await import("./OmnigraphPanel.tsx")).OmnigraphPanel as unknown as (props: { cellId?: string }) => ReturnType<typeof createElement>;
+  const { container, update, unmount } = await mount(createElement(OmnigraphPanel, { cellId: "omni-badaxis-test" }));
+  await update(() => wait(50));
+  assert.match(container.textContent ?? "", /Assign at least one axis/, "expected the axis-validation message as a row error");
+  await unmount();
+});
+
 test("OmnigraphPanel: the Add item button appends a new expression row", async () => {
   domWindow.location.hash = encodeOmnigraphState({ version: 1, viewport: { xMin: -5, xMax: 5, yMin: -5, yMax: 5 }, items: [{ type: "expression", expr: "sin(x)", color: 0x2563eb, visible: true }] });
   const OmnigraphPanel = (await import("./OmnigraphPanel.tsx")).OmnigraphPanel as unknown as (props: { cellId?: string }) => ReturnType<typeof createElement>;
