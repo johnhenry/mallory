@@ -47,6 +47,47 @@ test("tilesCompatible: not symmetric in general -- a compatible-east-of b doesn'
   assert.equal(tilesCompatible(b, a, "E"), false, "b.E(9) !== a.W(x)");
 });
 
+test("tilesCompatible (#415): a plain, unsuffixed tile set behaves EXACTLY as before -- no accidental change from adding directed matching", () => {
+  const a: Tile = { id: "a", edges: { N: "0", E: "1", S: "0", W: "2" } };
+  const b: Tile = { id: "b", edges: { N: "9", E: "9", S: "9", W: "1" } };
+  assert.equal(tilesCompatible(a, b, "E"), true);
+  assert.equal(tilesCompatible(a, b, "N"), false);
+});
+
+test("tilesCompatible (#415): a producer (!) matches a consumer (?) of the same base label", () => {
+  const a: Tile = { id: "a", edges: { N: "x", E: "Plan!", S: "x", W: "x" } };
+  const b: Tile = { id: "b", edges: { N: "x", E: "x", S: "x", W: "Plan?" } };
+  assert.equal(tilesCompatible(a, b, "E"), true, "Plan! (produces) meets Plan? (requires)");
+  assert.equal(tilesCompatible(b, a, "W"), true, "the same pair, checked from b's own perspective");
+});
+
+test("tilesCompatible (#415): two producers, or two consumers, of the same base label do NOT match -- polarity must be opposite, not equal", () => {
+  const producer: Tile = { id: "p", edges: { N: "x", E: "Plan!", S: "x", W: "x" } };
+  const anotherProducer: Tile = { id: "p2", edges: { N: "x", E: "x", S: "x", W: "Plan!" } };
+  const consumer: Tile = { id: "c", edges: { N: "x", E: "x", S: "x", W: "Plan?" } };
+  const anotherConsumer: Tile = { id: "c2", edges: { N: "x", E: "Plan?", S: "x", W: "x" } };
+  assert.equal(tilesCompatible(producer, anotherProducer, "E"), false, "Plan! meeting Plan! is two producers, not a valid handoff");
+  assert.equal(tilesCompatible(anotherConsumer, consumer, "E"), false, "Plan? meeting Plan? is two consumers, not a valid handoff");
+});
+
+test("tilesCompatible (#415): mismatched base labels never match regardless of polarity", () => {
+  const a: Tile = { id: "a", edges: { N: "x", E: "Plan!", S: "x", W: "x" } };
+  const b: Tile = { id: "b", edges: { N: "x", E: "x", S: "x", W: "Patch?" } };
+  assert.equal(tilesCompatible(a, b, "E"), false);
+});
+
+test("tilesCompatible (#415): exactly one side using the suffix syntax fails closed, even with an otherwise-matching base label", () => {
+  const suffixed: Tile = { id: "a", edges: { N: "x", E: "Plan!", S: "x", W: "x" } };
+  const plain: Tile = { id: "b", edges: { N: "x", E: "x", S: "x", W: "Plan" } };
+  assert.equal(tilesCompatible(suffixed, plain, "E"), false, "one side directed, the other plain -- never compatible, not even by coincidence");
+});
+
+test("tilesCompatible (#415): a bare \"!\" or \"?\" with an empty base label is a well-defined (if unusual) match against its own opposite polarity", () => {
+  const a: Tile = { id: "a", edges: { N: "x", E: "!", S: "x", W: "x" } };
+  const b: Tile = { id: "b", edges: { N: "x", E: "x", S: "x", W: "?" } };
+  assert.equal(tilesCompatible(a, b, "E"), true);
+});
+
 test("buildCompatibilityDigraph: 3 tiles, hand-computed east-direction digraph", () => {
   const p: Tile = { id: "p", edges: { N: "x", E: "1", S: "x", W: "9" } };
   const q: Tile = { id: "q", edges: { N: "x", E: "9", S: "x", W: "1" } };
@@ -71,6 +112,16 @@ test("solveWang: a 1x1 grid always succeeds regardless of edge labels (no neighb
   const t: Tile = { id: "t", edges: { N: "0", E: "0", S: "0", W: "1" } };
   const { result } = await drain(solveWang({ tiles: [t] }, 1, 1));
   assert.deepEqual(result, [["t"]]);
+});
+
+test("solveWang (#415): directed producer/consumer edges solve correctly end to end, proving the feature works through the actual solver, not just tilesCompatible in isolation", async () => {
+  // A: produces Plan! on its east side. B: requires Plan? on its west side.
+  // Neither is a valid neighbor of itself (a producer can't sit next to a
+  // producer), so the only valid 2x1 row is exactly [A, B].
+  const a: Tile = { id: "A", edges: { N: "x", E: "Plan!", S: "x", W: "x" } };
+  const b: Tile = { id: "B", edges: { N: "x", E: "x", S: "x", W: "Plan?" } };
+  const { result } = await drain(solveWang({ tiles: [a, b] }, 2, 1));
+  assert.deepEqual(result, [["A", "B"]]);
 });
 
 test("solveWang: an asymmetric single tile (E !== W) cannot tile a 2x1 row -- returns null after trying and undoing both cells, hand-computed step sequence", async () => {

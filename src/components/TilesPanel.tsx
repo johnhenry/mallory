@@ -1850,6 +1850,13 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
             panel searches for a way to fill the grid so every shared edge matches.
           </p>
           <p style={{ margin: "0 0 0.5rem" }}>
+            <strong>Directed matching</strong> (square lattice only, #415): a label ending in <code>!</code> (produces) or{" "}
+            <code>?</code> (requires) matches only its OPPOSITE polarity with the same base label -- <code>Plan!</code>{" "}
+            matches <code>Plan?</code>, but never another <code>Plan!</code> or another <code>Plan?</code>. Plain,
+            unsuffixed labels keep working exactly as before (equality); mixing a suffixed edge against a plain one on
+            the same shared border never matches. Purely opt-in, one edge label at a time.
+          </p>
+          <p style={{ margin: "0 0 0.5rem" }}>
             <strong>Notation</strong> depends on the lattice: square tiles are <code>id N E S W</code> (edge labels
             clockwise from north); hexagonal tiles are <code>id e0 e1 e2 e3 e4 e5</code> (E, NE, NW, W, SW, SE); triangular
             tiles are <code>id left right top bottom</code> (an up- or down-pointing triangle only uses 3 of its 4
