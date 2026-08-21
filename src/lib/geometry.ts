@@ -4,16 +4,62 @@ export interface Point2D {
 }
 
 /**
- * Interior angle at `vertex` between rays to `a` and `c`, in radians,
- * always in [0, PI] (the non-reflex angle) -- the standard "angle ABC"
- * convention where B is the vertex.
+ * Which of the (up to) two angles formed by rays VA and VC a measurement
+ * reports -- the two candidates are always `x` and `360 - x` for some
+ * `x` in `[0, 180]`, since three points alone don't disambiguate which
+ * one the user means.
+ *
+ * - `"shorter"`: always the non-reflex angle, in `[0, 180]` -- the
+ *   original, order-independent default (swapping `a`/`c` gives the
+ *   same value).
+ * - `"clickOrder"`: the directed sweep from ray VA to ray VC going
+ *   counterclockwise (in whatever space the caller's rays are defined
+ *   in), in `[0, 360)` -- swapping `a`/`c` gives the *other* candidate
+ *   (360 minus the original), so which point was clicked/passed first
+ *   controls the result.
+ * - `"reflex"`: the complement of `"shorter"`, in `[180, 360)` -- always
+ *   the *other* candidate from `"shorter"`, regardless of click order.
  */
-export function interiorAngleRadians(a: Point2D, vertex: Point2D, c: Point2D): number {
-  const v1 = Math.atan2(a.y - vertex.y, a.x - vertex.x);
-  const v2 = Math.atan2(c.y - vertex.y, c.x - vertex.x);
-  let diff = Math.abs(v2 - v1);
-  if (diff > Math.PI) diff = 2 * Math.PI - diff;
-  return diff;
+export type AngleMode = "shorter" | "clickOrder" | "reflex";
+
+/**
+ * Signed sweep (radians) from ray-angle `theta1` to ray-angle `theta2`,
+ * per `mode` -- the shared primitive `interiorAngleRadians` (data-space
+ * value) and GeometryPanel's `drawAngle`/`distanceToAngleArc` (screen-
+ * space drawing/hit-testing) both build on, so the three modes' geometry
+ * is defined in exactly one place.
+ *
+ * The raw CCW sweep from `theta1` to `theta2` is normalized into
+ * `[0, 2*PI)` first; `"clickOrder"` returns it as-is, `"shorter"` takes
+ * whichever of `{raw, raw - 2*PI}` has the smaller magnitude, and
+ * `"reflex"` takes the other one. The result's magnitude is invariant
+ * under mirroring `theta1`/`theta2` (e.g. screen space vs. data space) --
+ * only its sign (sweep direction) is space-relative, so callers must keep
+ * `theta1`/`theta2` and the result within one consistent space.
+ */
+export function angleSweepRadians(theta1: number, theta2: number, mode: AngleMode): number {
+  const TWO_PI = 2 * Math.PI;
+  let raw = (theta2 - theta1) % TWO_PI;
+  if (raw < 0) raw += TWO_PI; // [0, 2*PI)
+  switch (mode) {
+    case "clickOrder":
+      return raw;
+    case "shorter":
+      return raw <= Math.PI ? raw : raw - TWO_PI;
+    case "reflex":
+      return raw <= Math.PI ? raw - TWO_PI : raw;
+  }
+}
+
+/**
+ * The measured angle at `vertex` between rays to `a` and `c`, in radians,
+ * per `mode` (default `"shorter"`, the original always-non-reflex,
+ * order-independent behavior -- existing callers are unaffected).
+ */
+export function interiorAngleRadians(a: Point2D, vertex: Point2D, c: Point2D, mode: AngleMode = "shorter"): number {
+  const theta1 = Math.atan2(a.y - vertex.y, a.x - vertex.x);
+  const theta2 = Math.atan2(c.y - vertex.y, c.x - vertex.x);
+  return Math.abs(angleSweepRadians(theta1, theta2, mode));
 }
 
 /** Shoelace formula: area of a simple (non-self-intersecting) polygon given its vertices in order. */

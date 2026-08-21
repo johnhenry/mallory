@@ -6,6 +6,7 @@ import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
 import { CellGraph } from "../lib/cell-graph.ts";
 import {
+  angleSweepRadians,
   interiorAngleRadians,
   isSelfIntersecting,
   pointInPolygon,
@@ -13,6 +14,7 @@ import {
   polygonCentroid,
   projectFractionOntoSegment,
   shoelaceArea,
+  type AngleMode,
 } from "../lib/geometry.ts";
 import { deriveIKChain, solveIKChainCCD, type IKJointSpec } from "../lib/ik-chain.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
@@ -29,6 +31,7 @@ import {
   decodeGeometryState,
   encodeGeometryState,
   type GeometryOp,
+  type GeometryOpAngle,
   type GeometryOpRotation,
   type GeometryOpScale,
   type GeometryOpTranslation,
@@ -94,6 +97,7 @@ interface AngleRecord {
   a: string;
   vertex: string;
   c: string;
+  mode: AngleMode;
 }
 interface PolygonRecord {
   points: string[];
@@ -180,7 +184,7 @@ export function replayGeometryOps(graph: CellGraph, listIds: CellIdsGeometry, op
         addScale(graph, listIds, op.source, op.center, op.factor, op.id);
         break;
       case "angle":
-        addAngle(graph, listIds, op.a, op.vertex, op.c, op.id);
+        addAngle(graph, listIds, op.a, op.vertex, op.c, op.id, op.mode ?? "shorter");
         break;
       case "polygon":
         addPolygon(graph, listIds, op.points, op.id, op.color);
@@ -399,15 +403,37 @@ function pointLabel(graph: CellGraph, listIds: CellIdsGeometry, id: string): str
  * Subscribes narrowly to `listIds.opsLog` (not the whole graph, unlike
  * `AlgebraView`) since that's the one cell this editor's own list depends
  * on -- `graph.subscribeMany` fires only on an actual write to that id.
+ *
+ * Also lists angle ops, whose `mode` (see `AngleMode`'s own doc comment)
+ * is the same kind of "fixed at construction, editable after the fact"
+ * parameter -- a `<select>` instead of a numeric input, applied
+ * immediately on change (a discrete choice, not a keystroke stream, so no
+ * debounce needed the way the numeric inputs below use).
+ *
+ * `selected` highlights a row when its own object is currently selected
+ * (a transform/angle's id doubles as its point/arc's id) -- a lightweight
+ * link between this always-visible list and the select tool's multi-
+ * select, short of fully merging the two (see the "smaller middle ground"
+ * design discussion this implements).
  */
-function TransformParamsEditor({ graph, listIds, angleUnit }: { graph: CellGraph; listIds: CellIdsGeometry; angleUnit: AngleUnit }) {
+function TransformParamsEditor({
+  graph,
+  listIds,
+  angleUnit,
+  selected,
+}: {
+  graph: CellGraph;
+  listIds: CellIdsGeometry;
+  angleUnit: AngleUnit;
+  selected: ReadonlySet<string>;
+}) {
   const ops = useSyncExternalStore(
     useCallback((onChange) => graph.subscribeMany([listIds.opsLog], onChange), [graph, listIds.opsLog]),
     () => graph.get<GeometryOp[]>(listIds.opsLog),
     () => graph.get<GeometryOp[]>(listIds.opsLog),
   );
-  const editable = ops.filter((op): op is GeometryOpRotation | GeometryOpTranslation | GeometryOpScale =>
-    op.tool === "rotation" || op.tool === "translation" || op.tool === "scale",
+  const editable = ops.filter((op): op is GeometryOpRotation | GeometryOpTranslation | GeometryOpScale | GeometryOpAngle =>
+    op.tool === "rotation" || op.tool === "translation" || op.tool === "scale" || op.tool === "angle",
   );
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   function debouncedEdit(opId: string, patch: Partial<GeometryOp>) {
@@ -418,10 +444,16 @@ function TransformParamsEditor({ graph, listIds, angleUnit }: { graph: CellGraph
   if (editable.length === 0) return null;
   return (
     <div style={{ margin: "0.5rem 0" }}>
-      <div style={{ fontWeight: 600, fontSize: "0.85rem", marginBottom: "0.25rem" }}>Adjust transforms</div>
+      <div style={{ fontWeight: 600, fontSize: "0.85rem", marginBottom: "0.25rem" }}>Adjust transforms &amp; angles</div>
       <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.85rem" }}>
         {editable.map((op) => (
-          <li key={op.id} style={{ margin: "0.2rem 0" }}>
+          <li
+            key={op.id}
+            style={{
+              margin: "0.2rem 0",
+              ...(selected.has(op.id) ? { color: SELECTED_HIGHLIGHT_COLOR, fontWeight: 600 } : {}),
+            }}
+          >
             {op.tool === "rotation" && (
               <label>
                 Rotation of {pointLabel(graph, listIds, op.source)} around {pointLabel(graph, listIds, op.center)}, angle (
@@ -473,6 +505,16 @@ function TransformParamsEditor({ graph, listIds, angleUnit }: { graph: CellGraph
                   }}
                   style={{ font: "inherit", width: "6ch" }}
                 />
+              </label>
+            )}
+            {op.tool === "angle" && (
+              <label>
+                Angle {pointLabel(graph, listIds, op.a)}-{pointLabel(graph, listIds, op.vertex)}-{pointLabel(graph, listIds, op.c)}, mode:{" "}
+                <select value={op.mode ?? "shorter"} onChange={(e) => editGeometryOp(graph, listIds, op.id, { mode: e.target.value as AngleMode })}>
+                  <option value="shorter">Shorter (≤180°)</option>
+                  <option value="clickOrder">Click order (A→C)</option>
+                  <option value="reflex">Reflex (≥180°)</option>
+                </select>
               </label>
             )}
           </li>
@@ -643,33 +685,46 @@ function nearestPointId(graph: CellGraph, listIds: CellIdsGeometry, x: number, y
 }
 
 /**
+ * True iff `clickTheta` (any real radian value) falls within the swept
+ * wedge from `theta1` by signed sweep `delta` (as `angleSweepRadians`
+ * returns -- positive means CCW, negative CW, magnitude up to just under
+ * 2*PI for `"clickOrder"`/`"reflex"` mode). Normalizes the click into the
+ * `[0, 2*PI)` CCW-from-`theta1` frame first, then checks it against
+ * `[0, delta]` (delta >= 0) or its wrap-around complement `[delta+2*PI,
+ * 2*PI)` (delta < 0) -- the two cases can't share one inequality since
+ * "CCW by a positive amount" and "CW by a negative amount" occupy
+ * opposite ends of that normalized range.
+ */
+function withinAngleWedge(clickTheta: number, theta1: number, delta: number): boolean {
+  const TWO_PI = 2 * Math.PI;
+  let rawClick = (clickTheta - theta1) % TWO_PI;
+  if (rawClick < 0) rawClick += TWO_PI; // [0, 2*PI)
+  return delta >= 0 ? rawClick <= delta : rawClick >= delta + TWO_PI;
+}
+
+/**
  * Data-space distance from `(x, y)` to the arc `drawAngle` actually draws
  * for this angle record, or `Infinity` if the click falls outside the
  * swept wedge between the two rays (a click near the vertex but on the
  * wrong side of it is a miss, same as a click far from a line segment
  * along its infinite extension is a miss for `pointToSegmentDistance`).
- * Reuses `drawAngle`'s own theta1/theta2/diff/anticlockwise math, but in
- * DATA space rather than screen space -- GeometryPanel has no pan/zoom
+ * Reuses `angleSweepRadians` (the same primitive `drawAngle`'s screen-
+ * space sweep uses) but in DATA space -- GeometryPanel has no pan/zoom
  * (fixed `VIEWPORT`/`WIDTH`/`HEIGHT`), so `ANGLE_ARC_RADIUS_PX` converts to
  * a fixed data-space radius via the same ratio `currentHitDataRadius` uses.
  * Data-space y isn't screen-flipped, which mirrors the wedge relative to
- * `drawAngle`'s own screen-space computation -- harmless here since only
- * the wedge's *shape* (the region between the two rays, sized ≤180°, per
- * `interiorAngleRadians`' convention) is being tested, not compared
- * against any external clockwise/anticlockwise convention.
+ * `drawAngle`'s own screen-space computation -- harmless since only the
+ * wedge's *shape* (the swept region between the two rays) is being
+ * tested, not compared against any external clockwise/anticlockwise
+ * convention.
  */
-function distanceToAngleArc(a: PointRecord, vertex: PointRecord, c: PointRecord, x: number, y: number): number {
+function distanceToAngleArc(a: PointRecord, vertex: PointRecord, c: PointRecord, x: number, y: number, mode: AngleMode): number {
   const arcRadius = (ANGLE_ARC_RADIUS_PX / WIDTH) * (VIEWPORT.xMax - VIEWPORT.xMin);
   const theta1 = Math.atan2(a.y - vertex.y, a.x - vertex.x);
   const theta2 = Math.atan2(c.y - vertex.y, c.x - vertex.x);
-  let diff = theta2 - theta1;
-  while (diff <= -Math.PI) diff += 2 * Math.PI;
-  while (diff > Math.PI) diff -= 2 * Math.PI;
-  let clickDiff = Math.atan2(y - vertex.y, x - vertex.x) - theta1;
-  while (clickDiff <= -Math.PI) clickDiff += 2 * Math.PI;
-  while (clickDiff > Math.PI) clickDiff -= 2 * Math.PI;
-  const withinWedge = diff >= 0 ? clickDiff >= 0 && clickDiff <= diff : clickDiff <= 0 && clickDiff >= diff;
-  if (!withinWedge) return Infinity;
+  const delta = angleSweepRadians(theta1, theta2, mode);
+  const clickTheta = Math.atan2(y - vertex.y, x - vertex.x);
+  if (!withinAngleWedge(clickTheta, theta1, delta)) return Infinity;
   return Math.abs(Math.hypot(x - vertex.x, y - vertex.y) - arcRadius);
 }
 
@@ -717,8 +772,15 @@ function nearestObjectId(graph: CellGraph, listIds: CellIdsGeometry, x: number, 
         best = id;
       }
     } else if (graph.has(angleRecordCellId(id))) {
-      const { a, vertex, c } = graph.get<AngleRecord>(angleRecordCellId(id));
-      const d = distanceToAngleArc(graph.get<PointRecord>(pointCellId(a)), graph.get<PointRecord>(pointCellId(vertex)), graph.get<PointRecord>(pointCellId(c)), x, y);
+      const { a, vertex, c, mode } = graph.get<AngleRecord>(angleRecordCellId(id));
+      const d = distanceToAngleArc(
+        graph.get<PointRecord>(pointCellId(a)),
+        graph.get<PointRecord>(pointCellId(vertex)),
+        graph.get<PointRecord>(pointCellId(c)),
+        x,
+        y,
+        mode ?? "shorter",
+      );
       if (d < bestDist) {
         bestDist = d;
         best = id;
@@ -891,17 +953,26 @@ function addScale(
   pushOp(graph, listIds, { tool: "scale", id, source, center, factor });
 }
 
-/** Interior angle ABC at `vertex`, reading all three points live -- same record/dependent-value split as Line/Circle. */
-function addAngle(graph: CellGraph, listIds: CellIdsGeometry, a: string, vertex: string, c: string, id: string = crypto.randomUUID()): void {
-  graph.set(angleRecordCellId(id), { a, vertex, c } as AngleRecord);
+/**
+ * Interior angle ABC at `vertex`, reading all three points live -- same
+ * record/dependent-value split as Line/Circle. `mode` picks which of the
+ * two candidate angles (see AngleMode's own doc comment) is measured; it's
+ * captured in the `angleValueCellId` closure at construction time, same as
+ * `angleDegrees`/`dx`/`dy`/`factor` are for rotation/translation/scale --
+ * changing it later goes through `editGeometryOp`, which clears and
+ * replays every op (rebuilding this closure with the new value), not a
+ * live-reactive cell.
+ */
+function addAngle(graph: CellGraph, listIds: CellIdsGeometry, a: string, vertex: string, c: string, id: string = crypto.randomUUID(), mode: AngleMode = "shorter"): void {
+  graph.set(angleRecordCellId(id), { a, vertex, c, mode } as AngleRecord);
   graph.define(angleValueCellId(id), (): number => {
     const pa = graph.get<PointRecord>(pointCellId(a));
     const pv = graph.get<PointRecord>(pointCellId(vertex));
     const pc = graph.get<PointRecord>(pointCellId(c));
-    return interiorAngleRadians(pa, pv, pc);
+    return interiorAngleRadians(pa, pv, pc, mode);
   });
   pushObject(graph, listIds, id);
-  pushOp(graph, listIds, { tool: "angle", id, a, vertex, c });
+  pushOp(graph, listIds, { tool: "angle", id, a, vertex, c, mode });
 }
 
 /**
@@ -1019,12 +1090,12 @@ export function drawGeometryPanel(
       const customColor = graph.has(colorCellId(id)) ? graph.get<string>(colorCellId(id)) : null;
       drawCircle(ctx, pc, radius, radius < DEGENERATE_EPSILON, customColor, selected.has(id));
     } else if (graph.has(angleRecordCellId(id))) {
-      const { a, vertex, c } = graph.get<AngleRecord>(angleRecordCellId(id));
+      const { a, vertex, c, mode } = graph.get<AngleRecord>(angleRecordCellId(id));
       const pa = graph.get<PointRecord>(pointCellId(a));
       const pv = graph.get<PointRecord>(pointCellId(vertex));
       const pc = graph.get<PointRecord>(pointCellId(c));
       const angle = graph.get<number>(angleValueCellId(id));
-      drawAngle(ctx, pa, pv, pc, angle, angleUnit);
+      drawAngle(ctx, pa, pv, pc, angle, angleUnit, mode ?? "shorter", selected.has(id));
     } else if (graph.has(polygonCellId(id))) {
       const { points } = graph.get<PolygonRecord>(polygonCellId(id));
       const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
@@ -1579,12 +1650,12 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
           strokeWidth: 2,
         });
       } else if (graph.has(angleRecordCellId(id))) {
-        const { a, vertex, c } = graph.get<AngleRecord>(angleRecordCellId(id));
+        const { a, vertex, c, mode } = graph.get<AngleRecord>(angleRecordCellId(id));
         const pa = graph.get<PointRecord>(pointCellId(a));
         const pv = graph.get<PointRecord>(pointCellId(vertex));
         const pc = graph.get<PointRecord>(pointCellId(c));
         const angle = graph.get<number>(angleValueCellId(id));
-        layers.push(...angleExportLayers(pa, pv, pc, angle, angleUnit));
+        layers.push(...angleExportLayers(pa, pv, pc, angle, angleUnit, mode ?? "shorter"));
       } else if (graph.has(polygonCellId(id))) {
         const { points } = graph.get<PolygonRecord>(polygonCellId(id));
         const pts = points.map((pid) => graph.get<PointRecord>(pointCellId(pid)));
@@ -1730,7 +1801,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
       <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{hint}</p>
       <SelectionControls graph={graph} listIds={listIds} selected={selected} setSelected={setSelected} />
       <IKChainControls graph={graph} listIds={listIds} selected={selected} ikChain={ikChain} setIkChain={setIkChain} />
-      <TransformParamsEditor graph={graph} listIds={listIds} angleUnit={angleUnit} />
+      <TransformParamsEditor graph={graph} listIds={listIds} angleUnit={angleUnit} selected={selected} />
       <div style={{ margin: "0.5rem 0" }}>
         <AlgebraView graph={graph} />
       </div>
@@ -1816,18 +1887,20 @@ function drawCircle(
 }
 
 /**
- * A small fixed-radius arc at `vertex` sweeping through the interior (non-
- * reflex) angle between rays to `a`/`c`, plus a degree-label near its
- * midpoint. Canvas angles increase in the visually-clockwise direction
- * (screen y grows downward), so the two ray angles are computed directly
- * in screen space rather than converted from data space -- arc-drawing is
- * inherently a screen-space operation. The signed, wrapped difference
- * `diff` (always in (-PI, PI]) both picks the sweep direction (anticlockwise
- * when negative) and locates the arc's angular midpoint for the label,
- * matching interiorAngleRadians' own "always the <=180 degree angle"
- * convention.
+ * A small fixed-radius arc at `vertex` sweeping between rays to `a`/`c`,
+ * plus a degree-label near its midpoint. Canvas angles increase in the
+ * visually-clockwise direction (screen y grows downward), so the two ray
+ * angles are computed directly in screen space rather than converted from
+ * data space -- arc-drawing is inherently a screen-space operation.
+ * `mode` (see `AngleMode`'s own doc comment) picks which of the two
+ * candidate angles `angleSweepRadians` sweeps: `endAngle = theta1 + delta`
+ * with `anticlockwise = delta < 0` reproduces the arc for any delta
+ * magnitude up to just under a full turn, not just the original
+ * `"shorter"` mode's <=180deg case. `selected` swaps the stroke to the
+ * same highlight color line/circle/polygon already use, now that angles
+ * are select-tool-hittable (`distanceToAngleArc`).
  */
-function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointRecord, c: PointRecord, angleRadians: number, angleUnit: AngleUnit): void {
+function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointRecord, c: PointRecord, angleRadians: number, angleUnit: AngleUnit, mode: AngleMode, selected = false): void {
   const vx = toScreenX(vertex.x, VIEWPORT, WIDTH);
   const vy = toScreenY(vertex.y, VIEWPORT, HEIGHT);
   const ax = toScreenX(a.x, VIEWPORT, WIDTH);
@@ -1836,17 +1909,15 @@ function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointR
   const cy = toScreenY(c.y, VIEWPORT, HEIGHT);
   const theta1 = Math.atan2(ay - vy, ax - vx);
   const theta2 = Math.atan2(cy - vy, cx - vx);
-  let diff = theta2 - theta1;
-  while (diff <= -Math.PI) diff += 2 * Math.PI;
-  while (diff > Math.PI) diff -= 2 * Math.PI;
-  const anticlockwise = diff < 0;
+  const delta = angleSweepRadians(theta1, theta2, mode);
+  const anticlockwise = delta < 0;
   ctx.save();
-  ctx.strokeStyle = "#9333ea";
+  ctx.strokeStyle = selected ? SELECTED_HIGHLIGHT_COLOR : "#9333ea";
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.arc(vx, vy, ANGLE_ARC_RADIUS_PX, theta1, theta2, anticlockwise);
+  ctx.arc(vx, vy, ANGLE_ARC_RADIUS_PX, theta1, theta1 + delta, anticlockwise);
   ctx.stroke();
-  const mid = theta1 + diff / 2;
+  const mid = theta1 + delta / 2;
   const labelX = vx + (ANGLE_ARC_RADIUS_PX + 14) * Math.cos(mid);
   const labelY = vy + (ANGLE_ARC_RADIUS_PX + 14) * Math.sin(mid);
   // getThemeColors(), not "var(--muted)" -- canvas fillStyle silently
@@ -1860,8 +1931,8 @@ function drawAngle(ctx: CanvasRenderingContext2D, a: PointRecord, vertex: PointR
   ctx.restore();
 }
 
-/** `drawAngle`'s exact theta1/theta2/diff/anticlockwise/labelX/labelY math, re-emitted as an `"arc"` + `"text"` SvgLayer pair instead of Canvas2D calls -- see that function's own doc comment for the geometry. */
-function angleExportLayers(a: PointRecord, vertex: PointRecord, c: PointRecord, angleRadians: number, angleUnit: AngleUnit): SvgLayer[] {
+/** `drawAngle`'s exact theta1/theta2/delta/anticlockwise/labelX/labelY math, re-emitted as an `"arc"` + `"text"` SvgLayer pair instead of Canvas2D calls -- see that function's own doc comment for the geometry. */
+function angleExportLayers(a: PointRecord, vertex: PointRecord, c: PointRecord, angleRadians: number, angleUnit: AngleUnit, mode: AngleMode): SvgLayer[] {
   const vx = toScreenX(vertex.x, VIEWPORT, WIDTH);
   const vy = toScreenY(vertex.y, VIEWPORT, HEIGHT);
   const ax = toScreenX(a.x, VIEWPORT, WIDTH);
@@ -1870,15 +1941,13 @@ function angleExportLayers(a: PointRecord, vertex: PointRecord, c: PointRecord, 
   const cy = toScreenY(c.y, VIEWPORT, HEIGHT);
   const theta1 = Math.atan2(ay - vy, ax - vx);
   const theta2 = Math.atan2(cy - vy, cx - vx);
-  let diff = theta2 - theta1;
-  while (diff <= -Math.PI) diff += 2 * Math.PI;
-  while (diff > Math.PI) diff -= 2 * Math.PI;
-  const anticlockwise = diff < 0;
-  const mid = theta1 + diff / 2;
+  const delta = angleSweepRadians(theta1, theta2, mode);
+  const anticlockwise = delta < 0;
+  const mid = theta1 + delta / 2;
   const labelX = vx + (ANGLE_ARC_RADIUS_PX + 14) * Math.cos(mid);
   const labelY = vy + (ANGLE_ARC_RADIUS_PX + 14) * Math.sin(mid);
   return [
-    { kind: "arc", cxPx: vx, cyPx: vy, radiusPx: ANGLE_ARC_RADIUS_PX, startAngle: theta1, endAngle: theta2, anticlockwise, color: "#9333ea", strokeWidth: 1.5 },
+    { kind: "arc", cxPx: vx, cyPx: vy, radiusPx: ANGLE_ARC_RADIUS_PX, startAngle: theta1, endAngle: theta1 + delta, anticlockwise, color: "#9333ea", strokeWidth: 1.5 },
     { kind: "text", xPx: labelX, yPx: labelY, label: formatAngle(angleRadians, angleUnit) },
   ];
 }

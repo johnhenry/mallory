@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  angleSweepRadians,
   interiorAngleRadians,
   isSelfIntersecting,
   pointInPolygon,
@@ -32,6 +33,47 @@ test("interiorAngleRadians always reports the non-reflex angle", () => {
   const angle = interiorAngleRadians(a, vertex, c);
   assert.ok(angle < Math.PI);
   assert.ok(Math.abs(angle - (20 * Math.PI) / 180) < 1e-6);
+});
+
+function deg(radians: number): number {
+  return (radians * 180) / Math.PI;
+}
+
+test("angleSweepRadians: shorter/clickOrder/reflex on a=10deg, c=350deg (VA to VC the short way is -20deg, i.e. clockwise)", () => {
+  const theta1 = (10 * Math.PI) / 180;
+  const theta2 = (350 * Math.PI) / 180;
+  assert.ok(Math.abs(deg(angleSweepRadians(theta1, theta2, "shorter")) - -20) < 1e-6, "shorter: -20 (20deg the short/clockwise way)");
+  assert.ok(Math.abs(deg(angleSweepRadians(theta1, theta2, "clickOrder")) - 340) < 1e-6, "clickOrder: 340 (raw CCW sweep from a to c)");
+  assert.ok(Math.abs(deg(angleSweepRadians(theta1, theta2, "reflex")) - 340) < 1e-6, "reflex: the complement of the 20deg shorter angle is 340");
+});
+
+test("angleSweepRadians: swapping a and c flips clickOrder's sweep but not shorter's or reflex's magnitude", () => {
+  const theta1 = (10 * Math.PI) / 180;
+  const theta2 = (350 * Math.PI) / 180;
+  const forward = angleSweepRadians(theta1, theta2, "clickOrder");
+  const backward = angleSweepRadians(theta2, theta1, "clickOrder");
+  assert.ok(Math.abs(deg(forward) - 340) < 1e-6);
+  assert.ok(Math.abs(deg(backward) - 20) < 1e-6, "swapping a/c gives the OTHER candidate (360 - 340 = 20)");
+  // shorter/reflex don't care about argument order -- same magnitude either way.
+  assert.ok(Math.abs(Math.abs(angleSweepRadians(theta1, theta2, "shorter")) - Math.abs(angleSweepRadians(theta2, theta1, "shorter"))) < 1e-9);
+  assert.ok(Math.abs(Math.abs(angleSweepRadians(theta1, theta2, "reflex")) - Math.abs(angleSweepRadians(theta2, theta1, "reflex"))) < 1e-9);
+});
+
+test("interiorAngleRadians: mode='reflex' reports the complement of the default shorter angle for a 90deg right angle", () => {
+  const a = { x: 1, y: 0 };
+  const vertex = { x: 0, y: 0 };
+  const c = { x: 0, y: 1 };
+  assert.ok(Math.abs(interiorAngleRadians(a, vertex, c, "reflex") - (3 * Math.PI) / 2) < 1e-9, "360 - 90 = 270 degrees");
+});
+
+test("interiorAngleRadians: mode='clickOrder' is directional -- swapping a/c changes the result for a non-180deg angle", () => {
+  const a = { x: 1, y: 0 };
+  const vertex = { x: 0, y: 0 };
+  const c = { x: 0, y: 1 };
+  const forward = interiorAngleRadians(a, vertex, c, "clickOrder");
+  const backward = interiorAngleRadians(c, vertex, a, "clickOrder");
+  assert.ok(Math.abs(forward - Math.PI / 2) < 1e-9, "VA(0deg) to VC(90deg) CCW is 90deg");
+  assert.ok(Math.abs(backward - (3 * Math.PI) / 2) < 1e-9, "VC(90deg) to VA(0deg) CCW is 270deg");
 });
 
 test("shoelaceArea computes a unit square's area as 1", () => {
