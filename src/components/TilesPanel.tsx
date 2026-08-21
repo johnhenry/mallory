@@ -40,6 +40,7 @@ import {
   solveWangCompound,
 } from "../lib/tiles/compound-tile-model.ts";
 import { pruneToSccSustainable, solveTorus, solveWang, solveWangViaSat, type Direction, type SolveStep, type Tile, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
+import { patchCensusGrowth } from "../lib/tiles/patch-census.ts";
 import { triCenterX, triCorners, triEdgeSegment } from "../lib/tiles/tri-geometry.ts";
 import { solveTri, type TriGrid, type TriTile, type TriTileSet } from "../lib/tiles/tri-tile-model.ts";
 import { DEFAULT_TRI_TILES_TEXT, parseTriTileSetText } from "../lib/tri-tile-set-text.ts";
@@ -1674,7 +1675,9 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
           <p style={{ margin: 0 }}>
             <strong>Below the grid</strong> (square lattice only): <strong>Entropy</strong> estimates -- via the
             transfer-matrix method -- how many distinct valid tilings exist per cell on average (higher = more freedom,
-            near zero = a highly constrained tile set). <strong>Diffraction/autocorrelation</strong> treat "where does
+            near zero = a highly constrained tile set). <strong>Patch census</strong> counts how many distinct patches
+            of each size actually occur in the solved grid -- the finite-size "language" entropy is itself derived from
+            as a growth-rate limit. <strong>Diffraction/autocorrelation</strong> treat "where does
             tile X appear in the solved grid" as a pattern and plot its frequency spectrum and self-similarity: periodic
             tilings show sharp peaks, disordered ones show a diffuse cloud. <strong>Differentiable relaxation</strong> is
             an experimental alternate solver that optimizes a soft tile assignment via gradient descent instead of
@@ -1906,6 +1909,29 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                 {!entropyResult.converged ? ", power iteration did not fully converge -- treat as approximate" : ""})
               </p>
             )}
+          </div>
+
+          <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Patch census (issue #396) -- how many distinct patches of each size actually occur in the solved grid, the finite-size "language" entropy above is derived from as a growth-rate limit
+            </label>
+            {(() => {
+              if (!solveGrid) return <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Solve for a tiling to see its patch census.</p>;
+              try {
+                const growth = patchCensusGrowth(solveGrid, 8);
+                return (
+                  <ul style={{ margin: "0.25rem 0", paddingLeft: "1.25rem", fontSize: "0.85rem" }}>
+                    {growth.map((g) => (
+                      <li key={g.size}>
+                        {g.size}x{g.size}: {g.distinctPatches} distinct patch{g.distinctPatches === 1 ? "" : "es"}
+                      </li>
+                    ))}
+                  </ul>
+                );
+              } catch (e) {
+                return <p style={{ color: "crimson" }}>{e instanceof Error ? e.message : String(e)}</p>;
+              }
+            })()}
           </div>
 
           <div style={{ margin: "0.75rem 0", paddingTop: "0.5rem", borderTop: "1px solid var(--border, #ccc)" }}>
