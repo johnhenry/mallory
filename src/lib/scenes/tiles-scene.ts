@@ -1,6 +1,6 @@
 /**
  * Statically-importable ecmanim scene for TilesPanel's main Wang-tile solve
- * animation video export (`export-tiles-video.ts`) -- johnhenry/mallory-graph#337.
+ * animation video export (`export-tiles-video.ts`) -- johnhenry/mallory#337.
  * Only the primary square/Wang lattice's `solveSteps` animation is exported
  * -- the hex/tri/cube lattices and the entropy/diffraction/relax
  * sub-features are all static-only (no `TransportControls`), same

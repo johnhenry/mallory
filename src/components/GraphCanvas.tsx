@@ -1,8 +1,8 @@
-import { Symbolic, type DifferentiationStep, type Expr, type Path2D } from "mallory-math";
+import { Symbolic, type DifferentiationStep, type Expr, type Path2D } from "@johnhenry/math";
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIds, TIME_CELL, workspaceValueCellId, type CellIds } from "../lib/cell-ids.ts";
 import { getWorkspaceGraph } from "../lib/workspace-graph.ts";
 import { resolveChatCommand, type ChatCommandContext } from "../lib/chat-commands.ts";
@@ -424,7 +424,7 @@ export interface GraphCanvasProps {
   durationCellId?: string;
   /**
    * Starting viewport when this pane's cells aren't already seeded
-   * (mallory-graph#305 bug 2). The global default
+   * (mallory#305 bug 2). The global default
    * (`DEFAULT_GRAPH_STATE.viewport`, y up to 100) fits the main tab's
    * default `x^2` -- a caller whose `defaultSource` is an amplitude-1
    * trig curve (the Compare tab's sin/cos) must pass a matching viewport
@@ -450,7 +450,7 @@ export function GraphCanvas({
   // Compare tab -- don't collide on tool names: a second registerTool call
   // for an already-taken name throws, caught/console.warn'd by
   // useModelContextTool, silently leaving the second pane un-addressable
-  // (mallory-graph#11's resolution).
+  // (mallory#11's resolution).
   useCellGraphTools(`graphing_${cellId}`, graph);
   // Pan/zoom (issue #53): `committedViewport` is what curve/region-mask/
   // area sampling reads; `liveViewport` overrides it for a zero-resample
@@ -632,7 +632,7 @@ export function GraphCanvas({
       const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `mallory-graph-export.${exportFormat}`;
+      a.download = `mallory-export.${exportFormat}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {

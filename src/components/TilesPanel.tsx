@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsTiles, TIME_CELL, type CellIdsTiles } from "../lib/cell-ids.ts";
 import { DEFAULT_CORNER_TILES_TEXT, parseCornerTileSetText } from "../lib/corner-tile-set-text.ts";
 import { parseCompoundTileSetText } from "../lib/compound-tile-set-text.ts";
@@ -45,7 +45,7 @@ import {
 import { pruneToSccSustainable, solveTorus, solveWang, solveWangViaSat, type Direction, type SolveStep, type Tile, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
 import { patchCensusGrowth } from "../lib/tiles/patch-census.ts";
 import { solveWangWeighted, type TileWeights } from "../lib/tiles/weighted-tiling.ts";
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import { triCenterX, triCorners, triEdgeSegment } from "../lib/tiles/tri-geometry.ts";
 import { solveTri, type TriGrid, type TriTile, type TriTileSet } from "../lib/tiles/tri-tile-model.ts";
 import { DEFAULT_TRI_TILES_TEXT, parseTriTileSetText } from "../lib/tri-tile-set-text.ts";
@@ -58,7 +58,7 @@ import type { Viewport } from "../lib/viewport.ts";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { TransportControls } from "./TransportControls.tsx";
 import { VideoExportControls } from "./VideoExportControls.tsx";
-import { triOrientation, type TriDirection, type TriOrientation } from "mallory-math";
+import { triOrientation, type TriDirection, type TriOrientation } from "@johnhenry/math";
 
 type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 type SolveStatus = "idle" | "solving" | "done" | "error";
@@ -2104,7 +2104,7 @@ export function TilesPanel({ cellId = "tiles-1" }: { cellId?: string } = {}) {
                 <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Video export isn't available for the weighted-random solver yet -- the export scene only reruns plain/torus backtracking.</p>
               ) : (
                 <VideoExportControls
-                  filenameStem="mallory-graph-tiles"
+                  filenameStem="mallory-tiles"
                   start={(format, videoDuration) =>
                     startTilesExportJobFn({
                       data: {

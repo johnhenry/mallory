@@ -1,10 +1,10 @@
-import type { Mesh } from "mallory-math";
+import type { Mesh } from "@johnhenry/math";
 import * as THREE from "three";
 
 /**
- * Converts a mallory-math Graph3DUtils Mesh (a colour + a flat list of
+ * Converts a @johnhenry/math Graph3DUtils Mesh (a colour + a flat list of
  * triangular Faces, each three independent Vec3 corners) into a Three.js
- * BufferGeometry. Deliberately non-indexed: mallory-math's faces don't share a
+ * BufferGeometry. Deliberately non-indexed: @johnhenry/math's faces don't share a
  * vertex pool, so every triangle's three corners are appended as-is rather
  * than deduplicated into an index buffer -- simpler, and the vertex counts
  * here (one grid's worth of triangles) are small enough that the memory cost
@@ -15,9 +15,9 @@ export function meshToGeometry(mesh: Mesh): THREE.BufferGeometry {
   let i = 0;
   for (const face of mesh.faces) {
     for (const vertex of face) {
-      // mallory-math's z is the function's height (z=f(x,y)); Three.js/
+      // @johnhenry/math's z is the function's height (z=f(x,y)); Three.js/
       // OrbitControls conventionally treat Y as "up", so height maps to
-      // Three's y-axis and mallory-math's y maps to Three's z-axis.
+      // Three's y-axis and @johnhenry/math's y maps to Three's z-axis.
       positions[i++] = vertex.x;
       positions[i++] = vertex.z;
       positions[i++] = vertex.y;

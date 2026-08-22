@@ -1,6 +1,6 @@
 /**
  * Pixel geometry for rendering tri-tile-model.ts's grid on a canvas -- a
- * TRUE edge-to-edge triangular mesh, matching mallory-math's `triOrientation`/
+ * TRUE edge-to-edge triangular mesh, matching @johnhenry/math's `triOrientation`/
  * `triNeighbor` combinatorial adjacency exactly (verified below, and in this
  * module's own test file): an "up" cell's `left`/`right`/`top` neighbors
  * (`(x-1,y)`/`(x+1,y)`/`(x,y+1)`) share a REAL pixel edge with it, not just a
@@ -28,7 +28,7 @@
  * Every internal edge is drawn by exactly one straight line shared by both
  * triangles either side of it -- no gaps, no near-miss double-strokes.
  */
-import type { TriDirection, TriOrientation } from "mallory-math";
+import type { TriDirection, TriOrientation } from "@johnhenry/math";
 
 export interface Point {
   x: number;

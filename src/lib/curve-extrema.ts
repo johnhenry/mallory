@@ -1,6 +1,6 @@
-import type { Path2D } from "mallory-math";
-import { findPeaks, type FindPeaksOptions } from "mallory-signal";
-import { Tensor } from "mallory-tensor-core";
+import type { Path2D } from "@johnhenry/math";
+import { findPeaks, type FindPeaksOptions } from "@johnhenry/math-plus-signal";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 
 export interface CurveExtremum {
   x: number;
@@ -14,7 +14,7 @@ export interface CurveExtrema {
 }
 
 /**
- * Finds local maxima/minima on a sampled curve via `mallory-signal`'s
+ * Finds local maxima/minima on a sampled curve via `@johnhenry/math-plus-signal`'s
  * `findPeaks` (scipy-`find_peaks`-equivalent local-maxima detection).
  * `findPeaks` only detects maxima, so minima come from running it again on
  * the negated y-values -- the standard trick, not a second algorithm.

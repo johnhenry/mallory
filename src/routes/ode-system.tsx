@@ -9,7 +9,7 @@ export const Route = createFileRoute("/ode-system")({
 function OdeSystemPage() {
   return (
     <div>
-      <h1>mallory-graph — system of differential equations</h1>
+      <h1>mallory — system of differential equations</h1>
       <details>
         <summary>A coupled 2-variable first-order system, plotted as a phase portrait.</summary>
         <p>

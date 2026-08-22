@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 /**
  * A minimal, hand-rolled replacement for `@mcp-b/react-webmcp`'s `useWebMCP`
- * hook (mallory-graph's WebMCP pass). Written directly against the
+ * hook (mallory's WebMCP pass). Written directly against the
  * `document.modelContext.registerTool(tool, { signal })` API (confirmed via
  * direct source reading of docs.mcp-b.ai / WebMCP-org/npm-packages, not
  * assumed) rather than depending on the library, because `@mcp-b/react-webmcp`
@@ -41,7 +41,7 @@ interface RegisterableModelContext {
   ): void;
 }
 
-const READY_EVENT = "mallory-graph:webmcp-ready";
+const READY_EVENT = "mallory:webmcp-ready";
 
 function getModelContext(): RegisterableModelContext | undefined {
   return (document as unknown as { modelContext?: RegisterableModelContext }).modelContext;
@@ -102,7 +102,7 @@ export function useModelContextTool(tool: ModelContextToolDef): void {
         );
         registered = true;
       } catch (e) {
-        console.warn(`[mallory-graph] Failed to register WebMCP tool "${toolRef.current.name}":`, e);
+        console.warn(`[mallory] Failed to register WebMCP tool "${toolRef.current.name}":`, e);
       }
     }
 

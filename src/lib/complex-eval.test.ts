@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ComplexNumber, Symbolic } from "mallory-math";
+import { ComplexNumber, Symbolic } from "@johnhenry/math";
 import { evaluateComplex } from "./complex-eval.ts";
 
 function evalAt(source: string, z: ComplexNumber): ComplexNumber {

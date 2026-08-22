@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""SciPy/SymPy verification oracle for mallory-graph's own numeric samplers
+"""SciPy/SymPy verification oracle for mallory's own numeric samplers
 (issue #41's remaining "differential oracles for the samplers" item) --
-mallory-ts's proven subprocess-oracle pattern (packages/math/scripts/sympy_oracle.py),
-reapplied here against mallory-graph's OWN wiring (sampleOdeSolution,
+@johnhenry/math's proven subprocess-oracle pattern (packages/math/scripts/sympy_oracle.py),
+reapplied here against mallory's OWN wiring (sampleOdeSolution,
 Symbolic.integrateDefinite as GraphCanvas's area-under-curve cell calls it),
-not just mallory-math's bare primitives.
+not just @johnhenry/math's bare primitives.
 
 Protocol (batch -- SymPy import dominates startup): a JSON object
 {"jobs": [...]} on stdin, {"results": [...]} on stdout, one result per job.
-Each job carries mallory-math's Expr AST verbatim (the same plain JSON
+Each job carries @johnhenry/math's Expr AST verbatim (the same plain JSON
 discriminated union sympy_oracle.py consumes -- verified empirically to be
-byte-identical to what mallory-graph's own `Symbolic.parse` produces, since
-both import the same published mallory-math package).
+byte-identical to what mallory's own `Symbolic.parse` produces, since
+both import the same published @johnhenry/math package).
 
 Jobs:
   {"op": "ode_ivp", "expr": E, "x0": a, "y0": b, "eval_xs": [...]}
       dy/dx = E(x, y), y(x0) = y0, forward-only (every eval_x must be >= x0
-      -- mallory-graph's sampleOdeSolution also walks backward via a time-
+      -- mallory's sampleOdeSolution also walks backward via a time-
       reversal substitution, but that's the same RK4 code path mirrored, not
       independently worth re-deriving in the oracle).
   {"op": "integrate_definite", "expr": E, "variable": v, "lower": a, "upper": b}

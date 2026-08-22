@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { workspaceValueCellId } from "../lib/cell-ids.ts";
 import { getWorkspaceGraph, listWorkspaceVariables, type WorkspaceVariable } from "../lib/workspace-graph.ts";
 import { decodeWorkspaceState, encodeWorkspaceState, type WorkspaceState } from "../lib/workspace-state.ts";

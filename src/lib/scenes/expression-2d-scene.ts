@@ -1,6 +1,6 @@
 /**
  * Statically-importable ecmanim scene for the 2D expression video export
- * (`export-video.ts`) -- johnhenry/mallory-graph#210.
+ * (`export-video.ts`) -- johnhenry/mallory#210.
  *
  * ecmanim's `renderParallel` shards a scene's play()/wait() segments across
  * worker_threads: each worker independently `import()`s the scene by file
@@ -28,7 +28,7 @@
  * `params` alone.
  */
 import { Axes, alwaysRedraw, Flash, initMathTex, MathTex, rate_functions, Transform, ValueTracker } from "ecmanim/node";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { AXIS_COLOR, CURVE_COLOR, LABEL_COLOR, SQUARE_HALF_SPAN } from "../export-render.ts";
 import { preprocessImplicitMultiplication } from "../implicit-mult.ts";
 import { findRootCrossings, sampleExpr } from "../sample-function.ts";

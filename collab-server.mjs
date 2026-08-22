@@ -5,7 +5,7 @@
 // routing even begins, so it has to attach directly to the underlying
 // http.Server instance srvx's Server.node.server exposes.
 //
-// Deliberately a dumb relay, not `mallory-iteration`'s suggested
+// Deliberately a dumb relay, not `@johnhenry/iteration`'s suggested
 // `withWebSocket`/`AsyncChannel` transport: that abstraction is built for
 // backpressure-aware ASYNC ITERABLE processing pipelines, and this is a
 // simple bidirectional "receive one message, forward it to N peers"

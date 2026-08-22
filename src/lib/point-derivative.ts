@@ -1,4 +1,4 @@
-import { Symbolic, type Expr } from "mallory-math";
+import { Symbolic, type Expr } from "@johnhenry/math";
 
 /**
  * Exact numeric derivative f'(x0) of a single-variable expression at a

@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { useEffect, useState } from "react";
 import {
   checkDerivativeAnswer,
@@ -37,7 +37,7 @@ type LoadState = { status: "loading" } | { status: "error"; message: string } | 
  * Every practice mode this panel offers (issue #254's scoping pass): the
  * original antiderivative mode (a fixed 152-problem Rubi corpus), plus
  * three new randomly-generated modes chosen for reusing the most existing
- * mallory-math/matrix-ops infrastructure with the least new code --
+ * @johnhenry/math/matrix-ops infrastructure with the least new code --
  * `derivative` mirrors the antiderivative mode almost exactly (its inverse
  * operation), `equation` reuses `Symbolic.solve`/`verifySolution`
  * end-to-end, and `matrix-determinant` reuses `computeDeterminant` (the
@@ -93,7 +93,7 @@ function MatrixTable({ m }: { m: number[][] }) {
 
 /**
  * Integration practice workbook (issue #39's item 1): draws a random
- * problem from mallory-math's Rubi-derived corpus, checks a typed
+ * problem from @johnhenry/math's Rubi-derived corpus, checks a typed
  * antiderivative via `checkAnswer` (numeric derivative agreement, robust to
  * additive constants and to writing an equivalent-but-different form -- see
  * its own doc comment), and can reveal the corpus's own answer. Streaks are

@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import { sampleImplicitCurve, type ImplicitSegment } from "./sample-implicit.ts";
 import type { Domain } from "./sample-function.ts";

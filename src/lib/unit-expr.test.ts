@@ -73,7 +73,7 @@ test("malformed input throws rather than returning a nonsensical result", () => 
   assert.throws(() => evaluateUnitExpr("in km"));
 });
 
-// -- unit cancellation (mallory-graph#305 bug 1) ---------------------------
+// -- unit cancellation (mallory#305 bug 1) ---------------------------
 
 test("#305: 5 m/s * 3 s simplifies to 15 m, not 15 m/s*s (identical symbols cancel)", () => {
   const result = evaluateUnitExpr("5 m/s * 3 s");

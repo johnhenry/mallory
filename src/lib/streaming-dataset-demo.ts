@@ -5,8 +5,8 @@
  * ("rate-limited fetch of a public dataset"), which would add an external
  * network dependency this repo's other demo panels don't have.
  */
-import { Dataset } from "mallory-data";
-import { mapConcurrentAsync, teeAsync, windowedAsync } from "mallory-iteration";
+import { Dataset } from "@johnhenry/math-plus-data";
+import { mapConcurrentAsync, teeAsync, windowedAsync } from "@johnhenry/iteration";
 
 /**
  * Demo A: "watch epochs reshuffle". Runs a Dataset of `[0, size)` through
@@ -91,7 +91,7 @@ export interface ConcurrentOrderingResult {
  * runs up to `concurrency` invocations of a (simulated) async transform at
  * once; `durationsMs[i % durationsMs.length]` gives item `i` a variable
  * amount of simulated work so some finish faster than others. With
- * `ordered: true` (mallory-iteration's default) the output always comes back
+ * `ordered: true` (@johnhenry/iteration's default) the output always comes back
  * in input order -- a fast item still has to wait for every slower item
  * ahead of it. With `ordered: false` items are yielded in completion order,
  * so fast items can overtake slow ones that started earlier. Same
@@ -158,7 +158,7 @@ export function generateNoisySignal(n: number, seed: number, noiseAmplitude: num
 
 /**
  * Demo D: "sliding-window smoothing". Runs `values` through
- * `windowedAsync(values, windowSize)` -- mallory-iteration's overlapping
+ * `windowedAsync(values, windowSize)` -- @johnhenry/iteration's overlapping
  * fixed-size window over a stream -- and averages each window, producing a
  * moving average with `values.length - windowSize + 1` points. A bigger
  * `windowSize` averages over more neighbors, trading responsiveness for

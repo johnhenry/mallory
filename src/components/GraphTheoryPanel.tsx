@@ -1,7 +1,7 @@
 import { useServerFn } from "@tanstack/react-start";
-import type { Edge, Graph } from "mallory-math";
+import type { Edge, Graph } from "@johnhenry/math";
 import { useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsGraphTheory, TIME_CELL, type CellIdsGraphTheory } from "../lib/cell-ids.ts";
 import { appendEdgeLine, appendVertexLine, computeLayout, findVertexAt, nextVertexLabel } from "../lib/graph-editor.ts";
 import {
@@ -161,7 +161,7 @@ function useGraphTheoryGraph(cellId: string): CellGraph {
     // 2): derives an AlgorithmStep[] from the already-computed
     // algorithmResult, one animation frame per array entry -- no algorithm
     // is reimplemented here, see graph-algorithm-steps.ts's own doc
-    // comment for why each step order is authentic to what mallory-math
+    // comment for why each step order is authentic to what @johnhenry/math
     // itself returned.
     graph.define(ids.algorithmSteps, (): AlgorithmStep[] => {
       const parsed = graph.get<Result<Graph<string>>>(ids.graphResult);
@@ -486,7 +486,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   const analysis = useCell<Result<GraphAnalysis>>(graph, ids.analysis);
   // Coloring by strongly connected component (issue #297) only makes sense
   // in directed mode -- on an undirected graph, SCCs always coincide with
-  // connectedComponents (per mallory-math's own doc comment), so "SCC
+  // connectedComponents (per @johnhenry/math's own doc comment), so "SCC
   // color" there would just be a confusing synonym for "connected piece."
   const sccIndex = directed && analysis.ok ? sccIndexByVertex(analysis.value.stronglyConnectedComponents) : null;
   // Condensation view (issue #297 item 3): only meaningful with >1
@@ -500,7 +500,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
   // Frobenius normal form (issue #297 item 4). frobeniusNormalForm's own
   // convention is "0 = no edge" (any nonnegative matrix), but
   // toAdjacencyMatrix()'s is "Infinity = no edge, 0 reserved for the
-  // diagonal's own no-self-loop default" (mallory-math's shortest-path-
+  // diagonal's own no-self-loop default" (@johnhenry/math's shortest-path-
   // distance convention, a different one) -- remapped here rather than
   // changed at the source, since toAdjacencyMatrix's Infinity convention is
   // exactly right for the heatmap's own OTHER use (a real 0-weight edge
@@ -720,7 +720,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
           <TransportControls graph={graph} time={time} duration={duration} playing={playing} setPlaying={setPlaying} loop={loop} setLoop={setLoop} speed={speed} setSpeed={setSpeed} />
           {currentStep && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{currentStep.label}</p>}
           <VideoExportControls
-            filenameStem="mallory-graph-graph-theory"
+            filenameStem="mallory-graph-theory"
             start={(format, videoDuration) =>
               startGraphTheoryExportJobFn({
                 data: {

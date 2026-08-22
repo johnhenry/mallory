@@ -1,4 +1,4 @@
-import { GroupTheory, NumberTheory, Permutation } from "mallory-math";
+import { GroupTheory, NumberTheory, Permutation } from "@johnhenry/math";
 
 export type GroupKind = "cyclic" | "symmetric";
 

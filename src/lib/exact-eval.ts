@@ -1,4 +1,4 @@
-import { Rational, Symbolic } from "mallory-math";
+import { Rational, Symbolic } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 
 /**

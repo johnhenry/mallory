@@ -1,6 +1,6 @@
 /**
  * Server-only ecmanim video/GIF export for TilesPanel's primary Wang-tile
- * solve animation (johnhenry/mallory-graph#337). Mirrors
+ * solve animation (johnhenry/mallory#337). Mirrors
  * `export-ode-video.ts`'s shape exactly (fire-and-forget job, client polls
  * via `export-video.ts`'s shared `getExportVideoJob`).
  */

@@ -1,6 +1,6 @@
 /**
  * Server-only ecmanim video/GIF export for MlPlaygroundPanel's decision-
- * boundary training animation (johnhenry/mallory-graph#337). Mirrors
+ * boundary training animation (johnhenry/mallory#337). Mirrors
  * `export-ode-video.ts`'s single-scene shape exactly: a `startMlExportJob`
  * server fn forwards the raw request `data` through as the scene's
  * `params` (see `ml-scene.ts`'s `construct`), fire-and-forget, polled via

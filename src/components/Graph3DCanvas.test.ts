@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Mesh } from "mallory-math";
-import { CellGraph } from "../lib/cell-graph.ts";
+import type { Mesh } from "@johnhenry/math";
+import { CellGraph } from "@johnhenry/math";
 import { cellIds3D } from "../lib/cell-ids.ts";
 import { appendRow, removeRow } from "../lib/multi-panel-rows.ts";
 import { getCurrentGraph3DRows, getPrimaryRow3D, seedGraph3DRow, seedGraph3DRows } from "./Graph3DCanvas.tsx";

@@ -1,7 +1,7 @@
-import { Symbolic } from "mallory-math";
-import { rfft } from "mallory-fft";
-import { findPeaks, hannWindow, stft } from "mallory-signal";
-import { Tensor } from "mallory-tensor-core";
+import { Symbolic } from "@johnhenry/math";
+import { rfft } from "@johnhenry/math-plus-fft";
+import { findPeaks, hannWindow, stft } from "@johnhenry/math-plus-signal";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import { finiteRange, heatCellColor } from "./heatmap.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import { getThemeColors } from "./theme-colors.ts";
@@ -12,7 +12,7 @@ export interface Waveform {
   sampleRate: number;
 }
 
-/** Smallest power of two >= n (mallory-fft's `rfft` requires a power-of-two length; see its own error message). */
+/** Smallest power of two >= n (@johnhenry/math-plus-fft's `rfft` requires a power-of-two length; see its own error message). */
 function nextPowerOfTwo(n: number): number {
   let p = 1;
   while (p < n) p *= 2;
@@ -49,7 +49,7 @@ export interface AmplitudeSpectrum {
 }
 
 /**
- * One-sided amplitude spectrum of `waveform` via `mallory-fft`'s `rfft`.
+ * One-sided amplitude spectrum of `waveform` via `@johnhenry/math-plus-fft`'s `rfft`.
  * `rfft` returns the FULL (conjugate-symmetric) N-point spectrum, not the
  * compact N/2+1 form its name suggests -- confirmed directly against the
  * library before writing this, since a real signal's negative-frequency
@@ -82,14 +82,14 @@ export interface SpectrumPeak {
 export interface FindSpectrumPeaksOptions {
   /** Minimum peak amplitude. */
   minAmplitude?: number;
-  /** Minimum required spacing between peaks, in Hz (converted to a bin-count `distance` internally -- mallory-signal's own `findPeaks` works in sample/bin units, not Hz). */
+  /** Minimum required spacing between peaks, in Hz (converted to a bin-count `distance` internally -- @johnhenry/math-plus-signal's own `findPeaks` works in sample/bin units, not Hz). */
   minSpacingHz?: number;
   /** Minimum required topographic prominence, in the same amplitude units as `minAmplitude`. */
   minProminence?: number;
 }
 
 /**
- * Local-maxima peaks of a spectrum via `mallory-signal`'s `findPeaks`
+ * Local-maxima peaks of a spectrum via `@johnhenry/math-plus-signal`'s `findPeaks`
  * (issue #31's "findPeaks on the spectrum" extra) -- confirmed directly
  * against the real installed package before writing this: a signal with
  * two clear local maxima and one that's part of a flat plateau reports
@@ -133,7 +133,7 @@ export interface Spectrogram {
 }
 
 /**
- * A time-varying spectrum via `mallory-signal`'s windowed `stft`: `spec.shape`
+ * A time-varying spectrum via `@johnhenry/math-plus-signal`'s windowed `stft`: `spec.shape`
  * is `[numFrames, nperseg]` (confirmed directly, not assumed, against the
  * library) with `nperseg - noverlap` as the hop size between frame starts
  * (also confirmed: a 2048-sample signal at nperseg=64/noverlap=32 produces
@@ -152,8 +152,8 @@ export interface Spectrogram {
  * a different window in a future revision) -- confirmed to restore the
  * measured amplitude to ~1.0 for the same test tone.
  *
- * `nperseg` must be a power of two (mallory-signal's own `stft` requirement,
- * inherited from `mallory-fft`'s per-frame FFT).
+ * `nperseg` must be a power of two (@johnhenry/math-plus-signal's own `stft` requirement,
+ * inherited from `@johnhenry/math-plus-fft`'s per-frame FFT).
  */
 export function computeSpectrogram(waveform: Waveform, nperseg: number, noverlap: number): Spectrogram {
   if (nperseg <= 0 || (nperseg & (nperseg - 1)) !== 0) throw new Error(`nperseg must be a positive power of two -- got ${nperseg}.`);

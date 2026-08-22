@@ -1,6 +1,6 @@
-import { Symbolic, type DifferentiationStep, type Expr } from "mallory-math";
+import { Symbolic, type DifferentiationStep, type Expr } from "@johnhenry/math";
 import { useEffect, useRef, useState } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIdsMultiRow, notebookValueCellId, VIEWPORT_CELL } from "../lib/cell-ids.ts";
 import { findCurveExtrema } from "../lib/curve-extrema.ts";
 import { collectFreeVars, defaultSliderRange } from "../lib/free-vars.ts";

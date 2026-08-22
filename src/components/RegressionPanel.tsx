@@ -1,8 +1,8 @@
-import { GraphUtils, Numerical, Statistics, Symbolic, Vector, type Path2D } from "mallory-math";
+import { GraphUtils, Numerical, Statistics, Symbolic, Vector, type Path2D } from "@johnhenry/math";
 import { addLocalSave } from "../lib/local-saves.ts";
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsRegression, type CellIdsRegression } from "../lib/cell-ids.ts";
 import { collectFreeVars } from "../lib/free-vars.ts";
 import { preprocessImplicitMultiplication } from "../lib/implicit-mult.ts";

@@ -1,6 +1,6 @@
-import { Tensor } from "mallory-tensor-core";
-import { normalize, resize } from "mallory-image";
-import { ComplexTensor, fft2, fftshift, ifft2, ifftshift } from "mallory-fft";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
+import { normalize, resize } from "@johnhenry/math-plus-image";
+import { ComplexTensor, fft2, fftshift, ifft2, ifftshift } from "@johnhenry/math-plus-fft";
 
 export type PatternType = "checkerboard" | "stripes" | "circle" | "gradient" | "moire" | "upload" | "live-camera";
 
@@ -231,7 +231,7 @@ export interface FrequencyResult {
 
 /**
  * The full pipeline (issue #32, items 1-4): resize to `size x size` (a
- * power of two -- `fft2` requires it) via `mallory-image`'s `resize`,
+ * power of two -- `fft2` requires it) via `@johnhenry/math-plus-image`'s `resize`,
  * per-image z-score `normalize` (mean/std computed from the resized pixels
  * themselves, then passed to `normalize`'s `(x-mean)/std` -- there's no
  * "auto" mode, the caller always supplies mean/std), `fft2` + `fftshift` for

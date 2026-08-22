@@ -1,4 +1,4 @@
-import { Graph, type Edge } from "mallory-math";
+import { Graph, type Edge } from "@johnhenry/math";
 
 /**
  * Parses a graph from a text edge list: one edge per line, "from to
@@ -66,7 +66,7 @@ export interface GraphAnalysis {
    * Strongly connected components (issue #297, the matrix<->graph duality
    * feature): maximal vertex sets where every vertex can reach every other
    * via DIRECTED edges. On an undirected graph this is identical to
-   * `connectedComponents` (mallory-math's own `stronglyConnectedComponents`
+   * `connectedComponents` (@johnhenry/math's own `stronglyConnectedComponents`
    * doc comment: "On an undirected graph this always reduces to
    * connectedComponents") -- computed unconditionally here rather than
    * branching on `graph.directed`, since calling it costs nothing extra

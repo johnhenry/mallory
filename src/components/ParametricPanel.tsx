@@ -1,6 +1,6 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsParametric } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useNonPassiveWheel } from "../hooks/use-non-passive-wheel.ts";

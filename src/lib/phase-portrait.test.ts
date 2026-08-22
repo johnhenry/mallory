@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber } from "@johnhenry/math";
 import { classifyFixedPoint, classifyFromEigenvalues, findFixedPoints } from "./phase-portrait.ts";
 import type { OdeSystemSpec } from "./sample-ode.ts";
 

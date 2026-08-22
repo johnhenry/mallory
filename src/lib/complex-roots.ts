@@ -1,4 +1,4 @@
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber } from "@johnhenry/math";
 
 export interface ComplexDomain {
   reMin: number;
@@ -86,7 +86,7 @@ function newtonZero(g: (z: ComplexNumber) => ComplexNumber, gPrime: (z: ComplexN
  * That matters in practice, not just in theory: an earlier version of this
  * built `1/f` as a Symbolic `Expr` and differentiated *that*, but near an
  * actual pole `f'` blows up too (e.g. `d/dz(1/tan(z))` needs `1/cos(z)^2`
- * with `cos(z)` already near zero), and `mallory-math`'s `ComplexNumber.
+ * with `cos(z)` already near zero), and `@johnhenry/math`'s `ComplexNumber.
  * power()` rounds its result to 10 decimal places -- silently zeroing a
  * genuinely tiny-but-nonzero `cos(z)^2`, which then divides by zero into
  * `Infinity`/`NaN` and corrupts the whole iteration. Evaluating `f`/`f'`

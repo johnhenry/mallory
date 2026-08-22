@@ -1,5 +1,5 @@
-import { nn, optim, trainer } from "mallory-tensor-autograd";
-import { Tensor } from "mallory-tensor-core";
+import { nn, optim, trainer } from "@johnhenry/math-plus-tensor-autograd";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 
 export interface RegressionPoint {
   x: number;

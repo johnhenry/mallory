@@ -11,7 +11,7 @@ export interface CategoryTab {
 
 /**
  * A dependency-free tab switcher for grouping a few related, otherwise
- * unmodified panels under one URL (mallory-graph's SPA-shell pass) -- e.g.
+ * unmodified panels under one URL (mallory's SPA-shell pass) -- e.g.
  * Calculus's Single-ODE/ODE-System tabs. Mirrors GeometryPanel's own tool
  * selector idiom (a flat radio row driving a `useState`), the closest prior
  * art in this codebase; deliberately not a general ARIA-tablist component,
@@ -20,7 +20,7 @@ export interface CategoryTab {
  * `prefix` names a WebMCP tool (`${prefix}_switch_tab`) so an agent can move
  * between grouped tools too -- only the active tab's panel is mounted, so
  * only its own tools are registered at any moment; switching tabs is what
- * makes the next set appear (mallory-graph's WebMCP pass).
+ * makes the next set appear (mallory's WebMCP pass).
  *
  * `syncSearchParam` (e.g. `"tab"`) makes the active tab a URL search param
  * instead of purely local state -- needed because each tab's own panel

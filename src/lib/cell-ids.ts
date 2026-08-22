@@ -673,7 +673,7 @@ export function cellIdsGradientDescent(cellId: string) {
     stepSize: `gdStepSize:${cellId}`,
     gamma: `gdGamma:${cellId}`,
     // SGD momentum/Nesterov (issue #33's last remaining item, unblocked
-    // by johnhenry/mallory-plus#89) -- only shown/read when SGD is one of
+    // by johnhenry/math-plus#89) -- only shown/read when SGD is one of
     // the racing optimizers, applied uniformly to every SGD run.
     momentum: `gdMomentum:${cellId}`,
     nesterov: `gdNesterov:${cellId}`,
@@ -705,7 +705,7 @@ export function cellIdsMlPlayground(cellId: string) {
     stepSize: `mlStepSize:${cellId}`,
     gamma: `mlGamma:${cellId}`,
     isTraining: `mlIsTraining:${cellId}`,
-    /** Issue #34 item 2: one live-updated cell per mallory-telemetry metric name, written by the run's own setSink handler mid-training so an agent (or the panel itself) can observe an in-progress run reactively, not just the final result. */
+    /** Issue #34 item 2: one live-updated cell per @johnhenry/math-plus-telemetry metric name, written by the run's own setSink handler mid-training so an agent (or the panel itself) can observe an in-progress run reactively, not just the final result. */
     metric: (name: string) => `mlMetric:${name}:${cellId}`,
   };
 }

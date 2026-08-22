@@ -3,14 +3,14 @@
  * displayed and typed at the UI boundary -- Geometry's measured-angle
  * labels and rotate-tool input, Complex panel's arg() readout. Internal
  * computation stays radians everywhere (every Math.trig call and every
- * mallory-math evaluation is radians-native); this only affects the two
+ * @johnhenry/math evaluation is radians-native); this only affects the two
  * edges where a human reads or types a bare angle number, mirroring
  * theme-colors.ts's "convert only at the boundary" shape but for a
  * value, not a CSS color.
  *
  * Deliberately UI-only: user-typed trig expressions (`sin(45)`) are NOT
  * affected and remain radians, same as always -- trig evaluation is baked
- * into the external mallory-math package, not app code, so making typed
+ * into the external @johnhenry/math package, not app code, so making typed
  * expressions unit-aware would mean an app-side AST rewrite layer over
  * every evaluation call site (or patching that dependency) rather than a
  * boundary conversion. Out of scope here.
@@ -25,7 +25,7 @@
  */
 export type AngleUnit = "radians" | "degrees";
 
-const STORAGE_KEY = "mallory-graph:angle-unit";
+const STORAGE_KEY = "mallory:angle-unit";
 const listeners = new Set<(unit: AngleUnit) => void>();
 
 export function getAngleUnit(): AngleUnit {

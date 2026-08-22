@@ -1,8 +1,8 @@
-import { Distributions, Statistics, Vector } from "mallory-math";
+import { Distributions, Statistics, Vector } from "@johnhenry/math";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { useEffect, useRef, useState } from "react";
 import { cellIdsStatistics, type CellIdsStatistics } from "../lib/cell-ids.ts";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useUndoHistory } from "../hooks/use-undo-history.ts";
 import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";

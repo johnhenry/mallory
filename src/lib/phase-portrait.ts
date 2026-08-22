@@ -1,6 +1,6 @@
-import { ComplexNumber, Symbolic, SystemDidNotConvergeError, type Expr } from "mallory-math";
-import { linalg } from "mallory-adapter-math";
-import { Tensor } from "mallory-tensor-core";
+import { ComplexNumber, Symbolic, SystemDidNotConvergeError, type Expr } from "@johnhenry/math";
+import { linalg } from "@johnhenry/math-plus-adapter-math";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import type { Domain } from "./sample-function.ts";
 import type { OdeSystemSpec } from "./sample-ode.ts";
 
@@ -70,7 +70,7 @@ export function findFixedPoints(spec: OdeSystemSpec, xDomain: Domain, yDomain: D
  * computed exactly via symbolic partial differentiation
  * (`Symbolic.differentiate`) and evaluated at the point -- not a numeric
  * finite-difference approximation. The Jacobian is handed to
- * `mallory-adapter-math`'s `linalg.eigGeneral` (Hessenberg + shifted-QR),
+ * `@johnhenry/math-plus-adapter-math`'s `linalg.eigGeneral` (Hessenberg + shifted-QR),
  * which -- unlike a symmetric-only eigensolver -- correctly returns the
  * complex-conjugate pairs that make spirals/centers.
  *

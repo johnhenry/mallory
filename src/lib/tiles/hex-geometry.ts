@@ -1,10 +1,10 @@
 /**
  * Pixel geometry for rendering hex-tile-model.ts's axial-coordinate grid
- * on a canvas -- separate from the combinatorial model (mallory-math's own
+ * on a canvas -- separate from the combinatorial model (@johnhenry/math's own
  * "kept purely combinatorial... independent of any pixel geometry" framing
  * for Lattice.ts applies here too). Standard pointy-top hex-grid formulas
  * (Red Blob Games' well-known reference derivation), chosen because
- * mallory-math's own `HEX_AXIAL_DIRECTIONS` offsets are exactly the
+ * @johnhenry/math's own `HEX_AXIAL_DIRECTIONS` offsets are exactly the
  * pointy-top convention -- verified before writing this: direction 0 (E)
  * is pure +x, 3 (W) is pure -x, and 1/2/4/5 (NE/NW/SW/SE) each have both a
  * nonzero x and y component, with the correct sign for their compass name,

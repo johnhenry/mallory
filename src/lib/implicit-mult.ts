@@ -1,4 +1,4 @@
-import { FUNCTION_NAMES } from "mallory-math";
+import { FUNCTION_NAMES } from "@johnhenry/math";
 
 /**
  * Inserts explicit `*` at adjacency boundaries so expressions like `2x sin(x)`

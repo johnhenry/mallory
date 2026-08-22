@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsImplicit } from "../lib/cell-ids.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { drawAxes, drawImplicitBoxes, drawImplicitCurve, drawVectorField, hexToRgba, type Viewport } from "../lib/render-path.ts";

@@ -1,6 +1,6 @@
 /**
  * Server-only ecmanim video/GIF export for CellularAutomataPanel's 2D
- * life-like and 3D totalistic sub-modes (johnhenry/mallory-graph#337). Two
+ * life-like and 3D totalistic sub-modes (johnhenry/mallory#337). Two
  * independent job-starter server fns, one per sub-mode, since their param
  * shapes and target scene exports differ -- both otherwise mirror
  * `export-ode-video.ts`'s shape exactly (fire-and-forget job, client polls

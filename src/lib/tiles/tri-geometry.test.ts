@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { triOrientation } from "mallory-math";
+import { triOrientation } from "@johnhenry/math";
 import { triCenterX, triCorners, triEdgeSegment } from "./tri-geometry.ts";
 
 test("triCorners: an 'up' cell has its apex at top-center, base at the bottom corners", () => {
@@ -66,7 +66,7 @@ test("triEdgeSegment: an 'up' cell's 'top' edge (its base) coincides with its to
   assert.ok((eq(a1, b1) && eq(a2, b2)) || (eq(a1, b2) && eq(a2, b1)));
 });
 
-test("triCorners: an 'up' cell's top neighbor (x, y+1) -- always 'down' by parity -- shares its base as a REAL pixel edge (mallory-math's own triNeighbor: only 'up' cells have a 'top' direction, pointing to (x,y+1))", () => {
+test("triCorners: an 'up' cell's top neighbor (x, y+1) -- always 'down' by parity -- shares its base as a REAL pixel edge (@johnhenry/math's own triNeighbor: only 'up' cells have a 'top' direction, pointing to (x,y+1))", () => {
   for (const [x, y] of [
     [0, 0],
     [2, 0],

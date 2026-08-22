@@ -5,7 +5,7 @@
  * effect (cells -> state) and its render dispatch (cells -> draw), so the
  * two can never disagree about what a row means.
  */
-import type { CellGraph } from "./cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIdsOmnigraphRow } from "./cell-ids.ts";
 import type { AxisChoice } from "./sample-complex-graph.ts";
 import type { OmnigraphItem, OmnigraphItemType } from "./omnigraph-state.ts";

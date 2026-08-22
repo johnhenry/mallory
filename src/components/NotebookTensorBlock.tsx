@@ -1,6 +1,6 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { useMemo } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { notebookCurveCellId } from "../lib/cell-ids.ts";
 import { finiteRange, heatCellColor } from "../lib/heatmap.ts";
 import {

@@ -1,4 +1,4 @@
-import { correlate1D } from "mallory-signal";
+import { correlate1D } from "@johnhenry/math-plus-signal";
 import type { Waveform } from "./signal-waveform.ts";
 
 export interface CorrelationResult {
@@ -12,7 +12,7 @@ export interface CorrelationResult {
 
 /**
  * Cross-correlation lag-finder between two signals (issue #31's "extras"
- * item, wrapping `mallory-signal`'s `correlate1D`): full-mode correlation,
+ * item, wrapping `@johnhenry/math-plus-signal`'s `correlate1D`): full-mode correlation,
  * converted to a lag axis in seconds and the best-fit alignment lag
  * extracted as the correlation's maximum.
  *

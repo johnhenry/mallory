@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { UnsupportedExprError } from "mallory-adapter-math";
+import { UnsupportedExprError } from "@johnhenry/math-plus-adapter-math";
 import { runGradientDescent } from "./gradient-descent.ts";
 
 const BOWL = "(x-1)^2 + (y+2)^2"; // unique minimum at (1, -2), f=0
@@ -92,7 +92,7 @@ test("runGradientDescent: without a schedule, lr never changes -- every step use
   assert.deepEqual(withNoopSchedule.path, withoutSchedule.path);
 });
 
-// ---- SGD momentum (issue #33's last remaining item, mallory-plus#89) --------
+// ---- SGD momentum (issue #33's last remaining item, math-plus#89) --------
 
 test("runGradientDescent: SGD momentum matches hand-computed buf = momentum*buf + grad, param -= lr*buf (verified via a standalone node -e script)", () => {
   const result = runGradientDescent(BOWL, 4, 3, "sgd", 0.1, 2, undefined, { momentum: 0.9, nesterov: false });

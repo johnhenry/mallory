@@ -43,7 +43,7 @@ export interface NotebookGraphBlockStateV1 {
 
 /**
  * Numeric derivative/integral/difference of one or two named published
- * curves (issue #35 item 2), computed via `mallory-iteration`'s
+ * curves (issue #35 item 2), computed via `@johnhenry/iteration`'s
  * `pairwiseSync`/`transducers.accumulate`, or (for `"difference"`) plain
  * linear interpolation -- see `curve-transform.ts`. `curveName2` is only
  * meaningful for `op: "difference"`; optional (not a schema version bump)

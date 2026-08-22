@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { derivativeCurve, differenceCurve, integralCurve } from "./curve-transform.ts";
 
 /** A minimal fake Path2D -- only `commands` is read by curve-transform.ts, so `stroke` is a throwaway placeholder. */

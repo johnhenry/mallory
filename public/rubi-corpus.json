@@ -1,5 +1,5 @@
 {
- "attribution": "Derived from RuleBasedIntegration/MaximaSyntaxTestSuite (https://github.com/RuleBasedIntegration/MaximaSyntaxTestSuite), MIT License, Copyright (c) 2018 Rule-based Integration. Converted by scripts/rubi-convert.mjs (Maxima -> mallory-math Symbolic syntax).",
+ "attribution": "Derived from RuleBasedIntegration/MaximaSyntaxTestSuite (https://github.com/RuleBasedIntegration/MaximaSyntaxTestSuite), MIT License, Copyright (c) 2018 Rule-based Integration. Converted by scripts/rubi-convert.mjs (Maxima -> @johnhenry/math Symbolic syntax).",
  "problems": [
   {
    "source": "0 Independent test suites/Apostol Problems.mac",

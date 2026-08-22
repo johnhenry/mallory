@@ -1,4 +1,4 @@
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber } from "@johnhenry/math";
 
 /** The n-th roots of unity: `e^(2*pi*i*k/n)` for `k = 0..n-1`, via `ComplexNumber.fromPolar`. */
 export function nthRootsOfUnity(n: number): ComplexNumber[] {

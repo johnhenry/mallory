@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Path2D } from "mallory-math";
-import { CellGraph } from "../lib/cell-graph.ts";
+import type { Path2D } from "@johnhenry/math";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsMultiRow, cellIdsNotebookBlock } from "../lib/cell-ids.ts";
 import { visiblePaths } from "./NotebookGraphBlock.tsx";
 

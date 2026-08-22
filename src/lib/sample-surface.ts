@@ -1,4 +1,4 @@
-import { Graph3DUtils, Symbolic, Vector, type Mesh } from "mallory-math";
+import { Graph3DUtils, Symbolic, Vector, type Mesh } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 
 export interface SurfaceDomain {
@@ -7,7 +7,7 @@ export interface SurfaceDomain {
 }
 
 /**
- * Sample a two-variable expression z=f(x,y) over a grid into mallory-math
+ * Sample a two-variable expression z=f(x,y) over a grid into @johnhenry/math
  * Graph3DUtils Mesh data (two triangle sweeps, non-indexed). Mirrors
  * sample-function.ts's sampleExpr: Symbolic.compile is built once outside
  * the sampling loop rather than re-parsing per grid point.

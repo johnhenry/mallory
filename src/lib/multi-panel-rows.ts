@@ -1,4 +1,4 @@
-import type { CellGraph } from "./cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 
 /**
  * Shared color palette for per-row curve/surface/field coloring across

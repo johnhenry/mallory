@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { PARAMETRIC_PRESETS, sampleParametricSurface } from "./sample-parametric-surface.ts";
 
 test("PARAMETRIC_PRESETS: torus at (u,v)=(0,0) matches the closed-form outer-tube point (R+r, 0, 0) = (3,0,0)", () => {

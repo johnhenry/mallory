@@ -9,7 +9,7 @@ export const Route = createFileRoute("/parametric")({
 function ParametricPage() {
   return (
     <div>
-      <h1>mallory-graph — parametric &amp; polar curves</h1>
+      <h1>mallory — parametric &amp; polar curves</h1>
       <details>
         <summary>Plots (x(t), y(t)) directly, or r(θ) reinterpreted as a parametric curve.</summary>
         <p>

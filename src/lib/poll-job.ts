@@ -11,7 +11,7 @@
  *
  * Returns `null` if cancelled before the job ever settles. Deliberately not
  * generalized to GraphCanvas's own bespoke, differently-scoped poll loop
- * (mallory-graph#3's own "keeps its bespoke inline version" precedent) --
+ * (mallory#3's own "keeps its bespoke inline version" precedent) --
  * this is scoped to the one call site issue #237 named.
  */
 export async function pollUntilSettled<T extends { status: string }>(

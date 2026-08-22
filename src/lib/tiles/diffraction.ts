@@ -14,9 +14,9 @@
  * spectrum and the autocorrelation surface are two pictures of one
  * underlying measure.
  */
-import { ComplexTensor, fft2, fftshift } from "mallory-fft";
-import { correlate2D } from "mallory-signal";
-import { Tensor } from "mallory-tensor-core";
+import { ComplexTensor, fft2, fftshift } from "@johnhenry/math-plus-fft";
+import { correlate2D } from "@johnhenry/math-plus-signal";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import type { WangGrid } from "./tile-model.ts";
 
 /** `1` at every cell of `grid` whose tile id equals `tileId`, `0` elsewhere. */
@@ -44,13 +44,13 @@ function nextPow2(n: number): number {
  * indicator field, as a plain `number[][]` ready for a canvas heatmap. DC
  * sits at the array's center (that's what `fftshift` buys here).
  *
- * `fft2` requires a power-of-two length on BOTH axes (mallory-fft's own doc
+ * `fft2` requires a power-of-two length on BOTH axes (@johnhenry/math-plus-fft's own doc
  * comment: "no 2-D padded variant yet"), but a Wang tile grid's width/height
  * are arbitrary user-chosen values (this panel's own default is a
  * non-power-of-two 4x3) -- calling it on the raw indicator field throws a
  * `RangeError` for any non-power-of-two dimension, which crashed the panel
  * on first load. This zero-pads up to the next power of two per axis before
- * transforming, the same "pad before FFT" technique `mallory-signal`'s own
+ * transforming, the same "pad before FFT" technique `@johnhenry/math-plus-signal`'s own
  * `correlate2D` already relies on for the identical reason (see its source
  * comment). Unlike `correlate2D` -- which crops its real-space OUTPUT back
  * down to a meaningful shape after the inverse transform -- there's no
@@ -86,7 +86,7 @@ export function diffractionSpectrum(grid: WangGrid, tileId: string): number[][] 
 
 /**
  * The "full" 2-D autocorrelation of `tileId`'s indicator field with
- * itself, via `mallory-signal`'s `correlate2D` -- shape
+ * itself, via `@johnhenry/math-plus-signal`'s `correlate2D` -- shape
  * `[2*height-1, 2*width-1]`, zero-lag (the field matched against an
  * unshifted copy of itself) at the center. The primal counterpart to
  * {@link diffractionSpectrum} -- same underlying measure, real-space vs.

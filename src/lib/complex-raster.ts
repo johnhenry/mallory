@@ -1,4 +1,4 @@
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber } from "@johnhenry/math";
 import type { Viewport } from "./viewport.ts";
 
 export type ComplexFn = (z: ComplexNumber) => ComplexNumber;

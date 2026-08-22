@@ -1,4 +1,4 @@
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { useModelContextTool } from "./use-model-context-tool.ts";
 
 /**

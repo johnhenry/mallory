@@ -1,7 +1,7 @@
-import { NonLinearSystemError, Symbolic } from "mallory-math";
+import { NonLinearSystemError, Symbolic } from "@johnhenry/math";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsSystem, type CellIdsSystem } from "../lib/cell-ids.ts";
 import { equationToImplicitZero } from "../lib/equation-to-zero.ts";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";

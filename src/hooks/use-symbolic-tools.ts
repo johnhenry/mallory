@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { useModelContextTool } from "./use-model-context-tool.ts";
 
 /**
@@ -7,15 +7,15 @@ import { useModelContextTool } from "./use-model-context-tool.ts";
  * `*_set_cell`-style tools (via `useCellGraphTools`), no general
  * `symbolic_*` tools, so an agent saw a different toolbox depending on
  * whether it arrived via the browser (WebMCP) or a hypothetical future
- * HTTP endpoint (`mallory-mcp`). Registered once at the app-shell level
+ * HTTP endpoint (`@johnhenry/math-plus-mcp`). Registered once at the app-shell level
  * (like `app_navigate`), not per-panel -- these operate on plain
  * expression strings, independent of any panel's own CellGraph state.
  *
- * Tool names and shapes mirror `mallory-mcp@0.0.2`'s server-side
+ * Tool names and shapes mirror `@johnhenry/math-plus-mcp@0.0.2`'s server-side
  * `symbolic_parse/simplify/differentiate/integrate/solve/evaluate` set
  * (per the issue's own naming), built directly against `Symbolic`'s real
  * API already used throughout this codebase (see nl-query.ts for the same
- * method calls). Server-side `mallory-mcp` hosting itself (issue #40's item
+ * method calls). Server-side `@johnhenry/math-plus-mcp` hosting itself (issue #40's item
  * 1) is a separate, larger piece needing its own auth/security-gating
  * design -- not part of this hook.
  */
@@ -76,7 +76,7 @@ export function useSymbolicTools(): void {
   useModelContextTool({
     name: "symbolic_solve",
     description:
-      "Solve expr=0 for a variable (default \"x\"), returning every real root mallory-math can find (up to degree 6 polynomials; complex roots are not returned).",
+      "Solve expr=0 for a variable (default \"x\"), returning every real root @johnhenry/math can find (up to degree 6 polynomials; complex roots are not returned).",
     inputSchema: {
       type: "object",
       properties: {

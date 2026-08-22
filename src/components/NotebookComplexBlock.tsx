@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIdsComplex } from "../lib/cell-ids.ts";
 import type { ComplexState } from "../lib/complex-state.ts";
 import { ComplexPanel, seedComplexState } from "./ComplexPanel.tsx";

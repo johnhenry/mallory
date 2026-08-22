@@ -67,7 +67,7 @@ export interface SignalStateV2 {
   /**
    * Filter design (issue #31's remaining pipeline stages 4-5) -- optional
    * for the same reason as every other field above. `filterType` is
-   * `mallory-signal`'s own `FilterType`, kept as a plain `string` here
+   * `@johnhenry/math-plus-signal`'s own `FilterType`, kept as a plain `string` here
    * (not re-imported) to keep this module dependency-free of the panel's
    * own math-library imports, matching this file's existing convention.
    */
@@ -75,7 +75,7 @@ export interface SignalStateV2 {
   filterType?: string;
   filterOrder?: string;
   filterCutoffHz?: string;
-  /** Only read/shown for bandpass/bandstop (mallory-plus#90's unblock) -- `filterCutoffHz` doubles as the LOW cutoff for those two types. Optional for the same reason as every other field above: an old encoded URL from before bandpass/bandstop existed still decodes. */
+  /** Only read/shown for bandpass/bandstop (math-plus#90's unblock) -- `filterCutoffHz` doubles as the LOW cutoff for those two types. Optional for the same reason as every other field above: an old encoded URL from before bandpass/bandstop existed still decodes. */
   filterCutoffHzHigh?: string;
 }
 

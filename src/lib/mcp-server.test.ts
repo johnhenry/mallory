@@ -49,7 +49,7 @@ async function listTools(): Promise<string[]> {
   }
 }
 
-test("buildGraphSessionServer: tools/list includes all 9 mallory-mcp tools plus the 2 graph-session tools", () => {
+test("buildGraphSessionServer: tools/list includes all 9 @johnhenry/math-plus-mcp tools plus the 2 graph-session tools", () => {
   return listTools().then((names) => {
     for (const expected of [
       "symbolic_parse",

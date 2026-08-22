@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { applyTensorOp, curveToTensorGrid, parseSplitSections, parseTensorGrid, splitTensorGrid, summarizeTensor } from "./tensor-block.ts";
 
 /** A minimal fake Path2D -- only `commands` is read by curveToTensorGrid, so `stroke` is a throwaway placeholder (mirrors curve-transform.test.ts's own fakePath). */
@@ -74,7 +74,7 @@ test('applyTensorOp: "none" round-trips the grid unchanged', () => {
   assert.deepEqual(applyTensorOp(grid, "none"), grid);
 });
 
-test("applyTensorOp: pad borders a 2x3 grid with `arg` zeros on all four sides, matching mallory-tensor-core's own pad() directly", () => {
+test("applyTensorOp: pad borders a 2x3 grid with `arg` zeros on all four sides, matching @johnhenry/math-plus-tensor-core's own pad() directly", () => {
   const grid = [
     [1, 2, 3],
     [4, 5, 6],

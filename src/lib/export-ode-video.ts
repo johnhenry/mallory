@@ -1,6 +1,6 @@
 /**
  * Server-only ecmanim video/GIF export for a first-order ODE
- * (johnhenry/mallory-graph#3, pass 2) -- the /ode page previously had no
+ * (johnhenry/mallory#3, pass 2) -- the /ode page previously had no
  * export path. The scene shows the slope field as an ArrowVectorField and
  * the RK4 solution progressively traced from the initial condition: a
  * TracedPath trails a moving dot per direction (one growing forward from
@@ -22,7 +22,7 @@
  * panel plots with, RK4 in both directions with non-finite cutoffs) and
  * splits its x-ascending point list at the initial condition's seam.
  *
- * johnhenry/mallory-graph#210: the scene script used to be built here as an
+ * johnhenry/mallory#210: the scene script used to be built here as an
  * in-request closure (`buildOdeConstruct`). It now lives at
  * `./scenes/ode-scene.ts` as a top-level exported `construct(scene, params)`
  * -- required so `renderExportToBuffer`'s `renderParallel` call can shard
@@ -83,7 +83,7 @@ export const renderOdePreviewFrame = createServerFn({ method: "POST" })
     const { promises: fs } = await import("node:fs");
     const os = await import("node:os");
     const path = await import("node:path");
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-graph-ode-preview-"));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-ode-preview-"));
     const outPath = path.join(dir, "preview.png");
     try {
       await renderStill(construct, {

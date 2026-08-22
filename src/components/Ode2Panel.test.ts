@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsOde2 } from "../lib/cell-ids.ts";
 import { appendRow, removeRow } from "../lib/multi-panel-rows.ts";
 import { decodeOde2State, encodeOde2State } from "../lib/ode2-state.ts";

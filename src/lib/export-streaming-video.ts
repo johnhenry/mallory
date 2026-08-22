@@ -1,6 +1,6 @@
 /**
  * Server-only ecmanim video/GIF export for StreamingDatasetPanel's Demo A
- * ("watch epochs reshuffle") -- johnhenry/mallory-graph#337. Mirrors
+ * ("watch epochs reshuffle") -- johnhenry/mallory#337. Mirrors
  * `export-ode-video.ts`'s shape exactly: a single job-starter server fn
  * (only one scene target here, unlike `export-ca-video.ts`'s 2D/3D pair)
  * that fires a background job and lets the client poll it via

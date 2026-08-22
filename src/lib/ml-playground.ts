@@ -1,6 +1,6 @@
-import { nn, optim, trainer, variable } from "mallory-tensor-autograd";
-import { Rng, Tensor } from "mallory-tensor-core";
-import { setSink, type TrainingEvent } from "mallory-telemetry";
+import { nn, optim, trainer, variable } from "@johnhenry/math-plus-tensor-autograd";
+import { Rng, Tensor } from "@johnhenry/math-plus-tensor-core";
+import { setSink, type TrainingEvent } from "@johnhenry/math-plus-telemetry";
 
 export type DatasetType = "xor" | "moons" | "rings" | "drawn" | "csv";
 
@@ -214,7 +214,7 @@ export interface TrainResult {
 }
 
 /**
- * Issue #34 item 2's "novel part": installs a `mallory-telemetry` sink
+ * Issue #34 item 2's "novel part": installs a `@johnhenry/math-plus-telemetry` sink
  * scoped to `runId`, forwarding every `"metric"` event whose `runId`
  * matches to `onMetric(name, value)` -- `setSink` is global/single-
  * installed (not per-call), so a `runId` filter is what keeps one
@@ -279,7 +279,7 @@ export interface EpochEvent {
  * `requestAnimationFrame`-style yield turns each epoch into a real
  * mid-training checkpoint an agent or the UI can read a live cell during --
  * see MlPlaygroundPanel.tsx's `onEpoch`, which does exactly that via
- * `mallory-telemetry`'s `metric()`/`setSink` handshake, issue #34's own
+ * `@johnhenry/math-plus-telemetry`'s `metric()`/`setSink` handshake, issue #34's own
  * "novel part").
  */
 export async function trainModel(

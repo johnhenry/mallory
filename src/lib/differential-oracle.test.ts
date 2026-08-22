@@ -1,7 +1,7 @@
 /**
- * SciPy/SymPy verification oracle for mallory-graph's own numeric samplers
+ * SciPy/SymPy verification oracle for mallory's own numeric samplers
  * (issue #41's remaining "differential oracles for the samplers" item) --
- * mallory-ts's proven subprocess-oracle pattern applied to mallory-graph's
+ * @johnhenry/math's proven subprocess-oracle pattern applied to mallory's
  * OWN wiring: `sampleOdeSolution` (the ODE panel's RK4 trajectory) against
  * scipy.integrate.solve_ivp, and `Symbolic.integrateDefinite` exactly as
  * GraphCanvas's area-under-curve cell calls it (see GraphCanvas.tsx's
@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { test } from "node:test";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { sampleOdeSolution } from "./sample-ode.ts";
 
 const HERE = new URL(".", import.meta.url).pathname;

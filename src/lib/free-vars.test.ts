@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { collectFreeVars, defaultSliderRange } from "./free-vars.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 

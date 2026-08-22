@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import type { AnswerCheckResult, Difficulty } from "./integration-practice.ts";
 
@@ -36,11 +36,11 @@ function randomInt(min: number, max: number): number {
 /**
  * Distinct nonzero integer roots. Nonzero is deliberate, not cosmetic: a
  * generated cubic with 0 as one of its three roots (a zero constant term)
- * reliably trips a real bug in mallory-math's degree-≥3 rational-root
+ * reliably trips a real bug in @johnhenry/math's degree-≥3 rational-root
  * search (`Symbolic.solve` throws "no closed-form root found" even though
  * a rational root plainly exists -- confirmed via a 1000-instance stress
  * test, isolated to exactly the zero-constant-term case). Filed upstream as
- * johnhenry/mallory#52; this generator sidesteps it rather than depending
+ * johnhenry/math#52; this generator sidesteps it rather than depending
  * on a fix landing before this panel can ship.
  */
 function distinctRoots(count: number, range: number): number[] {

@@ -6,7 +6,7 @@
  * everything else dies or stays dead. Standard notation from the
  * LifeWiki's own "List of Life-like cellular automata rules".
  */
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import { decodeCustomGrid } from "./custom-grid.ts";
 
 export type Cell = 0 | 1;

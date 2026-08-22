@@ -1,7 +1,7 @@
 /**
  * Shared in-memory job store for every video-export path (2D expression,
  * 3D surface, ODE) -- extracted from export-video.ts when the 3D/ODE export
- * paths were added (johnhenry/mallory-graph#3, pass 2) so each path doesn't
+ * paths were added (johnhenry/mallory#3, pass 2) so each path doesn't
  * grow its own Map/sweep/poll plumbing. One store, one poll endpoint
  * (export-video.ts's getExportVideoJob) serves them all: job ids are UUIDs,
  * so there's no collision risk across paths.

@@ -1,6 +1,6 @@
 /**
  * Statically-importable ecmanim scenes for CellularAutomataPanel's video
- * export (`export-ca-video.ts`) -- johnhenry/mallory-graph#337. Two exports,
+ * export (`export-ca-video.ts`) -- johnhenry/mallory#337. Two exports,
  * one per animated sub-mode (the 1D mode has no `TransportControls` at all
  * -- see the panel's own doc comment -- so it has nothing to export):
  *
@@ -31,7 +31,7 @@
  * always shows every generation regardless of the chosen duration.
  */
 import { Box, Square, ThreeDCamera, ThreeDScene, VGroup } from "ecmanim/node";
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import { SQUARE_HALF_SPAN } from "../export-render.ts";
 import { initialGrid, parseBSRule, spacetimeLifeLike, type Boundary as Boundary2D, type InitialCondition as InitialCondition2D } from "../ca/life-like.ts";
 import { parseTotalisticRule3D, randomGrid3D, spacetimeTotalistic3D, type Boundary as Boundary3D } from "../ca/totalistic-3d.ts";

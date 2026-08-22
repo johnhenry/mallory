@@ -1,4 +1,4 @@
-import { GraphUtils, Symbolic, Vector, type Expr, type Path2D } from "mallory-math";
+import { GraphUtils, Symbolic, Vector, type Expr, type Path2D } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import { memoizeLru } from "./memoize-lru.ts";
 
@@ -8,7 +8,7 @@ export interface Domain {
 }
 
 /**
- * Sample a single-variable expression over a domain into a mallory-math
+ * Sample a single-variable expression over a domain into a @johnhenry/math
  * Path2D. Uses Symbolic.compile (a closure tree built once) rather than
  * evaluate (which re-parses/re-walks the AST per call) since this runs
  * `resolution` times per render. String input is run through the

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 
 /**
  * Subscribes to every cell in `graph` (`subscribeAll`) but only invokes

@@ -25,7 +25,7 @@ const noCacheOnUnhashedStatic = async (req, next) => {
 // (dist/client/ort/*.wasm, ~26MB) went out as text/plain -- which makes the
 // browser REFUSE WebAssembly.instantiateStreaming (it requires
 // application/wasm) and fall back to buffering the whole file before
-// compiling. That's mallory-graph#312's "Loading model... for 35+ seconds":
+// compiling. That's mallory#312's "Loading model... for 35+ seconds":
 // no streaming compilation, on the app's largest asset. Verified live
 // before this fix: `curl -sI .../ort/ort-wasm-simd-threaded.jsep.wasm` ->
 // `content-type: text/plain; charset=UTF-8`.

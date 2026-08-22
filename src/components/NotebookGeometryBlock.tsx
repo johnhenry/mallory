@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIdsGeometry } from "../lib/cell-ids.ts";
 import type { GeometryOp } from "../lib/geometry-state.ts";
 import { GeometryPanel, replayGeometryOps } from "./GeometryPanel.tsx";

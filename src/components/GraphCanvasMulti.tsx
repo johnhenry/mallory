@@ -1,7 +1,7 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsMultiRow, EXPRESSION_LIST_CELL, VIEWPORT_CELL } from "../lib/cell-ids.ts";
 import { parseDesmosExpressionList, type DesmosImportRow } from "../lib/desmos-import.ts";
 import { evaluateExactAt } from "../lib/exact-eval.ts";

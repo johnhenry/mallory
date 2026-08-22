@@ -13,14 +13,14 @@
  *
  * The transition relation is typically sparse (most column pairs conflict
  * somewhere), so this never materializes a dense transition matrix -- it
- * builds a column adjacency LIST once, then hands mallory-adapter-math's
+ * builds a column adjacency LIST once, then hands @johnhenry/math-plus-adapter-math's
  * matrix-free `linalg.powerIteration` a `matvec` closure over that list,
  * per the issue's own "small: eigGeneral; large: matrix-free power
  * iteration" split (this always takes the matrix-free path, since it's
  * strictly more general and the adjacency-list matvec costs no more than
  * a dense one would at the small-tile-set scale this lab targets).
  */
-import { linalg } from "mallory-adapter-math";
+import { linalg } from "@johnhenry/math-plus-adapter-math";
 import { tilesCompatible, type Tile, type TileSet } from "./tile-model.ts";
 
 export interface StripEntropyResult {

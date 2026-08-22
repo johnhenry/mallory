@@ -1,6 +1,6 @@
 /**
  * Server-only ecmanim video/GIF export for GradientDescentPanel's 3D loss
- * surface + racing optimizer paths (johnhenry/mallory-graph#337). Mirrors
+ * surface + racing optimizer paths (johnhenry/mallory#337). Mirrors
  * `export-surface-video.ts`'s shape exactly (fire-and-forget job, client
  * polls via `export-video.ts`'s shared `getExportVideoJob`).
  */

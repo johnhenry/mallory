@@ -1,4 +1,4 @@
-import { HypothesisTests, type TestResult } from "mallory-math";
+import { HypothesisTests, type TestResult } from "@johnhenry/math";
 
 export type HypothesisTestType = "oneSampleT" | "twoSampleT" | "chiSquareGoF" | "confidenceInterval";
 
@@ -37,7 +37,7 @@ function verdictFor(pValue: number, alpha: number): string {
  * Runs one of the four inference procedures `HypothesisTests`/`Distributions`
  * expose, uniformly validated and packaged for the Statistics panel's
  * "Inference" section. Each branch is pure input validation plus a single
- * call into mallory-math -- no new statistical logic is implemented here.
+ * call into @johnhenry/math -- no new statistical logic is implemented here.
  */
 export function runHypothesisTest(
   testType: HypothesisTestType,

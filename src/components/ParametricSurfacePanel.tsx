@@ -1,8 +1,8 @@
-import type { Mesh } from "mallory-math";
+import type { Mesh } from "@johnhenry/math";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsParametricSurface, type CellIdsParametricSurface } from "../lib/cell-ids.ts";
 import { meshToGeometry, meshToMaterial } from "../lib/mesh-to-geometry.ts";
 import { PARAMETRIC_PRESETS, sampleParametricSurface } from "../lib/sample-parametric-surface.ts";

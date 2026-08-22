@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type HexDirection, hexNeighbor } from "mallory-math";
+import { type HexDirection, hexNeighbor } from "@johnhenry/math";
 import { buildHexCompatibilityDigraph, hexTilesCompatible, solveHex, type HexGrid, type HexTile } from "./hex-tile-model.ts";
 
 async function drain<T, R>(gen: AsyncGenerator<T, R>): Promise<{ steps: T[]; result: R }> {

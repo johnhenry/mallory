@@ -1,6 +1,6 @@
 /**
  * Server-only ecmanim video/GIF export for a z = f(x, y) surface
- * (johnhenry/mallory-graph#3, pass 2) -- the 3D page previously had no
+ * (johnhenry/mallory#3, pass 2) -- the 3D page previously had no
  * export path at all. The scene is a ThreeDAxes + a function-based Surface
  * (cleaner than importing the client's Three.js mesh data: ecmanim's
  * Surface takes the same (u, v) -> point closure the client's sampler is
@@ -22,7 +22,7 @@
  * makeScene instantiates a plain 2D Scene for bare functions; only a
  * ThreeDScene drives depth sorting and ambient camera rotation.
  *
- * 3D timeline parity (johnhenry/mallory-graph#3, pass 3): when any free
+ * 3D timeline parity (johnhenry/mallory#3, pass 3): when any free
  * variable has a keyframe track, the surface is no longer static -- it's
  * re-tessellated every frame via `Surface.setFunc` from a `surface.addUpdater`
  * callback, composing for free with the existing camera-orbit
@@ -32,7 +32,7 @@
  * plain orbit-only (no animated params) path is unchanged: `setFunc` is
  * never called, so there's zero added per-frame cost for the common case.
  *
- * johnhenry/mallory-graph#210: the scene class used to be built here per-job
+ * johnhenry/mallory#210: the scene class used to be built here per-job
  * (`buildSurfaceScene(data)`, an anonymous `class ... extends ThreeDScene`
  * closing over the live request's `data`). It now lives at
  * `./scenes/surface-scene.ts` as a single top-level exported
@@ -43,7 +43,7 @@
  * worker the way a stable module export can). See that file's own doc
  * comment for the constructor/`this.fps` detail this refactor also fixed.
  *
- * Scrub-preview (mallory-graph#9): the full render (`runSurfaceExportJob`)
+ * Scrub-preview (mallory#9): the full render (`runSurfaceExportJob`)
  * and the single-frame preview (`renderSurfacePreviewFrame`) both drive the
  * exact same `SurfaceExportScene` class -- one scene so the preview can
  * never drift from what the real export produces. `renderStill`'s own doc
@@ -75,7 +75,7 @@ async function runSurfaceExportJob(jobId: string, data: SurfaceExportInput) {
 /**
  * One PNG frame of the surface export at `time` seconds, for a scrub
  * preview -- mirrors export-video.ts's `renderExportPreviewFrame`
- * (mallory-graph#9). Rendered at half the export's resolution (320x320 vs
+ * (mallory#9). Rendered at half the export's resolution (320x320 vs
  * 640x640) since it's a transient UI aid, not the deliverable.
  */
 export const renderSurfacePreviewFrame = createServerFn({ method: "POST" })
@@ -86,7 +86,7 @@ export const renderSurfacePreviewFrame = createServerFn({ method: "POST" })
     const { promises: fs } = await import("node:fs");
     const os = await import("node:os");
     const path = await import("node:path");
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-graph-surface-preview-"));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-surface-preview-"));
     const outPath = path.join(dir, "preview.png");
     try {
       // A single frame is fast enough as a plain in-process call -- no need

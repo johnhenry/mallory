@@ -4,7 +4,7 @@
  * DISTINCT patchHeight x patchWidth patches actually occur in a solved
  * grid, as a function of patch size -- the subshift's own finite-size
  * "language," the data entropy (entropy.ts) is itself derived from as a
- * growth-rate limit. Built on `Tensor.unfold` (mallory-tensor-core), whose
+ * growth-rate limit. Built on `Tensor.unfold` (@johnhenry/math-plus-tensor-core), whose
  * own doc comment names this exact use case ("issue #84, upstream for the
  * generalized Wang tile laboratory's patch census / subshift-language
  * machinery").
@@ -12,7 +12,7 @@
  * Square lattice only, matching every other analysis feature (entropy,
  * diffraction) in this lab.
  */
-import { Tensor } from "mallory-tensor-core";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import type { WangGrid } from "./tile-model.ts";
 
 export interface PatchCensusResult {

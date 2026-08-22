@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { setupTestDom } from "../lib/test-dom.ts";
 
 const { createElement, mount } = await setupTestDom();

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsVectorField3D } from "../lib/cell-ids.ts";
 import { sampleVectorField3D, type VectorField3DPoint } from "../lib/sample-vector-field-3d.ts";
 import { DEFAULT_VECTOR_FIELD_3D_STATE, decodeVectorField3DState, encodeVectorField3DState, type VectorField3DRowState } from "../lib/vector-field-3d-state.ts";

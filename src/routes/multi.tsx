@@ -34,7 +34,7 @@ function MultiPage() {
 
   return (
     <div>
-      <h1>mallory-graph — multiple expressions, one graph</h1>
+      <h1>mallory — multiple expressions, one graph</h1>
       <details>
         <summary>Several curves sharing one coordinate system and one canvas, with color, annotations, and sharing.</summary>
         <p>
@@ -56,7 +56,7 @@ function MultiPage() {
           viewport on it (drag the canvas to pan, scroll to zoom, at any time) — an Open-MCT-inspired point
           annotation with cross-pane-style navigation, here within one shared view. Append <code>?embed=1</code> to this URL (or use it directly as
           an <code>&lt;iframe&gt;</code> <code>src</code>) for a chrome-free embeddable view. Each row's "strict"
-          toggle uses <code>mallory-math</code>'s <code>Symbolic.assertVariables</code>: once on, anything besides{" "}
+          toggle uses <code>@johnhenry/math</code>'s <code>Symbolic.assertVariables</code>: once on, anything besides{" "}
           <code>x</code> is a hard error instead of silently becoming a new slider — useful for catching a typo
           before it turns into a spurious parameter.
         </p>

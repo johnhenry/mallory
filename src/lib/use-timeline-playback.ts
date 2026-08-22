@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { CellGraph } from "./cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { TIME_CELL } from "./cell-ids.ts";
 
 /**

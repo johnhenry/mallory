@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 
 /**
  * Desmos paste-import (issue #54, deliberately scoped down to "import

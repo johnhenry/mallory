@@ -9,7 +9,7 @@
  * manipulation can never diverge -- there's no separate "chat state," only
  * the one reactive graph both channels read and write.
  */
-import type { CellGraph } from "./cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { TIME_CELL, type CellIds } from "./cell-ids.ts";
 import { defaultSliderRange } from "./free-vars.ts";
 import { interpolateKeyframes, type Keyframe } from "./timeline.ts";

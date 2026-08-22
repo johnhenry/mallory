@@ -120,7 +120,7 @@ export function disposeGroup(group: THREE.Group): void {
 
 /**
  * THE axis-convention adapter (Omnigraph's top correctness risk, handled
- * in exactly one place): maps a mallory-convention point -- x/y the plane,
+ * in exactly one place): maps a math-library-convention point -- x/y the plane,
  * z the height -- to Three.js's y-up world as (x, z, y).
  *
  * Why this exists: the codebase has TWO conventions today.

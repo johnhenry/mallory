@@ -1,4 +1,4 @@
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { TIME_CELL } from "../lib/cell-ids.ts";
 import { defaultSliderRange } from "../lib/free-vars.ts";
 import { interpolateKeyframes, type Keyframe } from "../lib/timeline.ts";

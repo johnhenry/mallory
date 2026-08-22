@@ -2,8 +2,8 @@
  * Issue #49's preprocessing/postprocessing halves -- pure and testable,
  * unlike the actual ONNX inference (browser-only, onnxruntime-web).
  */
-import { Tensor } from "mallory-tensor-core";
-import { resize } from "mallory-image";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
+import { resize } from "@johnhenry/math-plus-image";
 import { rgbaToGrayscaleGrid } from "./image-frequency.ts";
 
 /**

@@ -5,18 +5,18 @@
  * `welch` (before/after power spectral density comparison).
  *
  * `btype` is `"lowpass" | "highpass" | "bandpass" | "bandstop"` (the
- * `"band"` types shipped in johnhenry/mallory-plus#90, previously
+ * `"band"` types shipped in johnhenry/math-plus#90, previously
  * blocked -- see this module's git history for the disclosed-gap era).
  * `designFilter`'s own `cutoffHz` overloads mirror `butter`'s: a single
  * Hz number for lowpass/highpass, a `[low, high]` Hz pair for the band
  * types, both converted to `butter`'s normalized `wn` convention (1 = the
  * Nyquist frequency) via the same `hz / nyquist` division either way.
  */
-import { butter, freqz, sosFilter, welch, type FilterType, type Sos } from "mallory-signal";
-import { Tensor } from "mallory-tensor-core";
+import { butter, freqz, sosFilter, welch, type FilterType, type Sos } from "@johnhenry/math-plus-signal";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import type { Waveform } from "./signal-waveform.ts";
 
-export type { FilterType, Sos } from "mallory-signal";
+export type { FilterType, Sos } from "@johnhenry/math-plus-signal";
 
 function toWn(cutoffHz: number, nyquist: number): number {
   const wn = cutoffHz / nyquist;
@@ -88,7 +88,7 @@ export interface PsdPoint {
 
 /**
  * One-sided view of `welch`'s two-sided, non-doubled PSD (see that
- * function's own doc comment -- `mallory-signal` deliberately returns the
+ * function's own doc comment -- `@johnhenry/math-plus-signal` deliberately returns the
  * raw two-sided form, unlike SciPy's one-sided-with-doubling default):
  * negative-frequency bins are dropped and the rest scaled from
  * cycles/sample to Hz via `waveform.sampleRate`, WITHOUT doubling, so the

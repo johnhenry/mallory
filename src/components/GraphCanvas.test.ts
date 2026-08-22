@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { drawGraphCanvas } from "./GraphCanvas.tsx";
 
 /** Same fake-canvas pattern as render-path.test.ts/cayley-table-render.test.ts: record calls instead of rendering, since Node's test runner has no real Canvas2D. */

@@ -1,4 +1,4 @@
-import type { Mesh } from "mallory-math";
+import type { Mesh } from "@johnhenry/math";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { meshToGeometry, meshToMaterial } from "./mesh-to-geometry.ts";
@@ -14,7 +14,7 @@ const SAMPLE_MESH: Mesh = {
   ],
 };
 
-test("meshToGeometry emits one non-indexed position per face vertex, mapping mallory-math z to Three's y-axis", () => {
+test("meshToGeometry emits one non-indexed position per face vertex, mapping @johnhenry/math z to Three's y-axis", () => {
   const geometry = meshToGeometry(SAMPLE_MESH);
   const position = geometry.getAttribute("position");
   assert.equal(position.count, 3);
@@ -24,7 +24,7 @@ test("meshToGeometry emits one non-indexed position per face vertex, mapping mal
   assert.deepEqual([...position.array.slice(6, 9)], [0, 3, 1]);
 });
 
-test("meshToMaterial carries color/alpha/sidedness through from the mallory-math Material", () => {
+test("meshToMaterial carries color/alpha/sidedness through from the @johnhenry/math Material", () => {
   const material = meshToMaterial(SAMPLE_MESH) as import("three").MeshStandardMaterial;
   assert.equal(material.color.getHex(), 0x2563eb);
   assert.equal(material.opacity, 1);

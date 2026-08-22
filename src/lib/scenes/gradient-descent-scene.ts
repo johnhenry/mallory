@@ -1,6 +1,6 @@
 /**
  * Statically-importable ecmanim scene for GradientDescentPanel's video
- * export (`export-gradient-descent-video.ts`) -- johnhenry/mallory-graph#337.
+ * export (`export-gradient-descent-video.ts`) -- johnhenry/mallory#337.
  * Exports the 3D view (loss surface + racing optimizer paths) -- the
  * panel's 2D contour canvas and 3D surface share a single `TransportControls`
  * clock, so only one export button/scene is needed, and the 3D view is
@@ -29,7 +29,7 @@
  * length, exactly like `visiblePathIndex`'s own clamp.
  */
 import { Dot, rate_functions, Surface, ThreeDAxes, ThreeDCamera, ThreeDScene, TracedPath, Transform, ValueTracker } from "ecmanim/node";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "../implicit-mult.ts";
 import { runGradientDescent, type OptimizerType } from "../gradient-descent.ts";
 

@@ -1,5 +1,5 @@
 /**
- * Pure evaluation logic for CalculatorPanel.tsx (mallory-graph's SPA-shell
+ * Pure evaluation logic for CalculatorPanel.tsx (mallory's SPA-shell
  * pass): a REPL-style "just an answer" tool with no plot/viewport, so unlike
  * every other panel here it has no CellGraph cells to derive -- this module
  * is the whole of its business logic, kept separate from the component so it
@@ -10,7 +10,7 @@
  * numbers, else Z/nZ via `integersModuloStructure`) are the same two knobs
  * GraphCanvas exposes, just without a curve attached to them.
  */
-import { ComplexNumber, Interval, Rational, Symbolic } from "mallory-math";
+import { ComplexNumber, Interval, Rational, Symbolic } from "@johnhenry/math";
 import { evaluateComplex } from "./complex-eval.ts";
 import { integersModuloStructure } from "./finite-structure.ts";
 import { evaluateInterval } from "./interval-eval.ts";

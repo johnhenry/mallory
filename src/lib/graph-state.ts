@@ -1,6 +1,6 @@
 import { decodeStateFragment, encodeStateFragment } from "./url-fragment.ts";
 /**
- * URL-state schema for mallory-graph — the graph's source of truth,
+ * URL-state schema for mallory — the graph's source of truth,
  * serialized into a compact base64url fragment (Desmos-style: no server
  * round-trip). Designed now, in Phase 1, even though full support (sliders,
  * multi-cell graphs, style) lands in later phases and round-trip UI wiring

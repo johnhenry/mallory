@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { addLocalSave } from "../lib/local-saves.ts";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIds, cellIds3D } from "../lib/cell-ids.ts";
 import { Graph3DCanvas, getCurrentGraph3DRows, seedGraph3DRows } from "./Graph3DCanvas.tsx";
 import { GraphCanvas } from "./GraphCanvas.tsx";
@@ -39,7 +39,7 @@ function getCurrentLinked3DState(graph: CellGraph, crossSectionY: number): Linke
 // `Math.max(0, undefined)` would momentarily be `NaN` until the 3D pane
 // mounts and the corrected `0` propagates through. That transient NaN-then-0
 // flip is exactly what tripped React's "getServerSnapshot should be cached"
-// hydration warning (mallory-graph#10) -- `Number.isFinite` below guards
+// hydration warning (mallory#10) -- `Number.isFinite` below guards
 // against it so the very first read already settles on the value the later,
 // fully-mounted recompute would produce.
 const COMBINED_DURATION_CELL = "combined3DDuration";

@@ -1,4 +1,4 @@
-import { Symbolic, type Expr } from "mallory-math";
+import { Symbolic, type Expr } from "@johnhenry/math";
 import type { FiniteStructure } from "./finite-structure.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 

@@ -1,11 +1,11 @@
-import type { BinaryFuncName, CmpOp, Expr, FuncName } from "mallory-math";
+import type { BinaryFuncName, CmpOp, Expr, FuncName } from "@johnhenry/math";
 
 const PREC: Record<string, number> = { add: 1, sub: 1, mul: 2, div: 2, neg: 3, pow: 4, cmp: 0 };
 
 const CMP_LATEX: Record<CmpOp, string> = { lt: "<", le: "\\leq", gt: ">", ge: "\\geq", eq: "=", ne: "\\neq" };
 
 // Functions with a standard bare LaTeX command, wrapped in plain parens
-// (matching this file's existing convention, not mallory-math's own \left\right style).
+// (matching this file's existing convention, not @johnhenry/math's own \left\right style).
 const FUNC_LATEX: Partial<Record<FuncName, (arg: string) => string>> = {
   sin: (a) => `\\sin(${a})`,
   cos: (a) => `\\cos(${a})`,
@@ -32,7 +32,7 @@ const FUNC_LATEX: Partial<Record<FuncName, (arg: string) => string>> = {
 };
 
 // Everything else has no standard bare LaTeX command — \operatorname, matching
-// the convention KaTeX/MathJax and mallory-math's own toLatex use for them.
+// the convention KaTeX/MathJax and @johnhenry/math's own toLatex use for them.
 const OPERATORNAME_LATEX: Partial<Record<FuncName, string>> = {
   sech: "sech",
   csch: "csch",
@@ -73,7 +73,7 @@ const BINARY_FUNC_LATEX: Record<BinaryFuncName, string> = {
   lcm: "\\operatorname{lcm}",
 };
 
-/** Renders a Symbolic Expr as LaTeX, mirroring mallory-math's own plain-infix `Symbolic.toString` renderer but targeting math markup (KaTeX) instead of a bare string. */
+/** Renders a Symbolic Expr as LaTeX, mirroring @johnhenry/math's own plain-infix `Symbolic.toString` renderer but targeting math markup (KaTeX) instead of a bare string. */
 export function exprToLatex(expr: Expr, parentPrec = 0): string {
   switch (expr.type) {
     case "const":

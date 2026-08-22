@@ -1,4 +1,4 @@
-import type { Path2D as MalloryPath } from "mallory-math";
+import type { Path2D as MalloryPath } from "@johnhenry/math";
 import { computeNiceTicks } from "./render-path.ts";
 import { getThemeColors } from "./theme-colors.ts";
 import { toScreenX, toScreenY, type Viewport } from "./viewport.ts";
@@ -22,11 +22,11 @@ export function svgExportFilename(label: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `mallory-graph-${slug || "export"}.svg`;
+  return `mallory-${slug || "export"}.svg`;
 }
 
 /**
- * Converts a mallory-math `Path2D`'s `moveTo`/`lineTo` commands (data space)
+ * Converts a @johnhenry/math `Path2D`'s `moveTo`/`lineTo` commands (data space)
  * into an SVG `<path>` `d` attribute, applying the same viewport->screen
  * transform `render-path.ts`'s `drawPath` uses for Canvas2D -- so the SVG
  * output matches the on-screen curve exactly, not just approximately.
@@ -101,7 +101,7 @@ export function pathsToSvgDocument(paths: ReadonlyArray<MalloryPath>, viewport: 
  * Converts a plain `{x,y}[]` array (data space) into an SVG `<path>` `d`
  * attribute -- the polyline counterpart to `pathToSvgD`, for callers (a
  * sampled waveform or FFT spectrum) that already have flat point arrays
- * and have no mallory-math `Path2D`, matching `render-path.ts`'s own
+ * and have no @johnhenry/math `Path2D`, matching `render-path.ts`'s own
  * `drawPolyline`/`drawPath` split.
  */
 export function polylinePointsToSvgD(points: ReadonlyArray<{ x: number; y: number }>, viewport: Viewport, width: number, height: number): string {
@@ -120,7 +120,7 @@ export function polylinePointsToSvgD(points: ReadonlyArray<{ x: number; y: numbe
  * only (a `drawPolyline` caller only ever draws a single line per call,
  * unlike `drawPath`'s multi-`Path2D` case). `color`/`strokeWidth` mirror
  * `drawPolyline`'s own CSS-color-string + fixed-1.5px-width convention
- * (a plain CSS color, not mallory-math's `Path2D.stroke`'s packed hex
+ * (a plain CSS color, not @johnhenry/math's `Path2D.stroke`'s packed hex
  * number + separate alpha).
  */
 export function polylineToSvgDocument(
@@ -188,7 +188,7 @@ export function scatterPointsToSvgDocument(
 /**
  * One drawn layer for `layersToSvgDocument` -- a `drawPolyline`-style
  * connected line, a `drawScatter`-style set of markers, a `drawPath`-style
- * mallory-math `Path2D` (its own stroke color/alpha/thickness, same as
+ * @johnhenry/math `Path2D` (its own stroke color/alpha/thickness, same as
  * `pathsToSvgDocument`, rather than the `color`/`strokeWidth` overrides the
  * plain-point-array kinds take), a `drawHistogram`-style set of bin bars,
  * a `drawSlopeField`-style grid of undirected tangent-line segments, a

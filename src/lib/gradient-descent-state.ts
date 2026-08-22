@@ -27,7 +27,7 @@ export interface GradientDescentStateV1 {
   gamma?: string;
   /**
    * SGD momentum/Nesterov (issue #33's last remaining item, unblocked by
-   * johnhenry/mallory-plus#89) -- optional for the same reason as
+   * johnhenry/math-plus#89) -- optional for the same reason as
    * `useSchedule`/`stepSize`/`gamma` above: an old encoded URL hash from
    * before this field existed still decodes. `momentum` defaults to "0"
    * (off, byte-identical to plain SGD); `nesterov` requires a nonzero

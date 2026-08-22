@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIds } from "../lib/cell-ids.ts";
 import { DEFAULT_GRAPH_STATE, decodeGraphState, encodeGraphState, type GraphState } from "../lib/graph-state.ts";
 import { useDebouncedSubscribeAll } from "../hooks/use-debounced-subscribe-all.ts";
@@ -11,7 +11,7 @@ const PANE_DEFAULT_SOURCE: Record<(typeof PANE_IDS)[number], string> = {
   "pane-b": "cos(x)",
 };
 
-// mallory-graph#305 bug 2: the global default viewport
+// mallory#305 bug 2: the global default viewport
 // (DEFAULT_GRAPH_STATE.viewport, y in -10..100) fits the main tab's
 // default x^2, but squashes this tab's amplitude-1 sin/cos into a flat
 // line at the bottom of the pane. Both panes get a viewport matched to
@@ -48,7 +48,7 @@ const COMBINED_DURATION_CELL = "combinedDuration";
  * at this point in pane-a's own render) -- `Math.max(0, undefined)` is
  * `NaN`, a real (if momentary) wrong value, not just a cosmetic quirk: it's
  * exactly what trips React's "getServerSnapshot should be cached" hydration
- * warning once the corrected `0` lands a moment later (mallory-graph#10).
+ * warning once the corrected `0` lands a moment later (mallory#10).
  * `Number.isFinite` guards each side so the first read already settles on
  * the same `0` the later, fully-mounted recompute would produce.
  */

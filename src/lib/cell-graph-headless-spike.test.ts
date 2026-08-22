@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "./cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { analyzeGraph, parseEdgeListText, runBfs } from "./graph-ops.ts";
 
 /**

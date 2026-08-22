@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
-import { Tensor } from "mallory-tensor-core";
-import { onnx, type OnnxModel } from "mallory-adapter-onnx";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
+import { onnx, type OnnxModel } from "@johnhenry/math-plus-adapter-onnx";
 import { canvasToMnistInput, rankDigitPredictions } from "./mnist-preprocess.ts";
 
 const WIDTH = 280;

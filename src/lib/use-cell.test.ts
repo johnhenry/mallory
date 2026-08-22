@@ -27,7 +27,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Window } from "happy-dom";
-import { CellGraph } from "./cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { useCell } from "./use-cell.ts";
 
 const domWindow = new Window();

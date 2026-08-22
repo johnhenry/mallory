@@ -1,5 +1,5 @@
-import type { Path2D } from "mallory-math";
-import { Tensor } from "mallory-tensor-core";
+import type { Path2D } from "@johnhenry/math";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 
 export type TensorOpType = "none" | "abs" | "neg" | "exp" | "sqrt" | "clip01" | "transpose" | "fliplr" | "flipud" | "roll" | "pad" | "repeat";
 

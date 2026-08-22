@@ -1,13 +1,13 @@
-import { Unit } from "mallory-unit";
+import { Unit } from "@johnhenry/math-plus-unit";
 
 /**
- * A minimal whitespace-tokenized arithmetic grammar over `mallory-unit`'s
+ * A minimal whitespace-tokenized arithmetic grammar over `@johnhenry/math-plus-unit`'s
  * `Unit` type: `<number> [<unit-symbol>]` operands combined with `+ - * /`
  * (standard precedence, left-associative, no parentheses -- matching
  * `Unit.pow`'s own "no parens in unit symbols" simplification stance), plus
  * a lowest-precedence `<expr> in <unit-symbol>` conversion suffix.
  *
- * `mallory-unit` itself only parses a UNIT STRING ("m/s^2") into a `Unit` --
+ * `@johnhenry/math-plus-unit` itself only parses a UNIT STRING ("m/s^2") into a `Unit` --
  * it has no expression grammar of its own for combining numbers/units/
  * operators into one line, which is what the calculator's "units" mode
  * needs. This is that small grammar, written by hand rather than routed
@@ -45,7 +45,7 @@ export function evaluateUnitExpr(source: string, variables: Record<string, numbe
 
 /**
  * Cancels textually-identical unit factors in a combined symbol
- * (mallory-graph#305 bug 1): `Unit.mul`/`Unit.div` track the DIMENSION
+ * (mallory#305 bug 1): `Unit.mul`/`Unit.div` track the DIMENSION
  * correctly but only concatenate symbols, so `5 m/s * 3 s` came back as
  * `15 m/s*s` -- dimensionally plain length, displayed as if it weren't.
  *
@@ -75,7 +75,7 @@ export function simplifyUnit(unit: Unit): Unit {
   }
   const numerator = survivors.filter(([, exp]) => exp > 0);
   const denominator = survivors.filter(([, exp]) => exp < 0);
-  // This grammar (like mallory-unit's own) has no way to spell a
+  // This grammar (like @johnhenry/math-plus-unit's own) has no way to spell a
   // denominator-only symbol ("s^-1") -- fall back rather than guess.
   if (numerator.length === 0) return unit;
   const rebuilt =
@@ -89,9 +89,9 @@ export function simplifyUnit(unit: Unit): Unit {
 }
 
 /**
- * Factors a mallory-unit combined symbol ("m/s*s", "m/s^2") into
+ * Factors a @johnhenry/math-plus-unit combined symbol ("m/s*s", "m/s^2") into
  * symbol -> net exponent, reading it with the same left-associative
- * no-parentheses grammar mallory-unit itself documents: each `/` negates
+ * no-parentheses grammar @johnhenry/math-plus-unit itself documents: each `/` negates
  * only the single factor that follows it (`a/b*c` is `(a/b)*c`). Returns
  * `null` for anything unexpected (empty symbol, malformed exponent) so the
  * caller can fall back to no simplification.

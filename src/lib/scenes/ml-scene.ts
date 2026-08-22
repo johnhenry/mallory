@@ -1,6 +1,6 @@
 /**
  * Statically-importable ecmanim scene for MlPlaygroundPanel's decision-
- * boundary video export (`export-ml-video.ts`) -- johnhenry/mallory-graph#337.
+ * boundary video export (`export-ml-video.ts`) -- johnhenry/mallory#337.
  * A bare top-level `construct(scene, params)` function, matching
  * `ode-scene.ts`'s/`ca-scene.ts`'s `construct2d`'s shape (flat 2D, no
  * camera/depth-sorting machinery needed).

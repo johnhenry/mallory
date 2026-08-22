@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { UndoHistory } from "../lib/undo-history.ts";
 
 export interface UndoControls {

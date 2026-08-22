@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { constant, nn, optim, variable } from "mallory-tensor-autograd";
-import { Tensor } from "mallory-tensor-core";
-import { hasSink, metric } from "mallory-telemetry";
+import { constant, nn, optim, variable } from "@johnhenry/math-plus-tensor-autograd";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
+import { hasSink, metric } from "@johnhenry/math-plus-telemetry";
 import {
   MAX_CLASSES,
   TinyMlp,
@@ -243,7 +243,7 @@ test("installMetricSink: the returned uninstall function removes the sink -- has
 });
 
 test("predictProbabilityGrid: values are sigmoid(logit), hand-computed against known weights (not raw logits)", async () => {
-  const { Tensor } = await import("mallory-tensor-core");
+  const { Tensor } = await import("@johnhenry/math-plus-tensor-core");
   // hidden=1, weights hand-set so logit(x, y) = relu(x): l1 = identity on x,
   // l2 = identity. At grid corner x=2 the logit is 2, so the value MUST be
   // sigmoid(2) ~= 0.8808 -- a raw logit of 2 fails this (caught a real
@@ -282,7 +282,7 @@ test("TinyMlp: rejects an out-of-[0,1) dropout rate", () => {
 });
 
 test("TinyMlp: defaults to training mode; dropout rate 0 (the default) never touches the forward pass regardless of mode", async () => {
-  const { Tensor } = await import("mallory-tensor-core");
+  const { Tensor } = await import("@johnhenry/math-plus-tensor-core");
   const model = new TinyMlp(4, 1);
   assert.equal(model.training, true);
   const input = variable(Tensor.from([1, -1], { dtype: "f64" }).reshape([1, 2]));
@@ -294,7 +294,7 @@ test("TinyMlp: defaults to training mode; dropout rate 0 (the default) never tou
 });
 
 test("TinyMlp.forward: eval mode always matches the plain (dropout-free) computation; training mode with a large dropout rate almost never does", async () => {
-  const { Tensor } = await import("mallory-tensor-core");
+  const { Tensor } = await import("@johnhenry/math-plus-tensor-core");
   // hidden=20 so a stochastic dropout mask coincidentally reproducing the
   // all-kept mask (the only way training-mode output could equal eval-mode
   // output) has probability 0.5^20 ~= 1e-6 -- negligible flake risk.
@@ -326,10 +326,10 @@ test("predictProbabilityGrid: switches the model to eval mode for inference and 
   assert.equal(model.training, true, "predictProbabilityGrid must restore the model's training flag, not leave it in eval mode");
 });
 
-test("nn.binaryCrossEntropy stays finite (~0) for saturated correct logits (regression: this used to NaN, see mallory-plus#85)", () => {
-  // mallory-tensor-autograd's own binaryCrossEntropy used to NaN here --
+test("nn.binaryCrossEntropy stays finite (~0) for saturated correct logits (regression: this used to NaN, see math-plus#85)", () => {
+  // @johnhenry/math-plus-tensor-autograd's own binaryCrossEntropy used to NaN here --
   // this repo carried a local stableBinaryCrossEntropy workaround until the
-  // fix landed upstream (mallory-plus#85, pulled in via mallory-tensor-
+  // fix landed upstream (math-plus#85, pulled in via @johnhenry/math-plus-tensor-
   // autograd 0.2.2). Kept as a regression guard on the published fix.
   const z = variable(Tensor.from([50, -50], { dtype: "f64" }).reshape([2, 1]));
   const y = variable(Tensor.from([1, 0], { dtype: "f64" }).reshape([2, 1]));

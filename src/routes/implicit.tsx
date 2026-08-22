@@ -9,7 +9,7 @@ export const Route = createFileRoute("/implicit")({
 function ImplicitPage() {
   return (
     <div>
-      <h1>mallory-graph — implicit relations</h1>
+      <h1>mallory — implicit relations</h1>
       <details>
         <summary>Traces a two-variable relation like x^2+y^2=4 via marching squares.</summary>
         <p>

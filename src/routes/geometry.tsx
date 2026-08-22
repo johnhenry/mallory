@@ -9,7 +9,7 @@ export const Route = createFileRoute("/geometry")({
 function GeometryPage() {
   return (
     <div>
-      <h1>mallory-graph — geometry construction</h1>
+      <h1>mallory — geometry construction</h1>
       <details>
         <summary>Compass-and-straightedge construction tools, built on CellGraph's free/dependent object model.</summary>
         <p>

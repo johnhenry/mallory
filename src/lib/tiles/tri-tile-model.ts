@@ -5,14 +5,14 @@
  *
  * A `TriTile` always defines all 4 possible edges (`left`/`right`/`top`/
  * `bottom`), even though any single placement only uses 3 of them: which
- * 3 depends on the CELL's orientation (mallory-math's `triOrientation`),
+ * 3 depends on the CELL's orientation (@johnhenry/math's `triOrientation`),
  * not the tile -- an "up" cell (left/right/top) and a "down" cell
  * (left/right/bottom) are different physical shapes at different lattice
  * positions, and the same tile design can appear in either. Defining all
  * 4 up front lets one `TriTile` be placed at any position without a
  * separate up-specific/down-specific tile type.
  */
-import { type TriDirection, type TriOrientation, triNeighbor, triOrientation } from "mallory-math";
+import { type TriDirection, type TriOrientation, triNeighbor, triOrientation } from "@johnhenry/math";
 
 export interface TriTile {
   id: string;
@@ -25,7 +25,7 @@ export interface TriTileSet {
 
 /**
  * `left`<->`right` and `top`<->`bottom` are the universal opposite pairs
- * -- verified against mallory-math's own `triNeighbor` doc comment: "an
+ * -- verified against @johnhenry/math's own `triNeighbor` doc comment: "an
  * 'up' cell's 'right' neighbor's 'left' is itself" and "an 'up' cell's
  * 'top' neighbor's 'bottom' is itself" (and symmetrically for the down
  * cell on the other side of each edge). Unlike the hex/square opposite

@@ -1,5 +1,5 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsSeries } from "../lib/cell-ids.ts";
 import { analyzeSeries, computeSeriesViewport, type SeriesResult } from "../lib/series-analysis.ts";
 import { DEFAULT_SERIES_STATE, decodeSeriesState, encodeSeriesState, type SeriesRowState } from "../lib/series-state.ts";

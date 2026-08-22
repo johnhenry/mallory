@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MatrixMath } from "mallory-math";
+import { MatrixMath } from "@johnhenry/math";
 import {
   computeDecompositions,
   computeDeterminant,

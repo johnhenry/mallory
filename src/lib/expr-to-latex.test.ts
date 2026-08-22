@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { exprToLatex } from "./expr-to-latex.ts";
 
 const latex = (source: string) => exprToLatex(Symbolic.parse(source));

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "./cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIds, TIME_CELL } from "./cell-ids.ts";
 import { resolveChatCommand, type ChatCommandContext } from "./chat-commands.ts";
 import { interpolateKeyframes, type Keyframe } from "./timeline.ts";

@@ -1,4 +1,4 @@
-import { SeriesDivergesError, Symbolic } from "mallory-math";
+import { SeriesDivergesError, Symbolic } from "@johnhenry/math";
 import type { Viewport } from "./render-path.ts";
 
 export interface SeriesPartialSum {

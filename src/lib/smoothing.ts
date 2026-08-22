@@ -1,4 +1,4 @@
-import { convolve1D } from "mallory-signal";
+import { convolve1D } from "@johnhenry/math-plus-signal";
 
 export type KernelType = "moving-average" | "gaussian";
 
@@ -45,7 +45,7 @@ export interface SmoothedSeries {
 }
 
 /**
- * Smooths `data` via `mallory-signal`'s `convolve1D` in "same" mode, then
+ * Smooths `data` via `@johnhenry/math-plus-signal`'s `convolve1D` in "same" mode, then
  * TRIMS the boundary region "same" mode pads against zero (the first/last
  * `floor(kernel.length/2)` points) rather than showing it -- a same-mode
  * boundary sample there is a genuine average against zero-padding, not

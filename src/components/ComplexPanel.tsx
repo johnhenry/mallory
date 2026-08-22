@@ -1,8 +1,8 @@
-import { ComplexNumber, Symbolic, type Expr } from "mallory-math";
+import { ComplexNumber, Symbolic, type Expr } from "@johnhenry/math";
 import { type AngleUnit, formatAngle, getAngleUnit, setAngleUnit, subscribeToAngleUnit } from "../lib/angle-unit.ts";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsComplex, type CellIdsComplex } from "../lib/cell-ids.ts";
 import { appendRow, paletteColor, removeRow } from "../lib/multi-panel-rows.ts";
 import {

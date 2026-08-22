@@ -1,5 +1,5 @@
 /**
- * Server-side MCP endpoint (issue #40 item 1): mounts mallory-mcp's
+ * Server-side MCP endpoint (issue #40 item 1): mounts @johnhenry/math-plus-mcp's
  * `buildServer()` (9 stateless math tools -- symbolic_parse/simplify/
  * differentiate/integrate/solve/evaluate, linalg_solve, tensor_pipeline,
  * stats_summary) plus two read-only "graph-session" tools on top
@@ -47,7 +47,7 @@
  * calls" for its own tools, so per-request server construction costs
  * nothing extra to keep consistent.
  */
-import { buildServer } from "mallory-mcp";
+import { buildServer } from "@johnhenry/math-plus-mcp";
 import { z } from "zod";
 import { GALLERY_SEEDS } from "./gallery-seeds.ts";
 import {

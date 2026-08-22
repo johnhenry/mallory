@@ -4,7 +4,7 @@ import { addLocalSave } from "../lib/local-saves.ts";
 import { AlgebraView } from "./AlgebraView.tsx";
 import { PngExportButton } from "./PngExportButton.tsx";
 import { SvgExportButton } from "./SvgExportButton.tsx";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import {
   angleSweepRadians,
   interiorAngleRadians,
@@ -1224,7 +1224,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   // One WebMCP tool per construction, each a thin wrapper over the function
   // above -- these already take data coordinates/point ids directly (not
   // pixel positions or pointer events), so there's no new logic here, just
-  // registration (mallory-graph's WebMCP pass). Every add* function returns
+  // registration (mallory's WebMCP pass). Every add* function returns
   // (or, for the void ones, is immediately followed by reading) the new
   // object's id, so an agent can chain calls: add two points, then a line
   // between the returned ids.
@@ -1515,7 +1515,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   }
 
   // A press only becomes a DRAG after the pointer travels this far in
-  // screen pixels (mallory-graph#305 bug 3): real mice jitter a pixel or
+  // screen pixels (mallory#305 bug 3): real mice jitter a pixel or
   // two between press and release, and without a threshold every click on
   // a point counted as a "drag" -- so handlePointerUp's !moved check never
   // fired, tool selections (line/circle/reflect/...) never registered, and

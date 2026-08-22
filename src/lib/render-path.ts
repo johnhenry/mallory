@@ -1,4 +1,4 @@
-import type { Path2D as MalloryPath } from "mallory-math";
+import type { Path2D as MalloryPath } from "@johnhenry/math";
 import type { ImplicitBox } from "./interval-implicit.ts";
 import type { ImplicitSegment } from "./sample-implicit.ts";
 import { getThemeColors } from "./theme-colors.ts";
@@ -171,7 +171,7 @@ export function drawImplicitBoxes(
 }
 
 /**
- * Draw a mallory-math Path2D (moveTo/lineTo commands in data space) onto a
+ * Draw a @johnhenry/math Path2D (moveTo/lineTo commands in data space) onto a
  * real Canvas2D context. `dashed` (e.g. for a derivative overlay sharing
  * its parent curve's color) is the one thing not already carried by the
  * Path2D's own `stroke` style, since that comes from upstream
@@ -455,7 +455,7 @@ export function drawOpenCircles(
 /**
  * Draw a simple connect-the-dots line through an ordered array of
  * data-space points -- the plain-array counterpart to `drawPath`'s
- * mallory-math `Path2D` commands, for callers (e.g. a sampled waveform or
+ * @johnhenry/math `Path2D` commands, for callers (e.g. a sampled waveform or
  * FFT spectrum) that already have flat `{x,y}` arrays and have no need for
  * `Path2D`'s discontinuity-aware `moveTo` segments.
  */

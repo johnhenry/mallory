@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import { binValues, estimateDartPi, estimateMonteCarloIntegral, sampleDistributionHistogram } from "./monte-carlo.ts";
 
 test("binValues: hand-computed placement for [0..9] into 5 bins of width 1.8", () => {

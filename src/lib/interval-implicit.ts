@@ -1,4 +1,4 @@
-import { Interval, Symbolic } from "mallory-math";
+import { Interval, Symbolic } from "@johnhenry/math";
 import { equationToImplicitZero } from "./equation-to-zero.ts";
 import { evaluateInterval } from "./interval-eval.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
