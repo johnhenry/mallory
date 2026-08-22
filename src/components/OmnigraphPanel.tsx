@@ -19,14 +19,14 @@
  * pan/zoom precedent) with GraphCanvasMulti's URL-sync/hash-hydration
  * shape layered on.
  */
-import type { Mesh, Path2D } from "mallory-math";
-import { ComplexNumber, Symbolic } from "mallory-math";
+import type { Mesh, Path2D } from "@johnhenry/math";
+import { ComplexNumber, Symbolic } from "@johnhenry/math";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { useCellGraphTools } from "../hooks/use-cell-graph-tools.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 import { useNonPassiveWheel } from "../hooks/use-non-passive-wheel.ts";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsOmnigraph, cellIdsOmnigraphRow, type CellIdsOmnigraph } from "../lib/cell-ids.ts";
 import { evaluateComplex, type ComplexEnv } from "../lib/complex-eval.ts";
 import { renderDomainColoring } from "../lib/complex-raster.ts";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsVectorField3D } from "../lib/cell-ids.ts";
 import { appendRow, removeRow } from "../lib/multi-panel-rows.ts";
 import { decodeVectorField3DState, encodeVectorField3DState } from "../lib/vector-field-3d-state.ts";

@@ -1,7 +1,7 @@
 /**
  * Statically-importable ecmanim scene for GraphTheoryPanel's algorithm-step
  * animation video export (`export-graph-theory-video.ts`) --
- * johnhenry/mallory-graph#337. Only the main graph canvas's step-by-step
+ * johnhenry/mallory#337. Only the main graph canvas's step-by-step
  * BFS/DFS/Dijkstra/shortest-path/MST animation is exported -- the
  * condensation/adjacency-heatmap/Frobenius views are static-only (no
  * `TransportControls`), same "only the animated view" scoping as
@@ -29,7 +29,7 @@
  * use), not tied to the panel's own fixed `STEP_SECONDS` playback rate.
  */
 import { Circle, Line, Text, VGroup } from "ecmanim/node";
-import type { Graph } from "mallory-math";
+import type { Graph } from "@johnhenry/math";
 import { LABEL_COLOR, SQUARE_HALF_SPAN } from "../export-render.ts";
 import { computeLayout } from "../graph-editor.ts";
 import {

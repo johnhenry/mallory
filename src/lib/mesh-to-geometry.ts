@@ -1,4 +1,4 @@
-import type { Mesh } from "mallory-math";
+import type { Mesh } from "@johnhenry/math";
 import * as THREE from "three";
 
 /**

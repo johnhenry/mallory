@@ -1,4 +1,4 @@
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber } from "@johnhenry/math";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { rootsPlot } from "./MatrixPanel.tsx";

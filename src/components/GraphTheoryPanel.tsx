@@ -1,7 +1,7 @@
 import { useServerFn } from "@tanstack/react-start";
-import type { Edge, Graph } from "mallory-math";
+import type { Edge, Graph } from "@johnhenry/math";
 import { useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsGraphTheory, TIME_CELL, type CellIdsGraphTheory } from "../lib/cell-ids.ts";
 import { appendEdgeLine, appendVertexLine, computeLayout, findVertexAt, nextVertexLabel } from "../lib/graph-editor.ts";
 import {
@@ -720,7 +720,7 @@ export function GraphTheoryPanel({ cellId = "graph-theory-1" }: { cellId?: strin
           <TransportControls graph={graph} time={time} duration={duration} playing={playing} setPlaying={setPlaying} loop={loop} setLoop={setLoop} speed={speed} setSpeed={setSpeed} />
           {currentStep && <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{currentStep.label}</p>}
           <VideoExportControls
-            filenameStem="mallory-graph-graph-theory"
+            filenameStem="mallory-graph-theory"
             start={(format, videoDuration) =>
               startGraphTheoryExportJobFn({
                 data: {

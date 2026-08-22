@@ -14,7 +14,7 @@
  * "Matching locus" axis).
  */
 
-import { Graph } from "mallory-math";
+import { Graph } from "@johnhenry/math";
 
 export type Direction = "N" | "E" | "S" | "W";
 
@@ -110,7 +110,7 @@ export function tilesCompatible(a: Tile, b: Tile, direction: Direction): boolean
  * Per-direction compatibility digraph: for each tile, the set of tile ids
  * that may legally sit in `direction` from it. One of issue #92's own
  * listed "Analysis" artifacts (feeds the deferred SCC-pruning solver, which
- * needs Graph SCC from johnhenry/mallory#30) -- exposed here as a small
+ * needs Graph SCC from johnhenry/math#30) -- exposed here as a small
  * pure function, independent of the backtracking solver below, which
  * recomputes compatibility inline rather than consulting this digraph
  * (the digraph is for analysis/pruning; the solver's own per-cell filter

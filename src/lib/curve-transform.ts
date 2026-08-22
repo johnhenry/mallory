@@ -1,4 +1,4 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { pairwiseSync, transduceSync, transducers } from "mallory-iteration";
 
 export interface CurvePoint {

@@ -16,7 +16,7 @@
  * simplest-correct-form precedent from M1); the torus/periodicity search
  * and SAT cross-check solver that square lattices later grew are deferred.
  */
-import { type HexDirection, hexNeighbor } from "mallory-math";
+import { type HexDirection, hexNeighbor } from "@johnhenry/math";
 
 export interface HexTile {
   id: string;

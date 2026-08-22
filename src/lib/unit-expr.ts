@@ -45,7 +45,7 @@ export function evaluateUnitExpr(source: string, variables: Record<string, numbe
 
 /**
  * Cancels textually-identical unit factors in a combined symbol
- * (mallory-graph#305 bug 1): `Unit.mul`/`Unit.div` track the DIMENSION
+ * (mallory#305 bug 1): `Unit.mul`/`Unit.div` track the DIMENSION
  * correctly but only concatenate symbols, so `5 m/s * 3 s` came back as
  * `15 m/s*s` -- dimensionally plain length, displayed as if it weren't.
  *

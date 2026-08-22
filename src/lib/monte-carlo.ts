@@ -1,4 +1,4 @@
-import { Distributions, GraphUtils, Symbolic, Vector, type ContinuousDistribution, type DiscreteDistribution, type Path2D } from "mallory-math";
+import { Distributions, GraphUtils, Symbolic, Vector, type ContinuousDistribution, type DiscreteDistribution, type Path2D } from "@johnhenry/math";
 import { Rng } from "mallory-tensor-core";
 
 const DENSITY_COLOR = 0xdc2626; // distinct from the histogram bars' blue

@@ -1,7 +1,7 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { useEffect, useRef, useState } from "react";
 import { Rng } from "mallory-tensor-core";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsMonteCarlo, type CellIdsMonteCarlo } from "../lib/cell-ids.ts";
 import { drawAxes, drawHistogram, drawPath, drawPolyline, drawScatter, type Viewport } from "../lib/render-path.ts";
 import { toScreenX, toScreenY } from "../lib/viewport.ts";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ComplexNumber, Symbolic } from "mallory-math";
+import { ComplexNumber, Symbolic } from "@johnhenry/math";
 import { evaluateComplex } from "./complex-eval.ts";
 import { findComplexZeros, findComplexPoles, type ComplexDomain } from "./complex-roots.ts";
 

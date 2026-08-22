@@ -1,6 +1,6 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { useEffect, useRef } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIdsCurveTransform, notebookCurveCellId, type CurveTransformOp } from "../lib/cell-ids.ts";
 import { derivativeCurve, differenceCurve, integralCurve, type CurvePoint } from "../lib/curve-transform.ts";
 import { drawAxes, drawPolyline, type Viewport } from "../lib/render-path.ts";

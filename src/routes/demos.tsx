@@ -17,7 +17,7 @@ export const Route = createFileRoute("/demos")({
 function DemosPage() {
   return (
     <div>
-      <h1>mallory-graph — legacy demos</h1>
+      <h1>mallory — legacy demos</h1>
       <p>
         <Link to="/">← the new app</Link>
       </p>

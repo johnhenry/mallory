@@ -1,4 +1,4 @@
-import type { Mesh } from "mallory-math";
+import type { Mesh } from "@johnhenry/math";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { meshToGeometry, meshToMaterial } from "./mesh-to-geometry.ts";

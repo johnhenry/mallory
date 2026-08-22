@@ -15,7 +15,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsGeometry, cellIdsOde, cellIdsNotebookBlock, notebookValueCellId } from "../lib/cell-ids.ts";
 import { DEFAULT_ODE_STATE } from "../lib/ode-state.ts";
 import type { NotebookState } from "../lib/notebook-state.ts";

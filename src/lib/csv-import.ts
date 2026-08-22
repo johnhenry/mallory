@@ -42,7 +42,7 @@ function toNumber(raw: unknown): number {
 
 /**
  * CSV parsing + per-column dtype inference (issue #36), delegated to
- * `mallory-frame-arrow`'s `Frame.fromCSV` (mallory-plus#86) -- this app's
+ * `mallory-frame-arrow`'s `Frame.fromCSV` (math-plus#86) -- this app's
  * own hand-rolled RFC-4180 tokenizer (see git history) is retired now that
  * the package has a real reader with an identical error-message format
  * (verified: both throw "Row N has X fields, but the header has Y." and

@@ -1,6 +1,6 @@
 /**
  * Statically-importable ecmanim scene for the first-order ODE video export
- * (`export-ode-video.ts`) -- johnhenry/mallory-graph#210. See
+ * (`export-ode-video.ts`) -- johnhenry/mallory#210. See
  * `expression-2d-scene.ts`'s header comment for why this had to move out of
  * an in-request closure (`buildOdeConstruct`) and into its own module that
  * reads everything from ecmanim's `params` argument: `renderParallel`'s
@@ -9,7 +9,7 @@
  * the same params.
  */
 import { ArrowVectorField, Axes, Dot, rate_functions, TracedPath, Transform, ValueTracker } from "ecmanim/node";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { AXIS_COLOR } from "../export-render.ts";
 import { preprocessImplicitMultiplication } from "../implicit-mult.ts";
 import { sampleOdeSolution } from "../sample-ode.ts";

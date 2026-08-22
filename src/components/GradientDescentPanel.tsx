@@ -1,9 +1,9 @@
 import { useServerFn } from "@tanstack/react-start";
-import type { Mesh } from "mallory-math";
+import type { Mesh } from "@johnhenry/math";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsGradientDescent, TIME_CELL, type CellIdsGradientDescent } from "../lib/cell-ids.ts";
 import { computeContourLevels, type ContourLevel } from "../lib/contour-plot.ts";
 import { startGradientDescentExportJob } from "../lib/export-gradient-descent-video.ts";
@@ -626,7 +626,7 @@ export function GradientDescentPanel({ cellId = "gd-1" }: { cellId?: string } = 
         setSpeed={setSpeed}
       />
       <VideoExportControls
-        filenameStem="mallory-graph-gradient-descent"
+        filenameStem="mallory-gradient-descent"
         start={(format, videoDuration) =>
           startGradientDescentExportJobFn({
             data: {

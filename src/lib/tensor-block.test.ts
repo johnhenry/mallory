@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { applyTensorOp, curveToTensorGrid, parseSplitSections, parseTensorGrid, splitTensorGrid, summarizeTensor } from "./tensor-block.ts";
 
 /** A minimal fake Path2D -- only `commands` is read by curveToTensorGrid, so `stroke` is a throwaway placeholder (mirrors curve-transform.test.ts's own fakePath). */

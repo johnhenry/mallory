@@ -11,7 +11,7 @@ export interface ExportPreviewScrubberProps {
  * A scrub slider that renders a single preview frame on release (not per
  * drag tick -- a frame render is fast but not free). Mirrors GraphCanvas's
  * inline 2D preview slider; extracted here for Graph3DCanvas's surface
- * export (mallory-graph#9) rather than generalizing GraphCanvas's own
+ * export (mallory#9) rather than generalizing GraphCanvas's own
  * already-shipped copy, to avoid touching working, already-verified 2D
  * behavior for a change scoped to 3D.
  */

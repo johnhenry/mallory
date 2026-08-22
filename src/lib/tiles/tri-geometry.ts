@@ -28,7 +28,7 @@
  * Every internal edge is drawn by exactly one straight line shared by both
  * triangles either side of it -- no gaps, no near-miss double-strokes.
  */
-import type { TriDirection, TriOrientation } from "mallory-math";
+import type { TriDirection, TriOrientation } from "@johnhenry/math";
 
 export interface Point {
   x: number;

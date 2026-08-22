@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { test } from "node:test";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { sampleOdeSolution } from "./sample-ode.ts";
 
 const HERE = new URL(".", import.meta.url).pathname;

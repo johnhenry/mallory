@@ -1,7 +1,7 @@
 /**
  * Statically-importable ecmanim scene for StreamingDatasetPanel's Demo A
  * ("watch epochs reshuffle") video export (`export-streaming-video.ts`) --
- * johnhenry/mallory-graph#337. A bare top-level `construct(scene, params)`
+ * johnhenry/mallory#337. A bare top-level `construct(scene, params)`
  * function, matching `ode-scene.ts`'s shape (this is a flat 2D row of
  * squares, no camera/depth-sorting needed -- so no `ThreeDScene` subclass
  * like `ca-scene.ts`'s `CaVoxelExportScene`).

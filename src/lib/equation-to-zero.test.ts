@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { equationToImplicitZero } from "./equation-to-zero.ts";
 
 test("splits a simple equation on its bare equals sign", () => {

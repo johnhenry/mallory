@@ -1,4 +1,4 @@
-import type { Path2D as MalloryPath } from "mallory-math";
+import type { Path2D as MalloryPath } from "@johnhenry/math";
 import { computeNiceTicks } from "./render-path.ts";
 import { getThemeColors } from "./theme-colors.ts";
 import { toScreenX, toScreenY, type Viewport } from "./viewport.ts";
@@ -22,7 +22,7 @@ export function svgExportFilename(label: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `mallory-graph-${slug || "export"}.svg`;
+  return `mallory-${slug || "export"}.svg`;
 }
 
 /**

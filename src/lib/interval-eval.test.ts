@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Interval, Symbolic } from "mallory-math";
+import { Interval, Symbolic } from "@johnhenry/math";
 import { evaluateInterval, nextDown, nextUp } from "./interval-eval.ts";
 
 test("evaluateInterval: matches hand-computed bounds for x^2 over [1,2] ([1,4])", () => {
@@ -112,7 +112,7 @@ test("evaluateInterval: property test -- the result interval contains the float 
   assert.ok(checkedAtLeastOnce, "the property sweep never actually compared anything -- test setup is broken");
 });
 
-// -- outward rounding (mallory-graph#305, upstream johnhenry/mallory#57) ----
+// -- outward rounding (mallory#305, upstream johnhenry/math#57) ----
 
 test("nextUp/nextDown: step exactly one representable double, symmetric across zero", () => {
   assert.ok(nextUp(1) > 1);

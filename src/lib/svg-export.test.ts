@@ -19,9 +19,9 @@ const MUTED = "#64748b";
 const INK = "#1c2531";
 
 test("svgExportFilename: slugifies like pngExportFilename but with a .svg extension", () => {
-  assert.equal(svgExportFilename("graphing"), "mallory-graph-graphing.svg");
-  assert.equal(svgExportFilename("Complex Plane!"), "mallory-graph-complex-plane.svg");
-  assert.equal(svgExportFilename(""), "mallory-graph-export.svg");
+  assert.equal(svgExportFilename("graphing"), "mallory-graphing.svg");
+  assert.equal(svgExportFilename("Complex Plane!"), "mallory-complex-plane.svg");
+  assert.equal(svgExportFilename(""), "mallory-export.svg");
 });
 
 const VIEWPORT = { xMin: 0, xMax: 2, yMin: 0, yMax: 2 };

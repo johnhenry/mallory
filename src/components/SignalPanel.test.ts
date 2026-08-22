@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { buildSumOfSinusoidsExpr, spectrumPlot, waveformPlot } from "./SignalPanel.tsx";
 
 test("buildSumOfSinusoidsExpr: a single term formats as A*sin(2*pi*f*t+p)", () => {

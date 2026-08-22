@@ -19,7 +19,7 @@
  * reindex. `P` itself is still returned (built directly from `order`, not
  * derived FROM the reindex) so callers can display or further compose it.
  */
-import { Graph } from "mallory-math";
+import { Graph } from "@johnhenry/math";
 import type { Mat } from "./matrix-ops.ts";
 
 export interface FrobeniusBlock {

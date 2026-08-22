@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import type { AnswerCheckResult, Difficulty } from "./integration-practice.ts";
 

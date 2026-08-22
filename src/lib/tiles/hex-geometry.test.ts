@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { HEX_AXIAL_DIRECTIONS, hexNeighbor } from "mallory-math";
+import { HEX_AXIAL_DIRECTIONS, hexNeighbor } from "@johnhenry/math";
 import { hexCenter, hexCorners, hexEdgeSegment } from "./hex-geometry.ts";
 
 test("hexCenter: direction 0 (E) neighbor offset is pure +x, hand-computed", () => {

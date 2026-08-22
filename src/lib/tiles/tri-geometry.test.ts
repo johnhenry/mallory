@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { triOrientation } from "mallory-math";
+import { triOrientation } from "@johnhenry/math";
 import { triCenterX, triCorners, triEdgeSegment } from "./tri-geometry.ts";
 
 test("triCorners: an 'up' cell has its apex at top-center, base at the bottom corners", () => {

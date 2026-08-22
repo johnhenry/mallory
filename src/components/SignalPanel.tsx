@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsSignal, type CellIdsSignal } from "../lib/cell-ids.ts";
 import { DEFAULT_SIGNAL_STATE, decodeSignalState, encodeSignalState, type SignalState, type SinusoidTerm } from "../lib/signal-state.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";

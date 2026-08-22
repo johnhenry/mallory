@@ -1,4 +1,4 @@
-import type { Expr } from "mallory-math";
+import type { Expr } from "@johnhenry/math";
 
 /**
  * Tree-walks a Symbolic Expr collecting every `var` node name except the

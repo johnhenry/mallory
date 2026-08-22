@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { equationToImplicitZero } from "./equation-to-zero.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import type { Domain } from "./sample-function.ts";

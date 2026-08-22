@@ -1,6 +1,6 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsTaylor } from "../lib/cell-ids.ts";
 import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
 import { resolveNaturalLanguageQuery } from "../lib/nl-query.ts";

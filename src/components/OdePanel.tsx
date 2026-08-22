@@ -1,7 +1,7 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { useServerFn } from "@tanstack/react-start";
 import { cellIdsOde, type CellIdsOde } from "../lib/cell-ids.ts";
 import { renderOdePreviewFrame, startOdeExportJob } from "../lib/export-ode-video.ts";
@@ -317,7 +317,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
   // Lifted out of VideoExportControls (as a controlled prop) so the preview
   // scrubber below can size its range to the same clip length the Export
   // button will actually render -- mirrors Graph3DCanvas's identical
-  // `exportDuration` state (mallory-graph#9), added here to close #337's
+  // `exportDuration` state (mallory#9), added here to close #337's
   // "video export with no on-page animation preview" gap.
   const [exportDuration, setExportDuration] = useState(4);
 
@@ -418,7 +418,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
       {anyError && <p style={{ color: "var(--danger)" }}>{anyError.ok ? "" : anyError.message}</p>}
       {/* Server-side ecmanim export: the primary row's slope field as a
           vector field plus its RK4 solution progressively traced out from
-          the initial condition (johnhenry/mallory-graph#3, pass 2). Scoped
+          the initial condition (johnhenry/mallory#3, pass 2). Scoped
           to the first row only -- see getPrimaryRow's own doc comment. */}
       {rowIds.length > 1 && (
         <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.25rem 0" }}>
@@ -426,7 +426,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
         </p>
       )}
       <VideoExportControls
-        filenameStem="mallory-graph-ode"
+        filenameStem="mallory-ode"
         duration={exportDuration}
         onDurationChange={setExportDuration}
         start={(format, duration) =>
@@ -445,7 +445,7 @@ export function OdePanel({ cellId = "ode-1", graph: externalGraph, syncUrl = tru
       {/* Scrub preview (#337): shares the exact same source/x0/y0/viewport
           the Export button above uses, so it can never drift from the real
           render -- mirrors Graph3DCanvas's surface-export preview
-          (mallory-graph#9). */}
+          (mallory#9). */}
       <ExportPreviewScrubber
         maxTime={exportDuration}
         fetchFrame={async (time) => {

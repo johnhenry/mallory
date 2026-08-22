@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GraphUtils, Vector } from "mallory-math";
+import { GraphUtils, Vector } from "@johnhenry/math";
 import { findCurveExtrema } from "./curve-extrema.ts";
 import { sampleExpr } from "./sample-function.ts";
 

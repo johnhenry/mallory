@@ -1,5 +1,5 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsFourier, type CellIdsFourier } from "../lib/cell-ids.ts";
 import {
   DEFAULT_FOURIER_STATE,

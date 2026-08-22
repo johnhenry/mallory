@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "./cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsOmnigraphRow } from "./cell-ids.ts";
 import { OMNIGRAPH_ITEM_TYPES, defaultOmnigraphItem, omnigraphIs3D, readOmnigraphItem, seedOmnigraphRow } from "./omnigraph-items.ts";
 import type { OmnigraphItemType } from "./omnigraph-state.ts";

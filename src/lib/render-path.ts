@@ -1,4 +1,4 @@
-import type { Path2D as MalloryPath } from "mallory-math";
+import type { Path2D as MalloryPath } from "@johnhenry/math";
 import type { ImplicitBox } from "./interval-implicit.ts";
 import type { ImplicitSegment } from "./sample-implicit.ts";
 import { getThemeColors } from "./theme-colors.ts";

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIdsOde } from "../lib/cell-ids.ts";
 import type { OdeState } from "../lib/ode-state.ts";
 import { OdePanel, seedOdeState } from "./OdePanel.tsx";

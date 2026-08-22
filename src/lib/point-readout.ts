@@ -1,4 +1,4 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { toScreenX, toScreenY, type Viewport } from "./viewport.ts";
 
 export interface ReadoutCandidate {

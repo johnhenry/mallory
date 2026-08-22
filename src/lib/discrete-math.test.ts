@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { NumberTheory } from "mallory-math";
+import { NumberTheory } from "@johnhenry/math";
 import { buildGroupInfo, factorizeForPanel, solveCrt, tracedGcd } from "./discrete-math.ts";
 
 test("buildGroupInfo: Z6 under addition is a group, abelian, with the expected Cayley table", () => {

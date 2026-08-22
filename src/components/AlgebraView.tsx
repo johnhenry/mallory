@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
-import { structuralEqual, type CellGraph } from "../lib/cell-graph.ts";
+import { structuralEqual, type CellGraph } from "@johnhenry/math";
 
 function formatValue(value: unknown): string {
   if (typeof value === "number") return Number.isFinite(value) ? value.toFixed(4).replace(/\.?0+$/, "") : String(value);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { test } from "node:test";
 import {
   checkDerivativeAnswer,

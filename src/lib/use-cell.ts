@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import type { CellGraph } from "./cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 
 /**
  * Subscribe a component to one cell in a CellGraph. Reads via `graph.get`,

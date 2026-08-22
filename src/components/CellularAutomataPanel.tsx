@@ -42,7 +42,7 @@ import {
   type Totalistic3DRule,
   type Spacetime3D,
 } from "../lib/ca/totalistic-3d.ts";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsCellularAutomata, TIME_CELL, type CellIdsCellularAutomata } from "../lib/cell-ids.ts";
 import { startCa2dExportJob, startCa3dExportJob } from "../lib/export-ca-video.ts";
 import { getThemeColors, subscribeToThemeChange } from "../lib/theme-colors.ts";
@@ -1316,7 +1316,7 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
                 Generation {currentGeneration} of {spacetime2dResult.value.length - 1}
               </p>
               <VideoExportControls
-                filenameStem="mallory-graph-ca-life-like"
+                filenameStem="mallory-ca-life-like"
                 start={(format, videoDuration) =>
                   startCa2dExportJobFn({
                     data: {
@@ -1494,7 +1494,7 @@ export function CellularAutomataPanel({ cellId = "ca-1" }: { cellId?: string } =
                 Generation {currentGeneration3d} of {spacetime3dResult.value.length - 1}
               </p>
               <VideoExportControls
-                filenameStem="mallory-graph-ca-totalistic-3d"
+                filenameStem="mallory-ca-totalistic-3d"
                 start={(format, videoDuration) =>
                   startCa3dExportJobFn({
                     data: {

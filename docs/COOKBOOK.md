@@ -1,4 +1,4 @@
-# mallory-graph Cookbook
+# mallory Cookbook
 
 Runnable examples of the reusable pieces in `src/lib/` that panels are built
 on top of -- the reactive `CellGraph` core, the sampler layer, and the
@@ -7,7 +7,7 @@ interval arithmetic).
 
 Every ` ```ts ` block below is executed by `docs/cookbook.test.ts` in CI
 (issue #41's docs-as-tests item, mirroring the pattern from
-[mallory#17](https://github.com/johnhenry/mallory)). A line ending in
+[mallory#17](https://github.com/johnhenry/math)). A line ending in
 `// => <expression>` additionally asserts that the documented value is
 still exactly what the code produces -- so if a signature or a default
 changes, this file fails CI instead of quietly going stale.
@@ -15,11 +15,11 @@ changes, this file fails CI instead of quietly going stale.
 ## Sampling a curve
 
 `sampleExpr` walks a parsed expression over a uniform grid, producing a
-`Path2D` (mallory-math's, not the browser's) that the Canvas2D drawers
+`Path2D` (@johnhenry/math's, not the browser's) that the Canvas2D drawers
 consume directly.
 
 ```ts
-import { sampleExpr } from "mallory-graph/sample-function";
+import { sampleExpr } from "mallory/sample-function";
 
 const path = sampleExpr("x^2", { min: 0, max: 2 }, 3);
 path.commands; // => [{"op":"moveTo","x":0,"y":0},{"op":"lineTo","x":1,"y":1},{"op":"lineTo","x":2,"y":4}]
@@ -34,7 +34,7 @@ bump that a coarse uniform grid straddles almost entirely gets resolved,
 while a gentle curve costs the same as `sampleExpr` (issue #52).
 
 ```ts
-import { sampleExpr, sampleExprAdaptive } from "mallory-graph/sample-function";
+import { sampleExpr, sampleExprAdaptive } from "mallory/sample-function";
 
 // exp(-100*x^2) is a narrow spike near x=0 -- a 5-point base grid over
 // [-1,1] only samples near x=0,±0.5,±1, mostly missing the peak.
@@ -53,7 +53,7 @@ zoomed-in viewport (small span) refines down to a tighter absolute
 deviation than a zoomed-out one.
 
 ```ts
-import { resolveAdaptiveTolerance } from "mallory-graph/sample-function";
+import { resolveAdaptiveTolerance } from "mallory/sample-function";
 
 resolveAdaptiveTolerance(undefined, { min: -1000, max: 1000 }); // => 0.2
 resolveAdaptiveTolerance(undefined, { min: -1, max: 1 }); // => 0.0002
@@ -62,12 +62,13 @@ resolveAdaptiveTolerance(undefined, { min: -1, max: 1 }); // => 0.0002
 ## A reactive computation with CellGraph
 
 `CellGraph` is this app's own dependency-tracking reactive core (see the
-README's "A note on 'graph'" table -- distinct from `Graph<T>`, mallory-math's
+README's "A note on 'graph'" table -- distinct from `Graph<T>`, @johnhenry/math's
 graph-theory type). A `define`d cell recomputes automatically when a `set`
-cell it reads changes.
+cell it reads changes. `CellGraph` itself now lives in `@johnhenry/math`
+(promoted upstream, mallory#56).
 
 ```ts
-import { CellGraph } from "mallory-graph/cell-graph";
+import { CellGraph } from "@johnhenry/math";
 
 const graph = new CellGraph();
 graph.set("a", 3);
@@ -82,10 +83,10 @@ graph.get("sum"); // => 14
 ## Graph theory: BFS and Dijkstra over a text edge list
 
 `parseEdgeListText` reads the same `"A B <weight>"`-per-line format the
-Graph Theory panel's textarea accepts, into a real mallory-math `Graph<T>`.
+Graph Theory panel's textarea accepts, into a real @johnhenry/math `Graph<T>`.
 
 ```ts
-import { parseEdgeListText, runBfs, runDijkstra, runShortestPath } from "mallory-graph/graph-ops";
+import { parseEdgeListText, runBfs, runDijkstra, runShortestPath } from "mallory/graph-ops";
 
 const g = parseEdgeListText("A B 1\nB C 2\nA C 5", false);
 
@@ -100,7 +101,7 @@ sp.path; // => ["A","B","C"]
 ## Matrix determinant
 
 ```ts
-import { computeDeterminant, parseMatrixText } from "mallory-graph/matrix-ops";
+import { computeDeterminant, parseMatrixText } from "mallory/matrix-ops";
 
 const m = parseMatrixText("2 0\n0 3");
 computeDeterminant(m); // => {"value":6}
@@ -112,7 +113,7 @@ The NL query layer turns a plain-English phrase into an expression string
 the graphing panels can plot directly.
 
 ```ts
-import { resolveNaturalLanguageQuery } from "mallory-graph/nl-query";
+import { resolveNaturalLanguageQuery } from "mallory/nl-query";
 
 resolveNaturalLanguageQuery("integral of cos(x)"); // => "sin(x)"
 resolveNaturalLanguageQuery("simplify x + 0"); // => "x"
@@ -129,7 +130,7 @@ system-solver row) is reduced to a single `lhs - rhs` expression before
 sampling, so "the curve where this is zero" is one uniform concept.
 
 ```ts
-import { equationToImplicitZero } from "mallory-graph/equation-to-zero";
+import { equationToImplicitZero } from "mallory/equation-to-zero";
 
 equationToImplicitZero("x^2+y^2=4"); // => "(x^2+y^2)-(4)"
 ```
@@ -141,8 +142,8 @@ values instead of floats -- true bounds propagation, not a point sample at
 each end.
 
 ```ts
-import { Interval, Symbolic } from "mallory-math";
-import { evaluateInterval } from "mallory-graph/interval-eval";
+import { Interval, Symbolic } from "@johnhenry/math";
+import { evaluateInterval } from "mallory/interval-eval";
 
 const expr = Symbolic.parse("x^2");
 const result = evaluateInterval(expr, { x: new Interval(1, 2) });

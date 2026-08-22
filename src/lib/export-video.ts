@@ -20,7 +20,7 @@
  * `interpolateKeyframes`, reading the tracker's current (per-frame
  * interpolated) value instead of a manually-accumulated `elapsed` variable.
  *
- * ecmanim 0.2.0 additions used here (johnhenry/mallory-graph#3):
+ * ecmanim 0.2.0 additions used here (johnhenry/mallory#3):
  * - `MathTex` typesets the expression's LaTeX (client-supplied, see
  *   `ExportVideoInput.latex`) as an equation label. Static for the whole
  *   clip -- a per-frame-updating label for animated parameters is a
@@ -52,7 +52,7 @@
  * Jobs are swept on a timer so a browser that never polls again doesn't leak
  * the rendered buffer forever.
  *
- * johnhenry/mallory-graph#210: the scene script used to be built here as an
+ * johnhenry/mallory#210: the scene script used to be built here as an
  * in-request closure (`buildConstruct(data, roots)`), capturing the live
  * HTTP request's data directly. It now lives at
  * `./scenes/expression-2d-scene.ts` as a top-level exported `construct(scene,
@@ -122,7 +122,7 @@ export const renderExportPreviewFrame = createServerFn({ method: "POST" })
     const { promises: fs } = await import("node:fs");
     const os = await import("node:os");
     const path = await import("node:path");
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-graph-preview-"));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-preview-"));
     const outPath = path.join(dir, "preview.png");
     try {
       // A single frame is fast enough as a plain in-process call -- no need

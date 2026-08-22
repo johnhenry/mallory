@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DualNumber, Symbolic } from "mallory-math";
+import { DualNumber, Symbolic } from "@johnhenry/math";
 import { evaluateDual, sampleGradientField } from "./gradient-field.ts";
 
 function gradAt(exprText: string, x: number, y: number): [number, number] {

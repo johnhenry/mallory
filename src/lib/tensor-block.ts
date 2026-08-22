@@ -1,4 +1,4 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { Tensor } from "mallory-tensor-core";
 
 export type TensorOpType = "none" | "abs" | "neg" | "exp" | "sqrt" | "clip01" | "transpose" | "fliplr" | "flipud" | "roll" | "pad" | "repeat";

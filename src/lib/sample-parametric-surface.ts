@@ -1,4 +1,4 @@
-import { Graph3DUtils, Symbolic, Vector, type Mesh } from "mallory-math";
+import { Graph3DUtils, Symbolic, Vector, type Mesh } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 
 export interface ParametricDomain {

@@ -11,7 +11,7 @@
  * separate "mode" to select, so a contextual command's only job is to
  * surface an already-computed value back through the chat log.
  */
-import type { CellGraph } from "./cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import type { CellIdsDiscrete } from "./cell-ids.ts";
 import type { CrtResult, FactorizationResult, GroupInfo, TracedGcd } from "./discrete-math.ts";
 

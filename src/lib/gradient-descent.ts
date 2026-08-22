@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { compileExpr } from "mallory-adapter-math";
 import { optim, variable } from "mallory-tensor-autograd";
 import { Tensor } from "mallory-tensor-core";
@@ -55,7 +55,7 @@ const MAX_STEPS = 2000;
  *
  * `sgdMomentum`, if given, is passed straight through to `optim.SGD`'s
  * own `momentum`/`nesterov` options (issue #33's last remaining item,
- * unblocked by johnhenry/mallory-plus#89) -- harmlessly ignored when
+ * unblocked by johnhenry/math-plus#89) -- harmlessly ignored when
  * `optimizerType` isn't `"sgd"`, matching how `schedule` above already
  * applies uniformly to every racing optimizer regardless of type.
  */

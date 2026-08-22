@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsImageFrequency, type CellIdsImageFrequency } from "../lib/cell-ids.ts";
 import {
   DEFAULT_IMAGE_FREQUENCY_STATE,

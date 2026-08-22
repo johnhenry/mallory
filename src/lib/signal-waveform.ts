@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { rfft } from "mallory-fft";
 import { findPeaks, hannWindow, stft } from "mallory-signal";
 import { Tensor } from "mallory-tensor-core";

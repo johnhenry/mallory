@@ -12,7 +12,7 @@ export interface VideoExportControlsProps {
   /**
    * Controlled duration -- when provided (with `onDurationChange`), the
    * caller owns this value instead of this component managing it
-   * internally. Graph3DCanvas's scrub-preview (mallory-graph#9) needs to
+   * internally. Graph3DCanvas's scrub-preview (mallory#9) needs to
    * read the same duration the Export button will use, to size its preview
    * slider's range to match; OdePanel (this component's other consumer)
    * has no such need and leaves both props unset, falling back to the
@@ -24,7 +24,7 @@ export interface VideoExportControlsProps {
 
 /**
  * The start -> poll -> download flow shared by the 3D-surface and ODE
- * export sections (johnhenry/mallory-graph#3, pass 2) -- the same job-queue
+ * export sections (johnhenry/mallory#3, pass 2) -- the same job-queue
  * client shape GraphCanvas's own export UI established (that one keeps its
  * bespoke inline version: it additionally owns a keyframe-driven duration
  * and a scrub preview this compact control deliberately doesn't).

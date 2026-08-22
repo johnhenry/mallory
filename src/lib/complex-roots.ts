@@ -1,4 +1,4 @@
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber } from "@johnhenry/math";
 
 export interface ComplexDomain {
   reMin: number;

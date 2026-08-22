@@ -1,7 +1,7 @@
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { metric } from "mallory-telemetry";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsMlPlayground, type CellIdsMlPlayground } from "../lib/cell-ids.ts";
 import { startMlExportJob } from "../lib/export-ml-video.ts";
 import {
@@ -634,7 +634,7 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
           </div>
           {pointsResult.ok && pointsResult.value.length > 0 && (
             <VideoExportControls
-              filenameStem="mallory-graph-ml-training"
+              filenameStem="mallory-ml-training"
               start={(format, videoDuration) =>
                 startMlExportJobFn({
                   data: {

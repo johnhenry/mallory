@@ -80,7 +80,7 @@ function AppShell() {
     import("@mcp-b/global")
       .then(() => announceWebMcpReady())
       .catch((err: unknown) => {
-        console.warn("[mallory-graph] Failed to load the WebMCP runtime:", err);
+        console.warn("[mallory] Failed to load the WebMCP runtime:", err);
       });
 
     const script = document.createElement("script");
@@ -104,7 +104,7 @@ function AppShell() {
   // WebMCP tool only exists while its owning component is mounted.
   useModelContextTool({
     name: "app_navigate",
-    description: `Navigate to a section of mallory-graph. Valid paths: ${SECTION_PATHS.join(", ")}.`,
+    description: `Navigate to a section of mallory. Valid paths: ${SECTION_PATHS.join(", ")}.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -138,9 +138,8 @@ function AppShell() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="wordmark">
-          <Link to="/" className="wordmark-link mono" aria-label="mallory.graph home">
-            <span className="wordmark-accent">{"›"}</span> mallory<span className="wordmark-accent">.</span>
-            graph
+          <Link to="/" className="wordmark-link mono" aria-label="mallory home">
+            <span className="wordmark-accent">{"›"}</span> mallory
           </Link>
           <button
             type="button"

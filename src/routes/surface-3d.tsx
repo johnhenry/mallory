@@ -9,7 +9,7 @@ export const Route = createFileRoute("/surface-3d")({
 function ThreeDPage() {
   return (
     <div>
-      <h1>mallory-graph — 3D surface</h1>
+      <h1>mallory — 3D surface</h1>
       <details>
         <summary>A 2D curve and a 3D surface, sharing one reactive core.</summary>
         <p>

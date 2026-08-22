@@ -58,7 +58,7 @@ function DashboardPage() {
   return (
     <div>
       <div className="page-head">
-        <p className="page-eyebrow">mallory-graph</p>
+        <p className="page-eyebrow">mallory</p>
         <h1>Every tool, one reactive core.</h1>
         <p className="lede">
           Plot, construct, solve, and animate — every tool below shares the same underlying math engine, so a curve

@@ -1,4 +1,4 @@
-import { GraphUtils, Symbolic, Vector, type Path2D } from "mallory-math";
+import { GraphUtils, Symbolic, Vector, type Path2D } from "@johnhenry/math";
 import type { Domain } from "./sample-function.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 

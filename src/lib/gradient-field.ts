@@ -1,4 +1,4 @@
-import { DualNumber, Symbolic, type Expr } from "mallory-math";
+import { DualNumber, Symbolic, type Expr } from "@johnhenry/math";
 import type { Domain } from "./sample-function.ts";
 import type { VectorFieldPoint } from "./sample-ode.ts";
 

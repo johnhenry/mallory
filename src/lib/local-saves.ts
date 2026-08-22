@@ -32,7 +32,7 @@ export interface LocalSaveRecord {
   state: SavedGraphState;
 }
 
-const STORAGE_KEY = "mallory-graph:my-saves";
+const STORAGE_KEY = "mallory:my-saves";
 
 /** Pure core: parse a raw localStorage value into records, dropping anything malformed (a corrupted entry loses itself, not the whole store). Newest first, matching the server gallery's ordering. */
 export function parseLocalSaves(raw: string | null): LocalSaveRecord[] {

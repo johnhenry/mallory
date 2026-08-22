@@ -1,6 +1,6 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsOde2 } from "../lib/cell-ids.ts";
 import { drawAxes, drawPath, type Viewport } from "../lib/render-path.ts";
 import { attemptOde2ndOrderClosedForm, type Ode2ndOrderClosedFormAttempt, sampleOde2ndOrderSolution } from "../lib/sample-ode.ts";

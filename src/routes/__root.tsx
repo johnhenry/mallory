@@ -39,11 +39,11 @@ export const Route = createRootRoute({
       // stays available; a fixed layout width is what actually needs fixing
       // per-page (canvas/table overflow), not disabling zoom.
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "mallory-graph" },
-      { name: "description", content: "An interactive graphing calculator built on mallory-math." },
+      { title: "mallory" },
+      { name: "description", content: "An interactive graphing calculator built on @johnhenry/math." },
       // iOS home-screen install (Android reads the manifest below instead).
       { name: "apple-mobile-web-app-capable", content: "yes" },
-      { name: "apple-mobile-web-app-title", content: "mallory-graph" },
+      { name: "apple-mobile-web-app-title", content: "mallory" },
       { name: "apple-mobile-web-app-status-bar-style", content: "default" },
     ],
     links: [

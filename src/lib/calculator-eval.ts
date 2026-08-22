@@ -10,7 +10,7 @@
  * numbers, else Z/nZ via `integersModuloStructure`) are the same two knobs
  * GraphCanvas exposes, just without a curve attached to them.
  */
-import { ComplexNumber, Interval, Rational, Symbolic } from "mallory-math";
+import { ComplexNumber, Interval, Rational, Symbolic } from "@johnhenry/math";
 import { evaluateComplex } from "./complex-eval.ts";
 import { integersModuloStructure } from "./finite-structure.ts";
 import { evaluateInterval } from "./interval-eval.ts";

@@ -6,7 +6,7 @@
  * "engine vs. adapter" split and its `AudioContext`/`webkitAudioContext`
  * fallback convention).
  */
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import type { Viewport } from "./viewport.ts";
 
 export interface SonificationStep {

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIdsRegression } from "../lib/cell-ids.ts";
 import type { RegressionState } from "../lib/regression-state.ts";
 import { RegressionPanel, seedRegressionState } from "./RegressionPanel.tsx";

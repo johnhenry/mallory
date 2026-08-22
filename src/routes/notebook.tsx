@@ -9,7 +9,7 @@ export const Route = createFileRoute("/notebook")({
 function NotebookPage() {
   return (
     <div>
-      <h1>mallory-graph — notebook</h1>
+      <h1>mallory — notebook</h1>
       <details>
         <summary>A reactive document mixing free-form text with live graph cells, built on CellGraph.</summary>
         <p>

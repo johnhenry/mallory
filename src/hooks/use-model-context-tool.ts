@@ -41,7 +41,7 @@ interface RegisterableModelContext {
   ): void;
 }
 
-const READY_EVENT = "mallory-graph:webmcp-ready";
+const READY_EVENT = "mallory:webmcp-ready";
 
 function getModelContext(): RegisterableModelContext | undefined {
   return (document as unknown as { modelContext?: RegisterableModelContext }).modelContext;
@@ -102,7 +102,7 @@ export function useModelContextTool(tool: ModelContextToolDef): void {
         );
         registered = true;
       } catch (e) {
-        console.warn(`[mallory-graph] Failed to register WebMCP tool "${toolRef.current.name}":`, e);
+        console.warn(`[mallory] Failed to register WebMCP tool "${toolRef.current.name}":`, e);
       }
     }
 

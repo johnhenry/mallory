@@ -12,7 +12,7 @@
  * 4 up front lets one `TriTile` be placed at any position without a
  * separate up-specific/down-specific tile type.
  */
-import { type TriDirection, type TriOrientation, triNeighbor, triOrientation } from "mallory-math";
+import { type TriDirection, type TriOrientation, triNeighbor, triOrientation } from "@johnhenry/math";
 
 export interface TriTile {
   id: string;

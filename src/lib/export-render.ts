@@ -2,7 +2,7 @@
  * Shared server-only rendering helpers for the export paths (2D expression,
  * 3D surface, ODE) -- the temp-dir render-to-buffer dance and the common
  * palette, extracted when the 3D/ODE paths were added
- * (johnhenry/mallory-graph#3, pass 2). Server-only: imported exclusively by
+ * (johnhenry/mallory#3, pass 2). Server-only: imported exclusively by
  * server-fn modules, never by client components directly.
  *
  * Historical note on 3D rendering: ecmanim 0.2.0 built its CanvasRenderer
@@ -29,7 +29,7 @@
  * on the camera config renders correctly white) before deleting the old
  * external-camera-threading parameter.
  *
- * johnhenry/mallory-graph#210: `renderExportToBuffer` used to take an
+ * johnhenry/mallory#210: `renderExportToBuffer` used to take an
  * in-memory `sceneOrConstruct` closure and hand it to ecmanim's sequential
  * `render()`. It now takes a *file path + export name* and calls
  * `renderParallel` instead, which shards a scene's play()/wait() segments
@@ -96,7 +96,7 @@ export async function renderExportToBuffer(
   const { promises: fs } = await import("node:fs");
   const os = await import("node:os");
   const path = await import("node:path");
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-graph-export-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mallory-export-"));
   const outPath = path.join(dir, `export.${format}`);
   try {
     await renderParallel(sceneModulePath, sceneExportName, {

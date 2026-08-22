@@ -17,7 +17,7 @@
  * already-computed value back through the chat log -- useful when the
  * result the user's asking about is scrolled out of view.
  */
-import type { CellGraph } from "./cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import type { CellIdsMatrix } from "./cell-ids.ts";
 import type { DecompositionSet, Mat } from "./matrix-ops.ts";
 

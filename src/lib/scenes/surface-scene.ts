@@ -1,6 +1,6 @@
 /**
  * Statically-importable ecmanim scene for the z = f(x, y) surface video
- * export (`export-surface-video.ts`) -- johnhenry/mallory-graph#210. See
+ * export (`export-surface-video.ts`) -- johnhenry/mallory#210. See
  * `expression-2d-scene.ts`'s header comment for why this had to move out of
  * an in-request closure (`buildSurfaceScene`, which built a fresh anonymous
  * `class SurfaceExportScene extends ThreeDScene` per HTTP request) and into
@@ -41,7 +41,7 @@
  * `export-surface-video.test.ts`.
  */
 import { Surface, ThreeDAxes, ThreeDCamera, ThreeDScene } from "ecmanim/node";
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "../implicit-mult.ts";
 import { interpolateKeyframes, type Keyframe } from "../timeline.ts";
 

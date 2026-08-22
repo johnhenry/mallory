@@ -8,12 +8,12 @@
  *
  * Two levels of checking:
  *
- * 1. Every block must run to completion. `from "mallory-graph/<name>"` is
- *    a docs-only convention (mallory-graph isn't a published package with
+ * 1. Every block must run to completion. `from "mallory/<name>"` is
+ *    a docs-only convention (mallory isn't a published package with
  *    that subpath layout) rewritten here to the real absolute path of
  *    `src/lib/<name>.ts` -- mirroring how mallory's own Cookbook.test.ts
- *    rewrites the bare "mallory-math" specifier to its real src/index.ts.
- *    Blocks that import the genuine npm dependency "mallory-math" directly
+ *    rewrites the bare "@johnhenry/math" specifier to its real src/index.ts.
+ *    Blocks that import the genuine npm dependency "@johnhenry/math" directly
  *    (e.g. `Interval`, `Symbolic`) need no rewrite; that specifier already
  *    resolves normally.
  *
@@ -78,9 +78,9 @@ function docEqual(actual: unknown, expected: unknown): boolean {
 }
 
 const CHECK_RE = /^(\s*)([^/].*?);\s*\/\/\s*=>\s*(.+?)\s*$/;
-const MALLORY_GRAPH_IMPORT_RE = /from\s+"mallory-graph\/([\w-]+)"/g;
+const MALLORY_IMPORT_RE = /from\s+"mallory\/([\w-]+)"/g;
 
-/** Rewrites one doc block into an executable module: mallory-graph/<name> imports resolved to real src/lib/<name>.ts file URLs, `EXPR; // => V` lines turned into __docCheck calls. */
+/** Rewrites one doc block into an executable module: mallory/<name> imports resolved to real src/lib/<name>.ts file URLs, `EXPR; // => V` lines turned into __docCheck calls. */
 function materialize(block: DocBlock): string {
   const out: string[] = [
     `const __docEqual = ${docEqual.toString()};`,
@@ -95,7 +95,7 @@ function materialize(block: DocBlock): string {
   ];
   const lines = block.code.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const line = (lines[i] as string).replace(MALLORY_GRAPH_IMPORT_RE, (_m, name: string) => `from ${JSON.stringify(pathToFileURL(join(LIB_DIR, `${name}.ts`)).href)}`);
+    const line = (lines[i] as string).replace(MALLORY_IMPORT_RE, (_m, name: string) => `from ${JSON.stringify(pathToFileURL(join(LIB_DIR, `${name}.ts`)).href)}`);
     const m = line.match(CHECK_RE);
     const stmt = m?.[2] ?? "";
     const isCheckable = m && !/^(const|let|var|import|type|function|class|return)\b/.test(stmt.trim()) && !stmt.includes("//");
@@ -115,7 +115,7 @@ test("every docs/COOKBOOK.md ```ts block runs, and every `// =>` documented valu
   assert.ok(checkCount >= 18, `expected >= 18 checked (// =>) doc values, found ${checkCount} -- conversions have regressed`);
 
   // Materialized under the repo root (gitignored), not the system tmpdir --
-  // a real npm dependency like "mallory-math" (unlike the mallory-graph/<name>
+  // a real npm dependency like "@johnhenry/math" (unlike the mallory/<name>
   // docs-only convention above) resolves through normal node_modules lookup,
   // which only finds anything by walking UP from the importing file; the
   // system tmpdir has no node_modules ancestor to find.

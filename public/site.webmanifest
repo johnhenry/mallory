@@ -1,7 +1,7 @@
 {
-  "name": "mallory-graph",
-  "short_name": "mallory-graph",
-  "description": "An interactive graphing calculator built on mallory-math.",
+  "name": "mallory",
+  "short_name": "mallory",
+  "description": "An interactive graphing calculator built on @johnhenry/math.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fafbfd",

@@ -1,7 +1,7 @@
 /**
  * A safe PNG filename for a given panel/export label, e.g. "graphing" ->
- * "mallory-graph-graphing.png" -- mirrors GraphCanvas's own existing
- * "mallory-graph-export.<ext>" video-export naming convention. Pure and
+ * "mallory-graphing.png" -- mirrors GraphCanvas's own existing
+ * "mallory-export.<ext>" video-export naming convention. Pure and
  * DOM-free (unlike `downloadCanvasPng` below) so it's directly unit
  * testable.
  */
@@ -11,7 +11,7 @@ export function pngExportFilename(label: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `mallory-graph-${slug || "export"}.png`;
+  return `mallory-${slug || "export"}.png`;
 }
 
 /**

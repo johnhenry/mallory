@@ -1,6 +1,6 @@
 /**
  * Server-only ecmanim video/GIF export for GraphTheoryPanel's algorithm-step
- * animation (johnhenry/mallory-graph#337). Mirrors `export-ode-video.ts`'s
+ * animation (johnhenry/mallory#337). Mirrors `export-ode-video.ts`'s
  * shape exactly (fire-and-forget job, client polls via `export-video.ts`'s
  * shared `getExportVideoJob`).
  */

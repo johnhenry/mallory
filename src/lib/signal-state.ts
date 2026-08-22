@@ -75,7 +75,7 @@ export interface SignalStateV2 {
   filterType?: string;
   filterOrder?: string;
   filterCutoffHz?: string;
-  /** Only read/shown for bandpass/bandstop (mallory-plus#90's unblock) -- `filterCutoffHz` doubles as the LOW cutoff for those two types. Optional for the same reason as every other field above: an old encoded URL from before bandpass/bandstop existed still decodes. */
+  /** Only read/shown for bandpass/bandstop (math-plus#90's unblock) -- `filterCutoffHz` doubles as the LOW cutoff for those two types. Optional for the same reason as every other field above: an old encoded URL from before bandpass/bandstop existed still decodes. */
   filterCutoffHzHigh?: string;
 }
 

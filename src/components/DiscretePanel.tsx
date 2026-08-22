@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cayleyTableCanvasSize, drawCayleyTable } from "../lib/cayley-table-render.ts";
 import { cellIdsDiscrete, type CellIdsDiscrete } from "../lib/cell-ids.ts";
 import { resolveDiscreteChatCommand } from "../lib/discrete-chat-commands.ts";

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsSpaceCurve } from "../lib/cell-ids.ts";
 import { sampleSpaceCurve, SPACE_CURVE_PRESETS, type SpaceCurvePoint } from "../lib/sample-space-curve.ts";
 import { DEFAULT_SPACE_CURVE_STATE, decodeSpaceCurveState, encodeSpaceCurveState, type SpaceCurveRowState } from "../lib/space-curve-state.ts";

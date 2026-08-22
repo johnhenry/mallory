@@ -1,4 +1,4 @@
-import { GraphUtils, Symbolic, Vector, type Expr, type Path2D } from "mallory-math";
+import { GraphUtils, Symbolic, Vector, type Expr, type Path2D } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import { memoizeLru } from "./memoize-lru.ts";
 

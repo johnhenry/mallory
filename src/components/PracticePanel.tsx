@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { useEffect, useState } from "react";
 import {
   checkDerivativeAnswer,

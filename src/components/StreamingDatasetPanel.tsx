@@ -411,7 +411,7 @@ export function StreamingDatasetPanel() {
             </span>
           </div>
           <VideoExportControls
-            filenameStem="mallory-graph-streaming-shuffle"
+            filenameStem="mallory-streaming-shuffle"
             start={(format, videoDuration) =>
               startStreamingExportJobFn({
                 data: {

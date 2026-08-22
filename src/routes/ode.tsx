@@ -9,7 +9,7 @@ export const Route = createFileRoute("/ode")({
 function OdePage() {
   return (
     <div>
-      <h1>mallory-graph — differential equations</h1>
+      <h1>mallory — differential equations</h1>
       <details>
         <summary>Numerically solves a first-order IVP dy/dx = f(x, y), plotted against its slope field.</summary>
         <p>

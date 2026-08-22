@@ -1,7 +1,7 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { addLocalSave } from "../lib/local-saves.ts";
 import { useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsOdeSystem, type CellIdsOdeSystem } from "../lib/cell-ids.ts";
 import { drawAxes, drawPath, drawPoint, drawVectorField, type Viewport } from "../lib/render-path.ts";
 import { toScreenX, toScreenY } from "../lib/viewport.ts";

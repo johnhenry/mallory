@@ -14,7 +14,7 @@ import { submitCalculatorLine } from "../lib/calculator-eval.ts";
 import { useModelContextTool } from "../hooks/use-model-context-tool.ts";
 
 /** Exported so a second CalculatorPanel instance can be told to mirror the standalone route's own state (issue #340's floating calculator) via the `storageKey` prop below, without needing to know this literal. */
-export const CALCULATOR_STORAGE_KEY = "mallory-graph:calculator";
+export const CALCULATOR_STORAGE_KEY = "mallory:calculator";
 
 const STRUCTURE_OPTIONS: Array<{ label: string; modulus: number | null }> = [
   { label: "Real numbers", modulus: null },
@@ -239,7 +239,7 @@ export function CalculatorPanel({ instanceId, storageKey: storageKeyOverride }: 
           >
             <span style={{ color: "var(--ink-soft)" }}>{entry.input}</span>
             <span style={{ color: entry.isError ? "var(--danger)" : entry.isAssignment ? "#2563eb" : "inherit", fontWeight: entry.isAssignment ? 600 : 400 }}>
-              {/* Explicit "error:" prefix (mallory-graph#305): a failed
+              {/* Explicit "error:" prefix (mallory#305): a failed
                   line's message previously differed from a result only by
                   color, which reads as broken output rather than a labeled
                   failure (and not at all for colorblind users). */}

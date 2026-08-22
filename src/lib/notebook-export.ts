@@ -1,4 +1,4 @@
-import { Symbolic } from "mallory-math";
+import { Symbolic } from "@johnhenry/math";
 import { exprToLatex } from "./expr-to-latex.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import type { NotebookState } from "./notebook-state.ts";

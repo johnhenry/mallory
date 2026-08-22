@@ -1,4 +1,4 @@
-import { ComplexNumber, MatrixMath, Structure, Vector, type EigenResult, type LUResult, type QRResult, type SVDResult } from "mallory-math";
+import { ComplexNumber, MatrixMath, Structure, Vector, type EigenResult, type LUResult, type QRResult, type SVDResult } from "@johnhenry/math";
 import { linalg } from "mallory-adapter-math";
 import { Tensor } from "mallory-tensor-core";
 

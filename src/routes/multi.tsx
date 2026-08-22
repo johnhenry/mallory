@@ -34,7 +34,7 @@ function MultiPage() {
 
   return (
     <div>
-      <h1>mallory-graph — multiple expressions, one graph</h1>
+      <h1>mallory — multiple expressions, one graph</h1>
       <details>
         <summary>Several curves sharing one coordinate system and one canvas, with color, annotations, and sharing.</summary>
         <p>

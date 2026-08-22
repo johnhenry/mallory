@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type TriDirection, triNeighbor, triOrientation } from "mallory-math";
+import { type TriDirection, triNeighbor, triOrientation } from "@johnhenry/math";
 import { buildTriCompatibilityDigraph, solveTri, triTilesCompatible, type TriGrid, type TriTile } from "./tri-tile-model.ts";
 
 async function drain<T, R>(gen: AsyncGenerator<T, R>): Promise<{ steps: T[]; result: R }> {

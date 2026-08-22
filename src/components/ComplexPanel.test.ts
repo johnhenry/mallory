@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ComplexNumber, Symbolic } from "mallory-math";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { ComplexNumber, Symbolic } from "@johnhenry/math";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsComplex } from "../lib/cell-ids.ts";
 import { appendRow, removeRow } from "../lib/multi-panel-rows.ts";
 import { setupTestDom } from "../lib/test-dom.ts";

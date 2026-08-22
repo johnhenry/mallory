@@ -25,7 +25,7 @@
  */
 export type AngleUnit = "radians" | "degrees";
 
-const STORAGE_KEY = "mallory-graph:angle-unit";
+const STORAGE_KEY = "mallory:angle-unit";
 const listeners = new Set<(unit: AngleUnit) => void>();
 
 export function getAngleUnit(): AngleUnit {

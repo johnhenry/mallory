@@ -1,6 +1,6 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { useEffect, useRef } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIdsMultiRow, cellIdsNotebookBlock, notebookCurveCellId } from "../lib/cell-ids.ts";
 import { drawAxes, drawExpressionLayer, drawPath, type Viewport } from "../lib/render-path.ts";
 import { pathsToSvgDocument } from "../lib/svg-export.ts";

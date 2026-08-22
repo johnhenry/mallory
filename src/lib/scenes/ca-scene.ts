@@ -1,6 +1,6 @@
 /**
  * Statically-importable ecmanim scenes for CellularAutomataPanel's video
- * export (`export-ca-video.ts`) -- johnhenry/mallory-graph#337. Two exports,
+ * export (`export-ca-video.ts`) -- johnhenry/mallory#337. Two exports,
  * one per animated sub-mode (the 1D mode has no `TransportControls` at all
  * -- see the panel's own doc comment -- so it has nothing to export):
  *

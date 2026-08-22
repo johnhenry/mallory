@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber } from "@johnhenry/math";
 import { autoFitViewport, mapGridLines, polarGridLines, rectangularGridLines } from "./conformal-grid.ts";
 
 const VIEWPORT = { xMin: -2, xMax: 2, yMin: -1, yMax: 1 };

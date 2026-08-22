@@ -41,8 +41,8 @@ mock.module("../lib/saved-graphs.ts", {
 
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { GraphUtils } = await import("mallory-math");
-const { CellGraph } = await import("../lib/cell-graph.ts");
+const { GraphUtils } = await import("@johnhenry/math");
+const { CellGraph } = await import("@johnhenry/math");
 const { cellIdsRegression } = await import("../lib/cell-ids.ts");
 // A component whose props parameter has a default value (`= {}`, as
 // RegressionPanel's does) type-checks oddly against createElement's own

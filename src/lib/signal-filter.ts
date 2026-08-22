@@ -5,7 +5,7 @@
  * `welch` (before/after power spectral density comparison).
  *
  * `btype` is `"lowpass" | "highpass" | "bandpass" | "bandstop"` (the
- * `"band"` types shipped in johnhenry/mallory-plus#90, previously
+ * `"band"` types shipped in johnhenry/math-plus#90, previously
  * blocked -- see this module's git history for the disclosed-gap era).
  * `designFilter`'s own `cutoffHz` overloads mirror `butter`'s: a single
  * Hz number for lowpass/highpass, a `[low, high]` Hz pair for the band

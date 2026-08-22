@@ -9,7 +9,7 @@ export const Route = createFileRoute("/linked")({
 function LinkedPage() {
   return (
     <div>
-      <h1>mallory-graph — linked panes</h1>
+      <h1>mallory — linked panes</h1>
       <details>
         <summary>Two panes, one shared clock.</summary>
         <p>Play or scrub the left pane's timeline and both curves advance together.</p>

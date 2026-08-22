@@ -9,7 +9,7 @@
  *
  * Bandpass/bandstop phrasings ("band-pass between 200 and 800 Hz")
  * shipped alongside `mallory-signal`'s own bandpass/bandstop support
- * (johnhenry/mallory-plus#90) -- previously unsupported here too, tracked
+ * (johnhenry/math-plus#90) -- previously unsupported here too, tracked
  * by the same upstream issue.
  */
 export type FilterCommand =

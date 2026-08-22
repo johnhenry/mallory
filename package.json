@@ -1,13 +1,13 @@
 {
-  "name": "mallory-graph",
+  "name": "mallory",
   "version": "0.0.2",
-  "description": "An interactive graphing calculator built on mallory-math.",
+  "description": "An interactive graphing calculator built on mallory-math (soon @johnhenry/math).",
   "private": true,
   "type": "module",
   "sideEffects": false,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/johnhenry/mallory-graph.git"
+    "url": "git+https://github.com/johnhenry/mallory.git"
   },
   "engines": {
     "node": ">=22.12.0"
@@ -27,8 +27,8 @@
     "mallory-fft": "^0.2.0",
     "mallory-frame-arrow": "^0.1.0",
     "mallory-image": "^0.0.3",
-    "mallory-iteration": "^2.0.0",
-    "mallory-math": "^0.11.0",
+    "@johnhenry/iteration": "^2.0.0",
+    "@johnhenry/math": "^0.15.0",
     "mallory-mcp": "^0.0.2",
     "mallory-signal": "^0.3.0",
     "mallory-tensor-autograd": "^0.2.0",
@@ -43,7 +43,7 @@
     "zod": "^4.4.3"
   },
   "overrides": {
-    "mallory-math": "^0.11.0",
+    "@johnhenry/math": "^0.15.0",
     "mallory-tensor-core": "^0.2.0"
   },
   "devDependencies": {

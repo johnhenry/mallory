@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIdsSystem } from "../lib/cell-ids.ts";
 import type { SystemState } from "../lib/system-state.ts";
 import { SystemSolverPanel, seedSystemState } from "./SystemSolverPanel.tsx";

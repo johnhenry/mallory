@@ -1,4 +1,4 @@
-import { Interval, type Expr } from "mallory-math";
+import { Interval, type Expr } from "@johnhenry/math";
 
 export type IntervalEnv = Record<string, Interval>;
 
@@ -60,7 +60,7 @@ export function evaluateInterval(expr: Expr, env: IntervalEnv): Interval {
 function evaluateIntervalFunc(name: string, x: Interval): Interval {
   switch (name) {
     // Every non-exact elementary function is outward-rounded by 1 ulp per
-    // side (mallory-graph#305 smaller note 1, upstream johnhenry/mallory#57):
+    // side (mallory#305 smaller note 1, upstream johnhenry/math#57):
     // mallory-math's Interval computes bounds with plain Math.* calls and no
     // directed rounding, so a POINT input came back as a point output --
     // `sqrt(2)` displayed `[1.4142135623730951, 1.4142135623730951]`, an

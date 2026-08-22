@@ -1,8 +1,8 @@
-import { Symbolic, type Mesh } from "mallory-math";
+import { Symbolic, type Mesh } from "@johnhenry/math";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { useServerFn } from "@tanstack/react-start";
 import { cellIds3D, TIME_CELL, type CellIds3D } from "../lib/cell-ids.ts";
 import { renderSurfacePreviewFrame, startSurfaceExportJob } from "../lib/export-surface-video.ts";
@@ -172,7 +172,7 @@ export function getPrimaryRow3D(graph: CellGraph, containerIds: CellIds3D): { ro
  * plus a container-level `combinedTimelineDuration` -- Math.max across every
  * row's own `timelineDuration`, guarded the same `Number.isFinite` way
  * Linked3DView's own `COMBINED_DURATION_CELL` already guards its two-pane
- * max (mallory-graph#10's hydration-warning fix), just generalized from 2
+ * max (mallory#10's hydration-warning fix), just generalized from 2
  * fixed panes to N rows -- for the one shared transport widget below to
  * scrub the full length of whichever row's animation is longest.
  */
@@ -216,7 +216,7 @@ export interface Graph3DCanvasProps {
    * linked view where a sibling's transport already drives the shared
    * TIME_CELL (see GraphCanvas's identically-named prop). Defaults to true
    * (standalone use, e.g. this component with no linked 2D sibling, has no
-   * other way to play back an animated free variable -- mallory-graph#8).
+   * other way to play back an animated free variable -- mallory#8).
    */
   showTransport?: boolean;
 }
@@ -321,7 +321,7 @@ export function Graph3DCanvas({
   // Lifted out of VideoExportControls (as a controlled prop) so the preview
   // scrubber below can size its range to the same clip length the Export
   // button will actually render -- see VideoExportControls's own doc
-  // comment on this prop (mallory-graph#9).
+  // comment on this prop (mallory#9).
   const [exportDuration, setExportDuration] = useState(4);
   const containerRef = useRef<HTMLDivElement>(null);
   const surfaceGroupRef = useRef<THREE.Group | null>(null);
@@ -577,11 +577,11 @@ export function Graph3DCanvas({
         </p>
       )}
       {/* Server-side ecmanim export: a full camera orbit around the current
-          surface (johnhenry/mallory-graph#3, pass 2) -- the live Three.js
+          surface (johnhenry/mallory#3, pass 2) -- the live Three.js
           canvas above stays the interactive view; this renders a shareable
           clip of the primary row's z = f(x, y). */}
       <VideoExportControls
-        filenameStem="mallory-graph-surface"
+        filenameStem="mallory-surface"
         duration={exportDuration}
         onDurationChange={setExportDuration}
         start={(format) =>
@@ -590,7 +590,7 @@ export function Graph3DCanvas({
           })
         }
       />
-      {/* Scrub preview (mallory-graph#9): shares buildSurfaceExportInput with
+      {/* Scrub preview (mallory#9): shares buildSurfaceExportInput with
           the Export button above, so it can never drift from the real
           render -- mirrors GraphCanvas's 2D preview slider. */}
       <ExportPreviewScrubber

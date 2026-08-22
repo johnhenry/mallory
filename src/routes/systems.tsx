@@ -9,7 +9,7 @@ export const Route = createFileRoute("/systems")({
 function SystemsPage() {
   return (
     <div>
-      <h1>mallory-graph — system of equations</h1>
+      <h1>mallory — system of equations</h1>
       <details>
         <summary>Solves a system of equations, linear via Symbolic.solveSystem or nonlinear via a numeric fallback.</summary>
         <p>

@@ -673,7 +673,7 @@ export function cellIdsGradientDescent(cellId: string) {
     stepSize: `gdStepSize:${cellId}`,
     gamma: `gdGamma:${cellId}`,
     // SGD momentum/Nesterov (issue #33's last remaining item, unblocked
-    // by johnhenry/mallory-plus#89) -- only shown/read when SGD is one of
+    // by johnhenry/math-plus#89) -- only shown/read when SGD is one of
     // the racing optimizers, applied uniformly to every SGD run.
     momentum: `gdMomentum:${cellId}`,
     nesterov: `gdNesterov:${cellId}`,

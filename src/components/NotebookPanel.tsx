@@ -1,7 +1,7 @@
 import { addLocalSave } from "../lib/local-saves.ts";
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import {
   cellIds3D,
   cellIdsComplex,
@@ -518,12 +518,12 @@ export function NotebookPanel() {
 
   function handleExportMarkdown() {
     const md = notebookToMarkdown(getCurrentNotebookState(graph, blocks), captureGraphBlockImages());
-    downloadTextFile(md, "mallory-graph-notebook.md");
+    downloadTextFile(md, "mallory-notebook.md");
   }
 
   function handleExportLatex() {
     const tex = notebookToLatex(getCurrentNotebookState(graph, blocks));
-    downloadTextFile(tex, "mallory-graph-notebook.tex");
+    downloadTextFile(tex, "mallory-notebook.tex");
   }
 
   // Mirrors GraphCanvasMulti's own writeUrl/subscribeAll pattern, plus a

@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setupTestDom } from "../lib/test-dom.ts";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsGeometry } from "../lib/cell-ids.ts";
 import type { GeometryOp } from "../lib/geometry-state.ts";
 

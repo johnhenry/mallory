@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber } from "@johnhenry/math";
 import { domainColor, renderDomainColoring } from "./complex-raster.ts";
 import { nthRootsOfUnity } from "./roots-of-unity.ts";
 import type { Viewport } from "./viewport.ts";

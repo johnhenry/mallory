@@ -1,4 +1,4 @@
-import { Symbolic, type Expr, type Path2D } from "mallory-math";
+import { Symbolic, type Expr, type Path2D } from "@johnhenry/math";
 import { exprToLatex } from "./expr-to-latex.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import { sampleExpr, type Domain } from "./sample-function.ts";

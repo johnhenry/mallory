@@ -1,4 +1,4 @@
-import type { Path2D } from "mallory-math";
+import type { Path2D } from "@johnhenry/math";
 import { findPeaks, type FindPeaksOptions } from "mallory-signal";
 import { Tensor } from "mallory-tensor-core";
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "./cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsMatrix } from "./cell-ids.ts";
 import { resolveMatrixChatCommand } from "./matrix-chat-commands.ts";
 import { computeDecompositions, computeDeterminant, computeInverse, type Mat } from "./matrix-ops.ts";

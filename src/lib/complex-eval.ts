@@ -1,4 +1,4 @@
-import { ComplexNumber, type Expr } from "mallory-math";
+import { ComplexNumber, type Expr } from "@johnhenry/math";
 
 export type ComplexEnv = Record<string, ComplexNumber>;
 

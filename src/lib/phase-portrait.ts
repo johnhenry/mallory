@@ -1,4 +1,4 @@
-import { ComplexNumber, Symbolic, SystemDidNotConvergeError, type Expr } from "mallory-math";
+import { ComplexNumber, Symbolic, SystemDidNotConvergeError, type Expr } from "@johnhenry/math";
 import { linalg } from "mallory-adapter-math";
 import { Tensor } from "mallory-tensor-core";
 import type { Domain } from "./sample-function.ts";

@@ -1,4 +1,4 @@
-import { HypothesisTests, type TestResult } from "mallory-math";
+import { HypothesisTests, type TestResult } from "@johnhenry/math";
 
 export type HypothesisTestType = "oneSampleT" | "twoSampleT" | "chiSquareGoF" | "confidenceInterval";
 

@@ -1,4 +1,4 @@
-import type { BinaryFuncName, CmpOp, Expr, FuncName } from "mallory-math";
+import type { BinaryFuncName, CmpOp, Expr, FuncName } from "@johnhenry/math";
 
 const PREC: Record<string, number> = { add: 1, sub: 1, mul: 2, div: 2, neg: 3, pow: 4, cmp: 0 };
 

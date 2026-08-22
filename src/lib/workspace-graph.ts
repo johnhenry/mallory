@@ -1,4 +1,4 @@
-import { CellGraph } from "./cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { workspaceValueCellId } from "./cell-ids.ts";
 
 export interface WorkspaceVariable {
@@ -25,7 +25,7 @@ export function listWorkspaceVariables(graph: CellGraph): WorkspaceVariable[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-const STORAGE_KEY = "mallory-graph:workspace";
+const STORAGE_KEY = "mallory:workspace";
 
 function loadStoredVariables(): WorkspaceVariable[] {
   try {

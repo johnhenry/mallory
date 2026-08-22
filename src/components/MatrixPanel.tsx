@@ -1,6 +1,6 @@
-import type { ComplexNumber, Graph } from "mallory-math";
+import type { ComplexNumber, Graph } from "@johnhenry/math";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsMatrix, type CellIdsMatrix } from "../lib/cell-ids.ts";
 import { circularLayout } from "../lib/graph-ops.ts";
 import { matrixToGraph } from "../lib/frobenius.ts";

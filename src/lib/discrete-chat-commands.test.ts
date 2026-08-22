@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "./cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsDiscrete } from "./cell-ids.ts";
 import { resolveDiscreteChatCommand } from "./discrete-chat-commands.ts";
 import { buildGroupInfo, factorizeForPanel, solveCrt, tracedGcd, type GroupKind } from "./discrete-math.ts";

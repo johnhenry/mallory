@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CellGraph } from "../lib/cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { cellIdsParametricSurface } from "../lib/cell-ids.ts";
 import { appendRow, removeRow } from "../lib/multi-panel-rows.ts";
 import { DEFAULT_PARAMETRIC_SURFACE_STATE, decodeParametricSurfaceState, encodeParametricSurfaceState } from "../lib/parametric-surface-state.ts";

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ComplexNumber } from "mallory-math";
+import { ComplexNumber } from "@johnhenry/math";
 
-// Pins the mallory-math@0.9.0 ComplexNumber API surface this app depends on
+// Pins the @johnhenry/math@0.15.0 ComplexNumber API surface this app depends on
 // (issue #19) -- not a test of app code, a dependency-version smoke test.
+// (Version cross-checked against packages/math/package.json in the math monorepo.)
 test("mallory-math ComplexNumber exposes the completed hyperbolic family", () => {
   const z = new ComplexNumber(1, 2);
   assert.ok(typeof z.hyperbolicTangent === "function");

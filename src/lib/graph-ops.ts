@@ -1,4 +1,4 @@
-import { Graph, type Edge } from "mallory-math";
+import { Graph, type Edge } from "@johnhenry/math";
 
 /**
  * Parses a graph from a text edge list: one edge per line, "from to

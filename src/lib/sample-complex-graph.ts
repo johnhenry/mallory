@@ -1,4 +1,4 @@
-import { ComplexNumber, Symbolic } from "mallory-math";
+import { ComplexNumber, Symbolic } from "@johnhenry/math";
 import { evaluateComplex } from "./complex-eval.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import type { Domain1D, SpaceCurvePoint } from "./sample-space-curve.ts";

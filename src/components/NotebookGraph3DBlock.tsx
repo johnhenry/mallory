@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CellGraph } from "../lib/cell-graph.ts";
+import type { CellGraph } from "@johnhenry/math";
 import { cellIds3D } from "../lib/cell-ids.ts";
 import { Graph3DCanvas, getPrimaryRow3D } from "./Graph3DCanvas.tsx";
 

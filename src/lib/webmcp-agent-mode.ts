@@ -12,7 +12,7 @@
  * `document.modelContext` -- or lack of one -- from a clean mount) instead
  * of needing bespoke "the runtime just appeared/disappeared" handling.
  */
-const STORAGE_KEY = "mallory-graph:agent-mode";
+const STORAGE_KEY = "mallory:agent-mode";
 
 export function isAgentModeEnabled(): boolean {
   if (typeof window === "undefined") return false;

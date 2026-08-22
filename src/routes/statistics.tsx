@@ -9,7 +9,7 @@ export const Route = createFileRoute("/statistics")({
 function StatisticsPage() {
   return (
     <div>
-      <h1>mallory-graph — statistics &amp; probability</h1>
+      <h1>mallory — statistics &amp; probability</h1>
       <details>
         <summary>Descriptive statistics plus an interval-probability calculator over five distributions.</summary>
         <p>

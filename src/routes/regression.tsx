@@ -9,7 +9,7 @@ export const Route = createFileRoute("/regression")({
 function RegressionPage() {
   return (
     <div>
-      <h1>mallory-graph — regression</h1>
+      <h1>mallory — regression</h1>
       <details>
         <summary>Linear or nonlinear regression over a spreadsheet-style (x, y) row list.</summary>
         <p>

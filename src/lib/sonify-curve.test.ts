@@ -11,7 +11,7 @@ const PATH = {
     { op: "lineTo", x: 5, y: 1 },
     { op: "lineTo", x: 10, y: -1 },
   ],
-} as import("mallory-math").Path2D;
+} as import("@johnhenry/math").Path2D;
 
 test("xToSweepTime: maps the viewport's x-range linearly onto [0, durationSeconds]", () => {
   assert.equal(xToSweepTime(0, VIEWPORT, 4), 0);
@@ -33,14 +33,14 @@ test("buildSonificationSchedule: returns exactly stepCount steps, evenly spaced 
 });
 
 test("buildSonificationSchedule: y at the viewport's y-min/y-max maps to the min/max frequency", () => {
-  const flatLow: import("mallory-math").Path2D = {
+  const flatLow: import("@johnhenry/math").Path2D = {
     stroke: STROKE,
     commands: [
       { op: "moveTo", x: 0, y: -1 },
       { op: "lineTo", x: 10, y: -1 },
     ],
   };
-  const flatHigh: import("mallory-math").Path2D = {
+  const flatHigh: import("@johnhenry/math").Path2D = {
     stroke: STROKE,
     commands: [
       { op: "moveTo", x: 0, y: 1 },
@@ -54,7 +54,7 @@ test("buildSonificationSchedule: y at the viewport's y-min/y-max maps to the min
 });
 
 test("buildSonificationSchedule: a step whose x falls inside a discontinuity gap is silent (frequency: null)", () => {
-  const gapPath: import("mallory-math").Path2D = {
+  const gapPath: import("@johnhenry/math").Path2D = {
     stroke: STROKE,
     commands: [
       { op: "moveTo", x: 0, y: 0 },
@@ -72,7 +72,7 @@ test("buildSonificationSchedule: a step whose x falls inside a discontinuity gap
 });
 
 test("buildSonificationSchedule: an empty path produces an all-silent schedule of the right length, not a crash", () => {
-  const empty: import("mallory-math").Path2D = { stroke: STROKE, commands: [] };
+  const empty: import("@johnhenry/math").Path2D = { stroke: STROKE, commands: [] };
   const schedule = buildSonificationSchedule(empty, [], VIEWPORT, 2, { stepCount: 4 });
   assert.equal(schedule.length, 4);
   assert.ok(schedule.every((s) => s.frequency === null));
