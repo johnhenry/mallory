@@ -1,6 +1,6 @@
 import type { Path2D } from "@johnhenry/math";
-import { findPeaks, type FindPeaksOptions } from "mallory-signal";
-import { Tensor } from "mallory-tensor-core";
+import { findPeaks, type FindPeaksOptions } from "@johnhenry/math-plus-signal";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 
 export interface CurveExtremum {
   x: number;

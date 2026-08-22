@@ -14,9 +14,9 @@
  * spectrum and the autocorrelation surface are two pictures of one
  * underlying measure.
  */
-import { ComplexTensor, fft2, fftshift } from "mallory-fft";
-import { correlate2D } from "mallory-signal";
-import { Tensor } from "mallory-tensor-core";
+import { ComplexTensor, fft2, fftshift } from "@johnhenry/math-plus-fft";
+import { correlate2D } from "@johnhenry/math-plus-signal";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import type { WangGrid } from "./tile-model.ts";
 
 /** `1` at every cell of `grid` whose tile id equals `tileId`, `0` elsewhere. */

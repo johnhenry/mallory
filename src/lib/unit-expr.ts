@@ -1,4 +1,4 @@
-import { Unit } from "mallory-unit";
+import { Unit } from "@johnhenry/math-plus-unit";
 
 /**
  * A minimal whitespace-tokenized arithmetic grammar over `mallory-unit`'s

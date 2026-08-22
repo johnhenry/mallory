@@ -1,7 +1,7 @@
 import { Symbolic } from "@johnhenry/math";
-import { rfft } from "mallory-fft";
-import { findPeaks, hannWindow, stft } from "mallory-signal";
-import { Tensor } from "mallory-tensor-core";
+import { rfft } from "@johnhenry/math-plus-fft";
+import { findPeaks, hannWindow, stft } from "@johnhenry/math-plus-signal";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import { finiteRange, heatCellColor } from "./heatmap.ts";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 import { getThemeColors } from "./theme-colors.ts";

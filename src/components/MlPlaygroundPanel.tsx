@@ -1,6 +1,6 @@
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { metric } from "mallory-telemetry";
+import { metric } from "@johnhenry/math-plus-telemetry";
 import { CellGraph } from "@johnhenry/math";
 import { cellIdsMlPlayground, type CellIdsMlPlayground } from "../lib/cell-ids.ts";
 import { startMlExportJob } from "../lib/export-ml-video.ts";

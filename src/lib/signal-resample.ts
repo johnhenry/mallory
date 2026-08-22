@@ -1,5 +1,5 @@
-import { resamplePoly } from "mallory-signal";
-import { Tensor } from "mallory-tensor-core";
+import { resamplePoly } from "@johnhenry/math-plus-signal";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import type { Waveform } from "./signal-waveform.ts";
 
 /**

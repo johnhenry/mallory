@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SciPy/SymPy verification oracle for mallory's own numeric samplers
 (issue #41's remaining "differential oracles for the samplers" item) --
-mallory-ts's proven subprocess-oracle pattern (packages/math/scripts/sympy_oracle.py),
+@johnhenry/math's proven subprocess-oracle pattern (packages/math/scripts/sympy_oracle.py),
 reapplied here against mallory's OWN wiring (sampleOdeSolution,
 Symbolic.integrateDefinite as GraphCanvas's area-under-curve cell calls it),
 not just @johnhenry/math's bare primitives.

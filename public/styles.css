@@ -57,7 +57,7 @@ table {
   }
 }
 
-/* ==================== SPA shell (mallory-graph's sidebar app pass) ====================
+/* ==================== SPA shell (mallory's sidebar app pass) ====================
    Scoped entirely under .app-shell so every legacy page above is untouched. */
 
 :root {

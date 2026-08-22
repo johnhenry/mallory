@@ -1,7 +1,7 @@
 import { Symbolic } from "@johnhenry/math";
-import { compileExpr } from "mallory-adapter-math";
-import { optim, variable } from "mallory-tensor-autograd";
-import { Tensor } from "mallory-tensor-core";
+import { compileExpr } from "@johnhenry/math-plus-adapter-math";
+import { optim, variable } from "@johnhenry/math-plus-tensor-autograd";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 
 export type OptimizerType = "sgd" | "adam" | "rmsprop";

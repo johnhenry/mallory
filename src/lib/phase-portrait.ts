@@ -1,6 +1,6 @@
 import { ComplexNumber, Symbolic, SystemDidNotConvergeError, type Expr } from "@johnhenry/math";
-import { linalg } from "mallory-adapter-math";
-import { Tensor } from "mallory-tensor-core";
+import { linalg } from "@johnhenry/math-plus-adapter-math";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import type { Domain } from "./sample-function.ts";
 import type { OdeSystemSpec } from "./sample-ode.ts";
 

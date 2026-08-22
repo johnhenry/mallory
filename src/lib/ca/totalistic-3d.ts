@@ -13,7 +13,7 @@
  * two-digit counts, which digit-concatenation can't represent unambiguously
  * (is "12" the single count twelve, or the two counts one and two?).
  */
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import { decodeCustomGrid3D } from "./custom-grid.ts";
 
 export type Cell = 0 | 1;

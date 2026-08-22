@@ -45,7 +45,7 @@ import {
 import { pruneToSccSustainable, solveTorus, solveWang, solveWangViaSat, type Direction, type SolveStep, type Tile, type TileSet, type WangGrid } from "../lib/tiles/tile-model.ts";
 import { patchCensusGrowth } from "../lib/tiles/patch-census.ts";
 import { solveWangWeighted, type TileWeights } from "../lib/tiles/weighted-tiling.ts";
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import { triCenterX, triCorners, triEdgeSegment } from "../lib/tiles/tri-geometry.ts";
 import { solveTri, type TriGrid, type TriTile, type TriTileSet } from "../lib/tiles/tri-tile-model.ts";
 import { DEFAULT_TRI_TILES_TEXT, parseTriTileSetText } from "../lib/tri-tile-set-text.ts";

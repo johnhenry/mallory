@@ -1,6 +1,6 @@
-import { nn, optim, trainer, variable } from "mallory-tensor-autograd";
-import { Rng, Tensor } from "mallory-tensor-core";
-import { setSink, type TrainingEvent } from "mallory-telemetry";
+import { nn, optim, trainer, variable } from "@johnhenry/math-plus-tensor-autograd";
+import { Rng, Tensor } from "@johnhenry/math-plus-tensor-core";
+import { setSink, type TrainingEvent } from "@johnhenry/math-plus-telemetry";
 
 export type DatasetType = "xor" | "moons" | "rings" | "drawn" | "csv";
 

@@ -5,8 +5,8 @@
  * ("rate-limited fetch of a public dataset"), which would add an external
  * network dependency this repo's other demo panels don't have.
  */
-import { Dataset } from "mallory-data";
-import { mapConcurrentAsync, teeAsync, windowedAsync } from "mallory-iteration";
+import { Dataset } from "@johnhenry/math-plus-data";
+import { mapConcurrentAsync, teeAsync, windowedAsync } from "@johnhenry/iteration";
 
 /**
  * Demo A: "watch epochs reshuffle". Runs a Dataset of `[0, size)` through

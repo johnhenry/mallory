@@ -1,6 +1,6 @@
-import { Tensor } from "mallory-tensor-core";
-import { normalize, resize } from "mallory-image";
-import { ComplexTensor, fft2, fftshift, ifft2, ifftshift } from "mallory-fft";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
+import { normalize, resize } from "@johnhenry/math-plus-image";
+import { ComplexTensor, fft2, fftshift, ifft2, ifftshift } from "@johnhenry/math-plus-fft";
 
 export type PatternType = "checkerboard" | "stripes" | "circle" | "gradient" | "moire" | "upload" | "live-camera";
 

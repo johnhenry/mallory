@@ -1,6 +1,6 @@
 /**
- * Agent-access opt-in toggle (mallory-graph's WebMCP pass). Off by default:
- * mallory-graph is publicly deployed, and the WebMCP local relay's own docs
+ * Agent-access opt-in toggle (mallory's WebMCP pass). Off by default:
+ * mallory is publicly deployed, and the WebMCP local relay's own docs
  * warn its default config lets *any* open browser tab register tools with
  * it -- so this must be a deliberate, visible per-browser choice, not
  * something that silently runs for every visitor.

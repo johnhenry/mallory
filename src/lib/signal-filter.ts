@@ -12,11 +12,11 @@
  * types, both converted to `butter`'s normalized `wn` convention (1 = the
  * Nyquist frequency) via the same `hz / nyquist` division either way.
  */
-import { butter, freqz, sosFilter, welch, type FilterType, type Sos } from "mallory-signal";
-import { Tensor } from "mallory-tensor-core";
+import { butter, freqz, sosFilter, welch, type FilterType, type Sos } from "@johnhenry/math-plus-signal";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import type { Waveform } from "./signal-waveform.ts";
 
-export type { FilterType, Sos } from "mallory-signal";
+export type { FilterType, Sos } from "@johnhenry/math-plus-signal";
 
 function toWn(cutoffHz: number, nyquist: number): number {
   const wn = cutoffHz / nyquist;

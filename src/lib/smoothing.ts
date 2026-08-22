@@ -1,4 +1,4 @@
-import { convolve1D } from "mallory-signal";
+import { convolve1D } from "@johnhenry/math-plus-signal";
 
 export type KernelType = "moving-average" | "gaussian";
 

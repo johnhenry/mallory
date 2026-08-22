@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import {
   initialRow,
   NAMED_ELEMENTARY_RULES,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { UnsupportedExprError } from "mallory-adapter-math";
+import { UnsupportedExprError } from "@johnhenry/math-plus-adapter-math";
 import { runGradientDescent } from "./gradient-descent.ts";
 
 const BOWL = "(x-1)^2 + (y+2)^2"; // unique minimum at (1, -2), f=0

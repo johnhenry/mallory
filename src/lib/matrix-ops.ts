@@ -1,6 +1,6 @@
 import { ComplexNumber, MatrixMath, Structure, Vector, type EigenResult, type LUResult, type QRResult, type SVDResult } from "@johnhenry/math";
-import { linalg } from "mallory-adapter-math";
-import { Tensor } from "mallory-tensor-core";
+import { linalg } from "@johnhenry/math-plus-adapter-math";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 
 export type Mat = number[][];
 

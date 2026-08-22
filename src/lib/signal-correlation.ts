@@ -1,4 +1,4 @@
-import { correlate1D } from "mallory-signal";
+import { correlate1D } from "@johnhenry/math-plus-signal";
 import type { Waveform } from "./signal-waveform.ts";
 
 export interface CorrelationResult {

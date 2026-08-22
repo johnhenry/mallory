@@ -31,7 +31,7 @@
  * always shows every generation regardless of the chosen duration.
  */
 import { Box, Square, ThreeDCamera, ThreeDScene, VGroup } from "ecmanim/node";
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import { SQUARE_HALF_SPAN } from "../export-render.ts";
 import { initialGrid, parseBSRule, spacetimeLifeLike, type Boundary as Boundary2D, type InitialCondition as InitialCondition2D } from "../ca/life-like.ts";
 import { parseTotalisticRule3D, randomGrid3D, spacetimeTotalistic3D, type Boundary as Boundary3D } from "../ca/totalistic-3d.ts";

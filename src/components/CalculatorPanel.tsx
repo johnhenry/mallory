@@ -31,7 +31,7 @@ const STRUCTURE_OPTIONS: Array<{ label: string; modulus: number | null }> = [
  * unlike every other panel in this app, it needs no CellGraph (nothing else
  * derives from its state) and persists to `localStorage` rather than a URL
  * hash or the server-backed Gallery, since a scratch calculation isn't the
- * kind of thing worth a shareable link (mallory-graph's SPA-shell pass).
+ * kind of thing worth a shareable link (mallory's SPA-shell pass).
  *
  * State lives in `calculator-store.ts`, a module-level store keyed by
  * `storageKey` (not local `useState`) -- issue #340's floating calculator

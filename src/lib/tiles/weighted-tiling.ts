@@ -17,7 +17,7 @@
  * still guarantees the search is exhaustive over the exact same candidate
  * SET -- if a solution exists, this finds one, same as `solveWang`.
  */
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import { tilesCompatible, type SolveStep, type Tile, type TileSet, type WangGrid } from "./tile-model.ts";
 
 /** Tile id -> non-negative weight. Missing ids default to weight 1 (uniform); a 0 weight never gets picked while any positive-weight candidate remains. */

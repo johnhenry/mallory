@@ -1224,7 +1224,7 @@ export function GeometryPanel({ graph: externalGraph, syncUrl = true, cellId = "
   // One WebMCP tool per construction, each a thin wrapper over the function
   // above -- these already take data coordinates/point ids directly (not
   // pixel positions or pointer events), so there's no new logic here, just
-  // registration (mallory-graph's WebMCP pass). Every add* function returns
+  // registration (mallory's WebMCP pass). Every add* function returns
   // (or, for the void ones, is immediately followed by reading) the new
   // object's id, so an agent can chain calls: add two points, then a line
   // between the returned ids.

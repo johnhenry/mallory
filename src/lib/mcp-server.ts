@@ -47,7 +47,7 @@
  * calls" for its own tools, so per-request server construction costs
  * nothing extra to keep consistent.
  */
-import { buildServer } from "mallory-mcp";
+import { buildServer } from "@johnhenry/math-plus-mcp";
 import { z } from "zod";
 import { GALLERY_SEEDS } from "./gallery-seeds.ts";
 import {

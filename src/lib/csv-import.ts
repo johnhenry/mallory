@@ -1,4 +1,4 @@
-import { Frame, type DType, type FieldDescriptor } from "mallory-frame-arrow";
+import { Frame, type DType, type FieldDescriptor } from "@johnhenry/math-plus-frame-arrow";
 import { MAX_CLASSES, type LabeledPoint } from "./ml-playground.ts";
 
 const MAX_ROWS = 10000;

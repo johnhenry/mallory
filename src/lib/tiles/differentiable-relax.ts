@@ -25,8 +25,8 @@
  * `Variable`, but a constant selector matmul is differentiable through
  * the tracked side for free.
  */
-import { optim, variable, constant, type Variable } from "mallory-tensor-autograd";
-import { random, Tensor } from "mallory-tensor-core";
+import { optim, variable, constant, type Variable } from "@johnhenry/math-plus-tensor-autograd";
+import { random, Tensor } from "@johnhenry/math-plus-tensor-core";
 import { tilesCompatible, type Direction, type Tile, type TileSet, type WangGrid } from "./tile-model.ts";
 
 export interface RelaxOptions {

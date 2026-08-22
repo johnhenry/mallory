@@ -13,7 +13,7 @@
  * without needing a bespoke dynamic-import gate.
  */
 import { type PointerEvent, useEffect, useRef, useState } from "react";
-import { onnx, type OnnxModel } from "mallory-adapter-onnx";
+import { onnx, type OnnxModel } from "@johnhenry/math-plus-adapter-onnx";
 import { env } from "onnxruntime-web";
 import { canvasToMnistInput, rankDigitPredictions, type DigitPrediction } from "../lib/mnist-preprocess.ts";
 import { canvasEventPoint } from "../lib/viewport.ts";

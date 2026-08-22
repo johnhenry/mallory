@@ -20,7 +20,7 @@
  * strictly more general and the adjacency-list matvec costs no more than
  * a dense one would at the small-tile-set scale this lab targets).
  */
-import { linalg } from "mallory-adapter-math";
+import { linalg } from "@johnhenry/math-plus-adapter-math";
 import { tilesCompatible, type Tile, type TileSet } from "./tile-model.ts";
 
 export interface StripEntropyResult {

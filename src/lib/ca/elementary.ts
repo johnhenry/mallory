@@ -9,7 +9,7 @@
  * is the top/8th bit, which is 0), so `1,1,1 -> 0` under Rule 30 --
  * matching every published Rule-30 truth table (Wolfram, MathWorld).
  */
-import { Rng } from "mallory-tensor-core";
+import { Rng } from "@johnhenry/math-plus-tensor-core";
 import { decodeCustomRow } from "./custom-grid.ts";
 
 export type Cell = 0 | 1;

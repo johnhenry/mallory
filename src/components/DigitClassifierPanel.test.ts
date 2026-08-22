@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Tensor } from "mallory-tensor-core";
-import { onnx } from "mallory-adapter-onnx";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
+import { onnx } from "@johnhenry/math-plus-adapter-onnx";
 import { setupTestDom } from "../lib/test-dom.ts";
 
 const { createElement, mount, domWindow } = await setupTestDom();

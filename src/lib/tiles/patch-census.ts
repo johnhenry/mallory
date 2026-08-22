@@ -12,7 +12,7 @@
  * Square lattice only, matching every other analysis feature (entropy,
  * diffraction) in this lab.
  */
-import { Tensor } from "mallory-tensor-core";
+import { Tensor } from "@johnhenry/math-plus-tensor-core";
 import type { WangGrid } from "./tile-model.ts";
 
 export interface PatchCensusResult {
