@@ -108,9 +108,14 @@ test("evaluateCalculatorExpr in interval mode: sqrt(2) returns rigorous bounds c
 });
 
 test("evaluateCalculatorExpr in interval mode: a previously-defined variable is treated as a degenerate point interval", () => {
+  // @johnhenry/math's Interval.pow outward-rounds its result by ~1 ulp per
+  // side even when exact (johnhenry/math#57), so 3^2 displays a hair wider
+  // than "[9, 9]" -- assert containment and midpoint proximity instead of
+  // the exact display string, same approach the sqrt(2) test above uses.
   const result = evaluateCalculatorExpr("r^2", { r: 3 }, "interval", null);
   assert.equal(result.isError, false);
-  assert.equal(result.display, "[9, 9]");
+  assert.match(result.display, /^\[8\.999999999999\d*, 9\.000000000000\d*\]$/);
+  assert.ok(result.value !== null && Math.abs(result.value - 9) < 1e-9);
 });
 
 test("evaluateCalculatorExpr in interval mode: division by zero surfaces as an error, not NaN or a crash", () => {

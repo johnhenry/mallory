@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Interval, Symbolic } from "@johnhenry/math";
-import { evaluateInterval, nextDown, nextUp } from "./interval-eval.ts";
+import { evaluateInterval } from "./interval-eval.ts";
 
 test("evaluateInterval: matches hand-computed bounds for x^2 over [1,2] ([1,4])", () => {
+  // @johnhenry/math's Interval.pow outward-rounds its result by ~1 ulp per
+  // side even when exact (johnhenry/math#57), so [1,4] comes back a hair
+  // WIDER than [1, 4] -- assert containment of the exact bounds, not equality.
   const expr = Symbolic.parse("x^2");
   const result = evaluateInterval(expr, { x: new Interval(1, 2) });
-  assert.equal(result.lo, 1);
-  assert.equal(result.hi, 4);
+  assert.ok(result.lo <= 1 && result.hi >= 4);
 });
 
 test("evaluateInterval: add/subtract/multiply/negate against hand-computed interval arithmetic", () => {
@@ -112,24 +114,22 @@ test("evaluateInterval: property test -- the result interval contains the float 
   assert.ok(checkedAtLeastOnce, "the property sweep never actually compared anything -- test setup is broken");
 });
 
-// -- outward rounding (mallory#305, upstream johnhenry/math#57) ----
-
-test("nextUp/nextDown: step exactly one representable double, symmetric across zero", () => {
-  assert.ok(nextUp(1) > 1);
-  assert.equal(nextUp(1), 1 + Number.EPSILON);
-  assert.ok(nextDown(1) < 1);
-  assert.equal(nextUp(0), Number.MIN_VALUE);
-  assert.equal(nextDown(0), -Number.MIN_VALUE);
-  assert.equal(nextDown(-1), -(1 + Number.EPSILON));
-});
+// -- outward rounding (mallory#305, now native to @johnhenry/math's Interval
+// itself -- johnhenry/math#57) ----
+//
+// interval-eval.ts used to carry a LOCAL nextUp/nextDown-based outward()
+// wrapper around sqrt/exp/ln/sin/cos, worked around here before the fix
+// landed upstream. That wrapper (and its own unit test) is gone now that
+// Interval outward-rounds these -- and every other non-exact op -- natively;
+// the exact-ulp-of-slack behavior is @johnhenry/math's own to test (see its
+// Interval test suite), not this file's. What's left to verify here is just
+// that the containment guarantee actually holds end-to-end through this
+// AST walker.
 
 test("#305: sqrt(2) on a point interval yields strictly widened bounds that CONTAIN the true value, not a degenerate point", () => {
   const result = evaluateInterval(Symbolic.parse("sqrt(2)"), {});
   assert.ok(result.lo < result.hi, "bounds must differ -- sqrt(2) is irrational, a point interval cannot contain it");
   assert.ok(result.lo < Math.SQRT2 && Math.SQRT2 < result.hi);
-  // ...but only barely: exactly 1 ulp of slack each side of the correctly-rounded float.
-  assert.equal(nextUp(result.lo), Math.SQRT2);
-  assert.equal(nextDown(result.hi), Math.SQRT2);
 });
 
 test("outward rounding applies to exp/ln/sin/cos too; abs stays exact", () => {
