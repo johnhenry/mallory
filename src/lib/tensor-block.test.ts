@@ -74,7 +74,7 @@ test('applyTensorOp: "none" round-trips the grid unchanged', () => {
   assert.deepEqual(applyTensorOp(grid, "none"), grid);
 });
 
-test("applyTensorOp: pad borders a 2x3 grid with `arg` zeros on all four sides, matching mallory-tensor-core's own pad() directly", () => {
+test("applyTensorOp: pad borders a 2x3 grid with `arg` zeros on all four sides, matching @johnhenry/math-plus-tensor-core's own pad() directly", () => {
   const grid = [
     [1, 2, 3],
     [4, 5, 6],

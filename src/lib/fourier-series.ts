@@ -3,7 +3,7 @@
  * (issue #26's last remaining item) -- pure closed-form finite sums, no
  * `Symbolic` parsing needed for the sum itself (there's no user-entered
  * expression here, just a wave type and a harmonic count) and no
- * `mallory-signal` dependency (this isn't FFT/spectral analysis, just the
+ * `@johnhenry/math-plus-signal` dependency (this isn't FFT/spectral analysis, just the
  * textbook truncated-series formulas). Increasing `n` visibly demonstrates
  * the Gibbs phenomenon: the partial sum's overshoot near a discontinuity
  * does NOT shrink as n grows, only narrows.

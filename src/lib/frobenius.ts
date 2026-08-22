@@ -3,7 +3,7 @@
  * Undervalued Fact of Linear Algebra"): every nonnegative square matrix IS
  * a weighted directed graph -- row i is node i's outgoing edges, column i
  * its incoming edges, a zero entry means "no edge." Strongly connected
- * components (mallory-math's `Graph.stronglyConnectedComponents`, Tarjan)
+ * components (@johnhenry/math's `Graph.stronglyConnectedComponents`, Tarjan)
  * plus a topological order of their condensation give the FROBENIUS NORMAL
  * FORM: relabeling nodes so component-source-to-sink order matches row/
  * column order makes the matrix upper block-triangular, with an

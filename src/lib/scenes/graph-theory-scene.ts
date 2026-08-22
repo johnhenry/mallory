@@ -16,7 +16,7 @@
  * `runBfs`/`runDfs`/`runDijkstra`/`runShortestPath`/`runMst`,
  * `traversalSteps`/`bfsLayerSteps`/`dijkstraSteps`/`pathSteps`/`mstSteps`,
  * `computeLayout`) -- see `graph-algorithm-steps.ts`'s own doc comment for
- * why each step order is authentic to what mallory-math itself returned,
+ * why each step order is authentic to what @johnhenry/math itself returned,
  * not a re-derivation.
  *
  * Vertex/edge mobjects are built ONCE (positioned via `computeLayout`,

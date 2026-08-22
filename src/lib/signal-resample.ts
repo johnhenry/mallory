@@ -4,7 +4,7 @@ import type { Waveform } from "./signal-waveform.ts";
 
 /**
  * Resamples `waveform` to `up/down` times its original sample rate via
- * `mallory-signal`'s polyphase `resamplePoly` (issue #31's "extras" item) --
+ * `@johnhenry/math-plus-signal`'s polyphase `resamplePoly` (issue #31's "extras" item) --
  * confirmed directly against the real installed package before writing this:
  * `up=1,down=1` is an exact identity (no filtering applied at all, per its
  * own source's early-return branch), and up-sampling produces exactly

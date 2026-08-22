@@ -67,7 +67,7 @@ export interface SignalStateV2 {
   /**
    * Filter design (issue #31's remaining pipeline stages 4-5) -- optional
    * for the same reason as every other field above. `filterType` is
-   * `mallory-signal`'s own `FilterType`, kept as a plain `string` here
+   * `@johnhenry/math-plus-signal`'s own `FilterType`, kept as a plain `string` here
    * (not re-imported) to keep this module dependency-free of the panel's
    * own math-library imports, matching this file's existing convention.
    */

@@ -8,7 +8,7 @@ const MAX_ML_POINTS = 1000;
 
 export interface ParsedCsv {
   header: string[];
-  /** Stringified cells, for the preview table's raw-text display only -- `numericColumn`/`pairedNumericColumns` read `typedRows` instead, to keep `mallory-frame-arrow`'s real per-column dtype inference (rather than re-parsing text). */
+  /** Stringified cells, for the preview table's raw-text display only -- `numericColumn`/`pairedNumericColumns` read `typedRows` instead, to keep `@johnhenry/math-plus-frame-arrow`'s real per-column dtype inference (rather than re-parsing text). */
   rows: string[][];
   schema: FieldDescriptor[];
   /** Real typed cell values from `Frame.toRows()` -- notably `bigint` (not `number`) for an `int64` column, exact beyond `Number.MAX_SAFE_INTEGER` unlike a naive `Number()` parse. */
@@ -42,7 +42,7 @@ function toNumber(raw: unknown): number {
 
 /**
  * CSV parsing + per-column dtype inference (issue #36), delegated to
- * `mallory-frame-arrow`'s `Frame.fromCSV` (math-plus#86) -- this app's
+ * `@johnhenry/math-plus-frame-arrow`'s `Frame.fromCSV` (math-plus#86) -- this app's
  * own hand-rolled RFC-4180 tokenizer (see git history) is retired now that
  * the package has a real reader with an identical error-message format
  * (verified: both throw "Row N has X fields, but the header has Y." and

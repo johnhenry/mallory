@@ -1,8 +1,8 @@
 /**
  * Hex-lattice Wang tiles (issue #92 M3's hex/tri lattice generalization,
  * hex half). A `HexTile` has one edge label per one of the 6 axial
- * directions (mallory-math's `HexDirection`, the standard pointy-top
- * ordering E/NE/NW/W/SW/SE), matching mallory-math's own `HEX_AXIAL_
+ * directions (@johnhenry/math's `HexDirection`, the standard pointy-top
+ * ordering E/NE/NW/W/SW/SE), matching @johnhenry/math's own `HEX_AXIAL_
  * DIRECTIONS` indexing exactly -- direction `d`'s opposite is `(d+3) % 6`,
  * per that module's own verified doc comment.
  *
@@ -27,7 +27,7 @@ export interface HexTileSet {
   tiles: HexTile[];
 }
 
-/** `HexDirection` `d`'s opposite -- `(d+3) % 6`, per mallory-math's own `HEX_AXIAL_DIRECTIONS` doc comment (verified there: `hexNeighbor` in direction `d` then `(d+3)%6` returns to the start cell). */
+/** `HexDirection` `d`'s opposite -- `(d+3) % 6`, per @johnhenry/math's own `HEX_AXIAL_DIRECTIONS` doc comment (verified there: `hexNeighbor` in direction `d` then `(d+3)%6` returns to the start cell). */
 const OPPOSITE_HEX_DIRECTION: Record<HexDirection, HexDirection> = { 0: 3, 1: 4, 2: 5, 3: 0, 4: 1, 5: 2 };
 
 /**

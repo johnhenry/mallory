@@ -5,7 +5,7 @@
  * worth bookmarking/sharing, matching the streaming-dataset panel's own
  * reasoning (issue #58).
  *
- * `mallory-adapter-onnx` (which pulls in onnxruntime-web's WASM payload)
+ * `@johnhenry/math-plus-adapter-onnx` (which pulls in onnxruntime-web's WASM payload)
  * is only imported by THIS file, which only loads on this route -- the
  * issue's "lazy-load it like the WebMCP polyfill" ask is already satisfied
  * by the router's own per-route code splitting, the same way every other
@@ -158,7 +158,7 @@ export function DigitClassifierPanel() {
     <div>
       <h2>Draw a digit</h2>
       <p style={{ color: "var(--muted)" }}>
-        A real MNIST digit classifier, running entirely in the browser via <code>mallory-adapter-onnx</code> (onnxruntime-web) -- draw a
+        A real MNIST digit classifier, running entirely in the browser via <code>@johnhenry/math-plus-adapter-onnx</code> (onnxruntime-web) -- draw a
         digit 0-9 below and release to classify.
       </p>
       <canvas

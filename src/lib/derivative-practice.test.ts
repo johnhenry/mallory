@@ -19,7 +19,7 @@ test("generateDerivativeProblem: produces a differentiable expression across man
       assert.equal(problem.difficulty, difficulty);
       assert.equal(problem.variable, "x");
       // Should parse and differentiate without throwing -- the generator only
-      // ever emits atoms built from mallory-math's own grammar.
+      // ever emits atoms built from @johnhenry/math's own grammar.
       const expr = Symbolic.parse(problem.expression);
       assert.doesNotThrow(() => Symbolic.differentiate(expr, problem.variable));
     }

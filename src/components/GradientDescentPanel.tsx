@@ -64,8 +64,8 @@ export interface ThreePoint {
  * Maps a racing run's path onto the 3D surface's Three.js-space, growing
  * with the shared clock via the same `visiblePathIndex` the 2D canvas uses
  * -- so the 3D polyline and the 2D polyline always show the same prefix of
- * the same path. mallory-math's height (the loss value `f`) maps to
- * Three's y-axis and mallory-math's y maps to Three's z-axis, matching
+ * the same path. @johnhenry/math's height (the loss value `f`) maps to
+ * Three's y-axis and @johnhenry/math's y maps to Three's z-axis, matching
  * `mesh-to-geometry.ts`'s surface-mesh convention so the path visually sits
  * on the sampled surface rather than floating in a different frame.
  * Framework-agnostic (no `THREE` import) so it's plainly unit-testable.

@@ -705,7 +705,7 @@ export function cellIdsMlPlayground(cellId: string) {
     stepSize: `mlStepSize:${cellId}`,
     gamma: `mlGamma:${cellId}`,
     isTraining: `mlIsTraining:${cellId}`,
-    /** Issue #34 item 2: one live-updated cell per mallory-telemetry metric name, written by the run's own setSink handler mid-training so an agent (or the panel itself) can observe an in-progress run reactively, not just the final result. */
+    /** Issue #34 item 2: one live-updated cell per @johnhenry/math-plus-telemetry metric name, written by the run's own setSink handler mid-training so an agent (or the panel itself) can observe an in-progress run reactively, not just the final result. */
     metric: (name: string) => `mlMetric:${name}:${cellId}`,
   };
 }

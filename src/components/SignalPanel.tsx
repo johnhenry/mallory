@@ -45,7 +45,7 @@ interface BuilderTerm extends SinusoidTerm {
  * Builds a sum-of-sinusoids expression string ("A*sin(2*pi*f*t+p) + ...")
  * from builder rows (issue #31's "sum-of-sinusoids builder" alternative to
  * typing raw expression syntax). Verified empirically against the real
- * installed mallory-math package before wiring this up: `Symbolic.parse`
+ * installed @johnhenry/math package before wiring this up: `Symbolic.parse`
  * accepts this exact shape and `Symbolic.compile` evaluates it correctly
  * (hand-computed in the test file). A row with a blank amplitude/
  * frequency/phase is skipped rather than emitting invalid syntax -- same
@@ -393,8 +393,8 @@ const SIGNAL_TAB_LABELS: Record<SignalTab, string> = {
 
 /**
  * Signal panel (part of #31): compose f(t), see its waveform, its one-sided
- * amplitude spectrum via `mallory-fft`'s `rfft`, and its time-varying
- * spectrogram via `mallory-signal`'s windowed `stft` -- pipeline stage 3.
+ * amplitude spectrum via `@johnhenry/math-plus-fft`'s `rfft`, and its time-varying
+ * spectrogram via `@johnhenry/math-plus-signal`'s windowed `stft` -- pipeline stage 3.
  * Filter design/Bode plot, PSD, cross-correlation, and Phase 2 live audio
  * are deferred (see the trimmed issue body).
  *
@@ -1266,7 +1266,7 @@ export function SignalPanel({ cellId = "signal-1" }: { cellId?: string } = {}) {
 
               <p style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>
                 PSD before (<span style={{ color: "#94a3b8" }}>gray</span>) vs. after (<span style={{ color: "#0d9488" }}>teal</span>) -- Welch's
-                method, one-sided view (mallory-signal's <code>welch()</code> is disclosed two-sided/non-doubled; see signal-filter.ts's doc comment)
+                method, one-sided view (@johnhenry/math-plus-signal's <code>welch()</code> is disclosed two-sided/non-doubled; see signal-filter.ts's doc comment)
               </p>
               {!psdBeforeResult.ok && <p style={{ color: "var(--danger)" }}>{psdBeforeResult.message}</p>}
               {!psdAfterResult.ok && <p style={{ color: "var(--danger)" }}>{psdAfterResult.message}</p>}

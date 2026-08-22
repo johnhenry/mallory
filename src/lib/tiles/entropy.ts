@@ -13,7 +13,7 @@
  *
  * The transition relation is typically sparse (most column pairs conflict
  * somewhere), so this never materializes a dense transition matrix -- it
- * builds a column adjacency LIST once, then hands mallory-adapter-math's
+ * builds a column adjacency LIST once, then hands @johnhenry/math-plus-adapter-math's
  * matrix-free `linalg.powerIteration` a `matvec` closure over that list,
  * per the issue's own "small: eigGeneral; large: matrix-free power
  * iteration" split (this always takes the matrix-free path, since it's

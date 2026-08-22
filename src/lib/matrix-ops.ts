@@ -159,7 +159,7 @@ export function computeDecompositions(m: Mat): DecompositionSet {
  * Roots of a monic polynomial `x^n + a[n-1]*x^(n-1) + ... + a[1]*x + a[0]`
  * via its companion matrix's eigenvalues (a classical equivalence: the
  * companion matrix's characteristic polynomial IS the given polynomial).
- * Uses `mallory-adapter-math`'s `eigGeneral` rather than `eigenSymmetric`
+ * Uses `@johnhenry/math-plus-adapter-math`'s `eigGeneral` rather than `eigenSymmetric`
  * since a companion matrix is essentially never symmetric and its
  * eigenvalues are frequently genuinely complex (conjugate pairs) --
  * exactly the case `eigenSymmetric` can't handle.

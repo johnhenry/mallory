@@ -4,10 +4,10 @@
  * MST edges lighting up, BFS layers"). Every function here is a pure,
  * DOM-free transform of an algorithm's ALREADY-COMPUTED result (from
  * `graph-ops.ts`'s `runBfs`/`runDfs`/`runDijkstra`/`runMst`/
- * `runShortestPath`, themselves thin wrappers over mallory-math's `Graph`
+ * `runShortestPath`, themselves thin wrappers over @johnhenry/math's `Graph`
  * methods) into a `AlgorithmStep[]` the panel steps through on its
  * existing `TIME_CELL`/`TransportControls` clock -- no algorithm is
- * reimplemented here; each function only re-groups a result mallory-math
+ * reimplemented here; each function only re-groups a result @johnhenry/math
  * already computed.
  *
  * The step order for each algorithm is the ALGORITHM'S OWN authentic
@@ -44,7 +44,7 @@ export function traversalSteps(order: readonly string[]): AlgorithmStep[] {
  * BFS-distance (edge count) from `start` to every vertex reachable via
  * `neighbors`, via a plain unweighted BFS. Used to group `bfs`'s own
  * traversal order into frontier layers below -- separate from
- * mallory-math's `Graph.bfs` (which returns order, not distances) so the
+ * @johnhenry/math's `Graph.bfs` (which returns order, not distances) so the
  * layering is derived data, not a second traversal implementation guessing
  * at internals.
  */

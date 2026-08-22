@@ -2,7 +2,7 @@ import { Symbolic } from "@johnhenry/math";
 import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 
 /**
- * One integration problem from mallory-math's Rubi-derived corpus
+ * One integration problem from @johnhenry/math's Rubi-derived corpus
  * (`public/rubi-corpus.json`, MIT-licensed, derived from
  * RuleBasedIntegration/MaximaSyntaxTestSuite -- see the file's own
  * `attribution` field). `params` lists any free parameter besides the

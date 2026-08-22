@@ -65,7 +65,7 @@ test("singleCellRow: a single 1 at the center column, 0 elsewhere", () => {
   assert.deepEqual(singleCellRow(4), [0, 0, 1, 0]);
 });
 
-test("randomRow: same seed produces the same row (deterministic, via mallory-tensor-core's Rng)", () => {
+test("randomRow: same seed produces the same row (deterministic, via @johnhenry/math-plus-tensor-core's Rng)", () => {
   const a = randomRow(50, new Rng(42));
   const b = randomRow(50, new Rng(42));
   assert.deepEqual(a, b);

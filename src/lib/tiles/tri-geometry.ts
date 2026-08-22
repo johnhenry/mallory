@@ -1,6 +1,6 @@
 /**
  * Pixel geometry for rendering tri-tile-model.ts's grid on a canvas -- a
- * TRUE edge-to-edge triangular mesh, matching mallory-math's `triOrientation`/
+ * TRUE edge-to-edge triangular mesh, matching @johnhenry/math's `triOrientation`/
  * `triNeighbor` combinatorial adjacency exactly (verified below, and in this
  * module's own test file): an "up" cell's `left`/`right`/`top` neighbors
  * (`(x-1,y)`/`(x+1,y)`/`(x,y+1)`) share a REAL pixel edge with it, not just a

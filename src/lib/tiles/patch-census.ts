@@ -4,7 +4,7 @@
  * DISTINCT patchHeight x patchWidth patches actually occur in a solved
  * grid, as a function of patch size -- the subshift's own finite-size
  * "language," the data entropy (entropy.ts) is itself derived from as a
- * growth-rate limit. Built on `Tensor.unfold` (mallory-tensor-core), whose
+ * growth-rate limit. Built on `Tensor.unfold` (@johnhenry/math-plus-tensor-core), whose
  * own doc comment names this exact use case ("issue #84, upstream for the
  * generalized Wang tile laboratory's patch census / subshift-language
  * machinery").

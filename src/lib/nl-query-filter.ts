@@ -8,7 +8,7 @@
  * expression).
  *
  * Bandpass/bandstop phrasings ("band-pass between 200 and 800 Hz")
- * shipped alongside `mallory-signal`'s own bandpass/bandstop support
+ * shipped alongside `@johnhenry/math-plus-signal`'s own bandpass/bandstop support
  * (johnhenry/math-plus#90) -- previously unsupported here too, tracked
  * by the same upstream issue.
  */

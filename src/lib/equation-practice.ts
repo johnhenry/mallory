@@ -36,7 +36,7 @@ function randomInt(min: number, max: number): number {
 /**
  * Distinct nonzero integer roots. Nonzero is deliberate, not cosmetic: a
  * generated cubic with 0 as one of its three roots (a zero constant term)
- * reliably trips a real bug in mallory-math's degree-≥3 rational-root
+ * reliably trips a real bug in @johnhenry/math's degree-≥3 rational-root
  * search (`Symbolic.solve` throws "no closed-form root found" even though
  * a rational root plainly exists -- confirmed via a 1000-instance stress
  * test, isolated to exactly the zero-constant-term case). Filed upstream as

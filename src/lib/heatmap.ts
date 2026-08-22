@@ -1,7 +1,7 @@
 /**
  * Generic numeric-matrix heatmap rendering -- built for `Graph.toAdjacencyMatrix()`
  * (part of #24's remaining scope) but not graph-specific: any `number[][]`
- * where `Infinity` marks an absent/undefined cell (mallory-math's own
+ * where `Infinity` marks an absent/undefined cell (@johnhenry/math's own
  * convention for "no edge" -- confirmed directly: `toAdjacencyMatrix()`
  * returns `Infinity`, not `0` or `NaN`, off the diagonal where there's no
  * edge) works.

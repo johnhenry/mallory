@@ -115,7 +115,7 @@ export function drawSmoothingChart(ctx: CanvasRenderingContext2D, width: number,
 
 /**
  * Issue #58 (demos A-B) plus issue #259's follow-ups (demos C-E): five
- * bounded demos making `mallory-data`/`mallory-iteration`'s async streaming
+ * bounded demos making `@johnhenry/math-plus-data`/`@johnhenry/iteration`'s async streaming
  * primitives visible -- (A) watch a synthetic dataset's order reshuffle
  * across epochs, (B) watch `.prefetch()` overlap producer/consumer latency
  * against a run without it, (C) contrast `mapConcurrent`'s ordered vs.
@@ -345,7 +345,7 @@ export function StreamingDatasetPanel() {
         <p style={{ margin: "0 0 0.5rem" }}>
           A "streaming dataset" here means data processed as an <em>async iterable</em> -- a sequence of items produced and consumed one (or a few)
           at a time, rather than loaded into memory all at once. This panel makes that normally-invisible pipeline visible by charting exactly when
-          each item is produced or consumed, using <code>mallory-data</code>'s <code>Dataset</code> (built on <code>mallory-iteration</code>'s async
+          each item is produced or consumed, using <code>@johnhenry/math-plus-data</code>'s <code>Dataset</code> (built on <code>@johnhenry/iteration</code>'s async
           iteration primitives) as the engine underneath every demo below.
         </p>
         <p style={{ margin: 0 }}>

@@ -84,7 +84,7 @@ test("applyFilter: a bandstop filter (mirror-image cutoffs) removes the mid-band
 });
 
 test("computeBodePlot: order-4 lowpass at cutoffHz=15,sampleRate=100 matches hand-verified freqz magnitudes at worN=4", () => {
-  // Hand-verified directly against the real installed mallory-signal package
+  // Hand-verified directly against the real installed @johnhenry/math-plus-signal package
   // before writing this test: butter(4, 0.3, {btype:"lowpass"}) then
   // freqz(sos, {worN:4}) gives |H| = [1, 0.9164092636663478, 0.06724798762935112, 0.001984083415535018]
   // at w = [0, pi/4, pi/2, 3pi/4]. cutoffHz=15 on sampleRate=100 (Nyquist=50) -> wn=0.3.

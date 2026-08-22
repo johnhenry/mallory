@@ -22,7 +22,7 @@ function DemosPage() {
         <Link to="/">← the new app</Link>
       </p>
       <p>
-        <code>y = {DEFAULT_GRAPH_STATE.cells[0].source}</code>, sampled and plotted through mallory-math's reactive
+        <code>y = {DEFAULT_GRAPH_STATE.cells[0].source}</code>, sampled and plotted through @johnhenry/math's reactive
         core (<code>Symbolic.compile</code> → <code>CellGraph</code> → <code>GraphUtils.vectorToCurve</code>).
       </p>
       <p>

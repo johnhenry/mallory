@@ -14,7 +14,7 @@ export interface CurveExtrema {
 }
 
 /**
- * Finds local maxima/minima on a sampled curve via `mallory-signal`'s
+ * Finds local maxima/minima on a sampled curve via `@johnhenry/math-plus-signal`'s
  * `findPeaks` (scipy-`find_peaks`-equivalent local-maxima detection).
  * `findPeaks` only detects maxima, so minima come from running it again on
  * the negated y-values -- the standard trick, not a second algorithm.

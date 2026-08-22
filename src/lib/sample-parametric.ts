@@ -4,7 +4,7 @@ import { preprocessImplicitMultiplication } from "./implicit-mult.ts";
 
 /**
  * Samples a parametric curve (x(t), y(t)) over a t-domain into a
- * mallory-math Path2D, gap-tolerant the same way `sampleExpr` is: a
+ * @johnhenry/math Path2D, gap-tolerant the same way `sampleExpr` is: a
  * non-finite sample (either component) breaks the current run rather than
  * drawing a garbage line through it.
  */

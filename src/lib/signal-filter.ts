@@ -88,7 +88,7 @@ export interface PsdPoint {
 
 /**
  * One-sided view of `welch`'s two-sided, non-doubled PSD (see that
- * function's own doc comment -- `mallory-signal` deliberately returns the
+ * function's own doc comment -- `@johnhenry/math-plus-signal` deliberately returns the
  * raw two-sided form, unlike SciPy's one-sided-with-doubling default):
  * negative-frequency bins are dropped and the rest scaled from
  * cycles/sample to Hz via `waveform.sampleRate`, WITHOUT doubling, so the

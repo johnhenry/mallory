@@ -25,7 +25,7 @@ test("resampleWaveform: up=2,down=1 doubles the sample rate and produces exactly
   const result = resampleWaveform(waveform, 2, 1);
   assert.equal(result.sampleRate, 32);
   assert.equal(result.y.length, 32);
-  // Hand-verified against the real installed mallory-signal package before writing this test.
+  // Hand-verified against the real installed @johnhenry/math-plus-signal package before writing this test.
   const expected = [0, 0.161, 0.383, 0.574, 0.708, 0.824, 0.925, 0.989];
   for (let i = 0; i < expected.length; i++) {
     assert.ok(Math.abs(result.y[i]! - expected[i]!) < 5e-3, `index ${i}: got ${result.y[i]}, expected ~${expected[i]}`);

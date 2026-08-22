@@ -28,7 +28,7 @@ function splitRuns(path: Path2D): CurvePoint[][] {
 }
 
 /**
- * Numeric derivative via `mallory-iteration`'s `pairwiseSync` (issue #35
+ * Numeric derivative via `@johnhenry/iteration`'s `pairwiseSync` (issue #35
  * item 2): each output point is the midpoint-slope of one consecutive pair
  * of input samples -- `pairwiseSync` is exactly the right shape here, since
  * every output needs precisely its two neighboring inputs and nothing else.
@@ -48,7 +48,7 @@ export function derivativeCurve(path: Path2D): CurvePoint[][] {
 }
 
 /**
- * Running numeric integral via `mallory-iteration`'s `transducers.accumulate`
+ * Running numeric integral via `@johnhenry/iteration`'s `transducers.accumulate`
  * (issue #35 item 2): each consecutive pair's trapezoid area feeds a running
  * sum -- `accumulate` is a scan (one output per input, not a single fold),
  * which is exactly a running/partial-sum integral, starting from `(x0, 0)`.

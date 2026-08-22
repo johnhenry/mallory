@@ -1,7 +1,7 @@
 /**
  * Curated gallery entries (issue #39's "Cookbook gallery seeds" item), so
  * the gallery isn't empty for a new visitor and each entry doubles as an
- * integration smoke test of its panel -- mapping mallory-math's own
+ * integration smoke test of its panel -- mapping @johnhenry/math's own
  * COOKBOOK content onto pre-built saved-graph documents, the way the
  * ticket originally framed it.
  *

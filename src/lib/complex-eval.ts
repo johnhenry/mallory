@@ -5,8 +5,8 @@ export type ComplexEnv = Record<string, ComplexNumber>;
 const CONSTANTS: Record<string, ComplexNumber> = { pi: ComplexNumber.PI, e: ComplexNumber.E };
 
 /**
- * Evaluates a mallory-math `Expr` AST over `ComplexNumber` values. Neither of
- * mallory-math's own evaluators fits: `Symbolic.evaluate` is real-only, and
+ * Evaluates a @johnhenry/math `Expr` AST over `ComplexNumber` values. Neither of
+ * @johnhenry/math's own evaluators fits: `Symbolic.evaluate` is real-only, and
  * `Symbolic.evaluateOverStructure` throws on any `func`/`call2` node even
  * when given `Structure.complexField()` -- so this is a dedicated AST walker
  * dispatching to `ComplexNumber`'s own elementary-function methods.

@@ -50,7 +50,7 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
-/** A fake OnnxModel (mallory-adapter-onnx's real shape) whose `run()` calls resolve on demand, one deferred promise per call, so the test controls resolution order independently of call order. */
+/** A fake OnnxModel (@johnhenry/math-plus-adapter-onnx's real shape) whose `run()` calls resolve on demand, one deferred promise per call, so the test controls resolution order independently of call order. */
 function installFakeOnnxModel() {
   const runCalls: Deferred<Record<string, Tensor>>[] = [];
   const fakeModel = {

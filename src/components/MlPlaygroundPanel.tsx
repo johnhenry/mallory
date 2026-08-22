@@ -134,7 +134,7 @@ function useMlGraph(cellId: string): CellGraph {
     // input here) -- same reasoning as TIME_CELL: auxiliary, seeded once.
     if (!graph.has(ids.drawnPoints)) graph.set(ids.drawnPoints, [] as LabeledPoint[], { auxiliary: true });
     // Live training-observation cells (issue #34 item 2) -- written mid-run
-    // by handleTrain's mallory-telemetry sink, so an agent (via
+    // by handleTrain's @johnhenry/math-plus-telemetry sink, so an agent (via
     // useCellGraphTools) or a human (via the Objects list) can watch an
     // in-progress run, not just the final result. Seeded once, same as
     // drawnPoints above.
@@ -349,7 +349,7 @@ export function MlPlaygroundPanel({ cellId = "ml-1" }: { cellId?: string } = {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
-  // Issue #34 item 2's "novel part": mallory-telemetry's setSink/metric
+  // Issue #34 item 2's "novel part": @johnhenry/math-plus-telemetry's setSink/metric
   // handshake as the reactive bridge from an in-progress training run into
   // CellGraph, so the loss curve becomes just another live cell an agent
   // (or the Objects list) can watch mid-run -- not just the final,

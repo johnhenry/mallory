@@ -327,9 +327,9 @@ test("predictProbabilityGrid: switches the model to eval mode for inference and 
 });
 
 test("nn.binaryCrossEntropy stays finite (~0) for saturated correct logits (regression: this used to NaN, see math-plus#85)", () => {
-  // mallory-tensor-autograd's own binaryCrossEntropy used to NaN here --
+  // @johnhenry/math-plus-tensor-autograd's own binaryCrossEntropy used to NaN here --
   // this repo carried a local stableBinaryCrossEntropy workaround until the
-  // fix landed upstream (math-plus#85, pulled in via mallory-tensor-
+  // fix landed upstream (math-plus#85, pulled in via @johnhenry/math-plus-tensor-
   // autograd 0.2.2). Kept as a regression guard on the published fix.
   const z = variable(Tensor.from([50, -50], { dtype: "f64" }).reshape([2, 1]));
   const y = variable(Tensor.from([1, 0], { dtype: "f64" }).reshape([2, 1]));

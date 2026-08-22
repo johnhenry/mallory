@@ -130,7 +130,7 @@ export interface DistributionParams {
   lambda?: number;
 }
 
-/** Builds a mallory-math distribution instance from this panel's param shape, seeded via `rng.nextFloat` (Distributions' own rng hook is a plain `() => number`, not the Rng class itself). */
+/** Builds a @johnhenry/math distribution instance from this panel's param shape, seeded via `rng.nextFloat` (Distributions' own rng hook is a plain `() => number`, not the Rng class itself). */
 function buildDistribution(distType: MonteCarloDistType, params: DistributionParams, rng: Rng): ContinuousDistribution | DiscreteDistribution {
   const rngFn = () => rng.nextFloat();
   switch (distType) {

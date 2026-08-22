@@ -2,7 +2,7 @@ import type { HexTile, HexTileSet } from "./tiles/hex-tile-model.ts";
 
 /**
  * Line-based text format for a hex Wang tile set -- `id e0 e1 e2 e3 e4 e5`
- * (id then the six edge labels in mallory-math's HEX_AXIAL_DIRECTIONS
+ * (id then the six edge labels in @johnhenry/math's HEX_AXIAL_DIRECTIONS
  * order: E, NE, NW, W, SW, SE), mirroring tile-set-text.ts's square-lattice
  * format exactly (same blank-line/`#`-comment handling, same duplicate-id
  * check).

@@ -184,7 +184,7 @@ export interface LinearEntropyResult {
  * Implementation mirrors `entropy.ts`'s `stripEntropy` exactly: builds an
  * adjacency list (tile `i`'s successors are every `j` with
  * `linearTilesCompatible(tiles[i], tiles[j])`) and hands
- * `mallory-adapter-math`'s matrix-free `linalg.powerIteration` a `matvec`
+ * `@johnhenry/math-plus-adapter-math`'s matrix-free `linalg.powerIteration` a `matvec`
  * closure over it, rather than materializing a dense matrix.
  *
  * Throws if `tileSet.tiles.length === 0` (no transfer relation at all), and

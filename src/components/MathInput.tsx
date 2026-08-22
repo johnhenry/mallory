@@ -17,7 +17,7 @@ export interface MathInputProps {
  *
  * Deals only in LaTeX strings; translating to/from plain expression source
  * via `Symbolic.toLatex`/`fromLatex` is the caller's job (see
- * `ExpressionRow`'s usage) -- this component doesn't know about mallory-math
+ * `ExpressionRow`'s usage) -- this component doesn't know about @johnhenry/math
  * at all.
  */
 export function MathInput({ latex, onChange, style }: MathInputProps) {

@@ -13,7 +13,7 @@ function RegressionPage() {
       <details>
         <summary>Linear or nonlinear regression over a spreadsheet-style (x, y) row list.</summary>
         <p>
-          Linear is via <code>mallory-math</code>'s <code>Statistics.linearRegression</code>/<code>correlation</code>.
+          Linear is via <code>@johnhenry/math</code>'s <code>Statistics.linearRegression</code>/<code>correlation</code>.
           Nonlinear fits any custom model you type (e.g. <code>a*exp(b*x)</code>) via{" "}
           <code>Numerical.levenbergMarquardt</code> -- a damped Gauss-Newton fit starting from the initial guess
           shown beside each parameter, with the fitted curve resampled and redrawn over the current view.

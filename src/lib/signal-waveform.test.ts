@@ -163,7 +163,7 @@ test("drawSpectrogram: an empty spectrogram draws nothing (no crash)", () => {
   assert.equal(getFillRectCalls().length, 0);
 });
 
-test("findSpectrumPeaks: finds the 3 local-maxima peaks in a hand-built amplitude array, matching mallory-signal's findPeaks output directly", () => {
+test("findSpectrumPeaks: finds the 3 local-maxima peaks in a hand-built amplitude array, matching @johnhenry/math-plus-signal's findPeaks output directly", () => {
   const spectrum = { frequencies: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], amplitudes: [0, 1, 3, 1, 0, 0, 5, 2, 0, 4, 4, 0] };
   const peaks = findSpectrumPeaks(spectrum);
   assert.deepEqual(

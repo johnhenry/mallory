@@ -132,7 +132,7 @@ export function buildCompatibilityDigraph(tiles: readonly Tile[], direction: Dir
 /**
  * The subset of `digraph`'s vertices that can appear in a bi-infinite
  * tiling in this ONE direction -- issue #386's "SCC-based pruning" solver,
- * finally unblocked by `mallory-math`'s `Graph.stronglyConnectedComponents`
+ * finally unblocked by `@johnhenry/math`'s `Graph.stronglyConnectedComponents`
  * (Tarjan's algorithm). A tile survives when it either sits in a
  * nontrivial SCC (size >= 2 -- it can be left and re-entered via some
  * cycle through other tiles) or has a direct self-loop (compatible with

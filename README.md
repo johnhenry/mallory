@@ -1,6 +1,6 @@
 # mallory
 
-An interactive graphing calculator built on [mallory-math](https://github.com/johnhenry/math)
+An interactive graphing calculator built on [@johnhenry/math](https://github.com/johnhenry/math)
 (the [`@johnhenry/math`](https://www.npmjs.com/package/@johnhenry/math) npm package): a reactive
 `CellGraph` core drives sampling/differentiation/integration through `Symbolic`, rendered via
 Canvas2D (curves, inequality shading, area-under-curve) and Three.js (3D surfaces). Also includes
@@ -14,7 +14,7 @@ you up:
 
 | Name | Meaning |
 |---|---|
-| `Graph<T>` in [mallory-math](https://github.com/johnhenry/math) | *graph theory* — bfs/dfs/dijkstra/MST/topological sort |
+| `Graph<T>` in [@johnhenry/math](https://github.com/johnhenry/math) | *graph theory* — bfs/dfs/dijkstra/MST/topological sort |
 | `CellGraph` (imported from `@johnhenry/math`, promoted from this app's own `src/lib/cell-graph.ts`) | *reactive dependency graph* — mallory's reactive core |
 
 If you're reading across the family and see "graph" in an import or a type

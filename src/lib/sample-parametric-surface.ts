@@ -8,7 +8,7 @@ export interface ParametricDomain {
 
 /**
  * Sample a parametric surface r(u,v) = (x(u,v), y(u,v), z(u,v)) over a u/v
- * grid into mallory-math Graph3DUtils Mesh data. Mirrors sample-surface.ts's
+ * grid into @johnhenry/math Graph3DUtils Mesh data. Mirrors sample-surface.ts's
  * sampleSurface (same `dualRangeVector` -> `pointMatrixToMesh3D` pipeline),
  * but unlike a z=f(x,y) height field -- where x/y ARE the grid coordinates,
  * always finite by construction, and only z can go non-finite -- here x, y,
